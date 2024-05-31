@@ -1,24 +1,29 @@
-import path from 'node:path';
 import Fastify from 'fastify';
+import fastifyJwt from '@fastify/jwt';
 import staticServe from '@fastify/static';
 import fastifyCompress from '@fastify/compress';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-import { APP_IP, APP_PORT } from './config.js';
+import authRoutes from './api/auth/authRoutes.js';
+import initDatabase from './db/init.js';
+import { APP_IP, APP_PORT, JWT_SECRET } from './env.js';
 
-// const authRoutes = await import('./api/auth');
-// const foodRoutes = await import('./api/food');
-// const moneyRoutes = await import('./api/money');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+initDatabase();
 
 const server = Fastify({ logger: true });
 
-// server.register(authRoutes.default, { prefix: '/api/auth' });
-// server.register(foodRoutes.default, { prefix: '/api/food' });
-// server.register(moneyRoutes.default, { prefix: '/api/money' });
-
 server.register(fastifyCompress);
 
+server.register(fastifyJwt, { secret: JWT_SECRET });
+
+server.register(authRoutes, { prefix: '/api/auth' });
+
 server.register(staticServe, {
-  root: path.join(process.cwd(), 'public'),
+  root: path.join(__dirname, 'public'),
   prefix: '/',
 });
 
