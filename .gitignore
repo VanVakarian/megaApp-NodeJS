@@ -1,3 +1,4 @@
-env.js
 node_modules
+env.js
 main.db
+prettierrc.json

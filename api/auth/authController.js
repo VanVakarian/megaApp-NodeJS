@@ -14,8 +14,18 @@ const authController = {
   async login(request, reply) {
     const { username, password } = request.body;
     try {
-      const token = await authService.login(username, password);
-      reply.send({ token });
+      const tokens = await authService.login(username, password);
+      reply.send(tokens);
+    } catch (error) {
+      reply.code(401).send({ detail: error.message });
+    }
+  },
+
+  async refresh(request, reply) {
+    const { refreshToken } = request.body;
+    try {
+      const tokens = await authService.refreshToken(refreshToken);
+      reply.send(tokens);
     } catch (error) {
       reply.code(401).send({ detail: error.message });
     }

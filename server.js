@@ -6,6 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import authRoutes from './api/auth/authRoutes.js';
+import debugRoutes from './api/debug/debugRoutes.js';
 import initDatabase from './db/init.js';
 import { APP_IP, APP_PORT, JWT_SECRET } from './env.js';
 
@@ -21,6 +22,7 @@ server.register(fastifyCompress);
 server.register(fastifyJwt, { secret: JWT_SECRET });
 
 server.register(authRoutes, { prefix: '/api/auth' });
+server.register(debugRoutes, { prefix: '/api/debug' });
 
 server.register(staticServe, {
   root: path.join(__dirname, 'public'),
