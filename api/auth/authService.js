@@ -1,10 +1,10 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from '../../env.js';
-import { dbCreateUser, dbGetUserByUsername } from '../../db/user.js';
+import { dbCreateUser, dbGetUserByUsername } from '../../db/users.js';
 
 const generateTokens = (user) => {
-  const accessToken = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '10m' });
+  const accessToken = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '1d' });
   const refreshToken = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '31d' });
   return { accessToken, refreshToken };
 };
