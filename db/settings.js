@@ -3,13 +3,13 @@ import { getConnection } from './db.js';
 export async function dbGetUsersSettings(userId) {
   const connection = await getConnection();
   try {
-    const query = 'SELECT * FROM settings WHERE users_id = ?';
+    const query = 'SELECT darkTheme, selectedChapterFood, selectedChapterMoney FROM settings WHERE usersId = ?';
     const result = await connection.get(query, [userId]);
 
     if (result) {
-      result.dark_theme = result.dark_theme === 1; // converting digits to boolean
-      result.selected_chapter_food = result.selected_chapter_food === 1;
-      result.selected_chapter_money = result.selected_chapter_money === 1;
+      result.darkTheme = result.darkTheme === 1; // converting digits to boolean
+      result.selectedChapterFood = result.selectedChapterFood === 1;
+      result.selectedChapterMoney = result.selectedChapterMoney === 1;
     }
 
     return result;
@@ -22,7 +22,7 @@ export async function dbGetUsersSettings(userId) {
 export async function dbPostUsersSettings(userId, settings) {
   const connection = await getConnection();
   try {
-    const checkQuery = 'SELECT COUNT(*) as count FROM settings WHERE users_id = ?';
+    const checkQuery = 'SELECT COUNT(*) as count FROM settings WHERE usersId = ?';
     const checkResult = await connection.get(checkQuery, [userId]);
 
     if (checkResult.count > 0) {
@@ -41,8 +41,8 @@ export async function dbUpdateUserSettings(userId, settings) {
   try {
     const updateQuery = `
       UPDATE settings
-      SET dark_theme = ?, selected_chapter_food = ?, selected_chapter_money = ?
-      WHERE users_id = ?
+      SET darkTheme = ?, selectedChapterFood = ?, selectedChapterMoney = ?
+      WHERE usersId = ?
     `;
     await connection.run(updateQuery, [
       settings.darkTheme,
@@ -60,7 +60,7 @@ export async function dbCreateUserSettings(userId, settings) {
   const connection = await getConnection();
   try {
     const insertQuery = `
-        INSERT INTO settings (users_id, dark_theme, selected_chapter_food, selected_chapter_money)
+        INSERT INTO settings (usersId, darkTheme, selectedChapterFood, selectedChapterMoney)
         VALUES (?, ?, ?, ?)
       `;
     await connection.run(insertQuery, [

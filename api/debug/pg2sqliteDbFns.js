@@ -77,7 +77,7 @@ export const sqliteService = {
       ]);
       await connection.run(
         `
-        INSERT INTO food_diary (date, food_catalogue_id, food_weight, history, user_id)
+        INSERT INTO food_diary (date, foodCatalogueId, foodWeight, history, usersId)
         VALUES ${placeholders}
       `,
         values
@@ -93,7 +93,7 @@ export const sqliteService = {
       const values = batch.flatMap((item) => [item.date, item.weight, item.users_id]);
       await connection.run(
         `
-        INSERT INTO food_body_weight (date, weight, user_id)
+        INSERT INTO food_body_weight (date, weight, usersId)
         VALUES ${placeholders}
       `,
         values

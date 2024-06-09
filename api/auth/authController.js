@@ -36,7 +36,7 @@ const authController = {
   },
 
   async protected(request, reply) {
-    reply.send({ user_id: request.user.id });
+    reply.send({ usersId: request.user.id });
   },
 
   async authMiddleware(request, reply) {

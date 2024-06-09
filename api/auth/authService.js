@@ -25,7 +25,7 @@ const authService = {
 
   async login(username, password) {
     const user = await dbGetUserByUsername(username);
-    if (!user || !(await bcrypt.compare(password, user.hashed_password))) {
+    if (!user || !(await bcrypt.compare(password, user.hashedPassword))) {
       throw new Error('Invalid username and/or password');
     }
     return generateTokens(user);

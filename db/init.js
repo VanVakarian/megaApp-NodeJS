@@ -100,18 +100,17 @@ const createTables = async () => {
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT,
-      hashed_password TEXT
+      hashedPassword TEXT
     );
     `,
 
     `
     CREATE TABLE IF NOT EXISTS settings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      users_id INTEGER NOT NULL,
-      dark_theme BOOLEAN NOT NULL,
-      selected_chapter_food BOOLEAN NOT NULL,
-      selected_chapter_money BOOLEAN NOT NULL,
-      FOREIGN KEY (users_id) REFERENCES users(id)
+      usersId INTEGER NOT NULL,
+      darkTheme BOOLEAN NOT NULL,
+      selectedChapterFood BOOLEAN NOT NULL,
+      selectedChapterMoney BOOLEAN NOT NULL
     );
     `,
 
@@ -127,10 +126,10 @@ const createTables = async () => {
     CREATE TABLE IF NOT EXISTS food_diary (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       date DATE,
-      food_catalogue_id INTEGER,
-      food_weight INTEGER,
+      foodCatalogueId INTEGER,
+      foodWeight INTEGER,
       history TEXT,
-      user_id INTEGER
+      usersId INTEGER
     );
     `,
 
@@ -139,7 +138,7 @@ const createTables = async () => {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       date DATE,
       weight NUMERIC,
-      user_id INTEGER
+      usersId INTEGER
     );
     `,
   ];

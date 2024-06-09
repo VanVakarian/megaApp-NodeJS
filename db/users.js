@@ -15,7 +15,7 @@ export async function dbGetUserByUsername(username) {
 export async function dbCreateUser(username, hashedPassword) {
   const connection = await getConnection();
   try {
-    const query = 'INSERT INTO users (username, hashed_password) VALUES (?, ?)';
+    const query = 'INSERT INTO users (username, hashedPassword) VALUES (?, ?)';
     const result = await connection.run(query, [username, hashedPassword]);
     return result.lastID;
   } catch (error) {
