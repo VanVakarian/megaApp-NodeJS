@@ -6,12 +6,14 @@ const settingsController = {
     const userId = request.user.id;
     if (!userId) {
       reply.code(401).send({ message: 'Failed to get userId' });
+      return;
     }
     try {
       let settings = await dbGetUsersSettings(userId);
       if (settings === undefined) {
         settings = defaultSettings;
       }
+      settings.userName = request.user.username;
       await reply.code(201).send(settings);
     } catch (error) {
       reply.code(400).send({ message: error.message });
