@@ -1,7 +1,7 @@
 import { wsService } from './wsService.js';
 
 const websocketRoutes = async (fastify) => {
-  fastify.get('/', { websocket: true }, (socket, req) => {
+  fastify.get('/', { schema: { tags: ['ws'] }, websocket: true }, (socket, req) => {
     let userId;
 
     socket.on('message', async (message) => {
