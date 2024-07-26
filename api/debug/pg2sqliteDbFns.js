@@ -27,18 +27,18 @@ export const PGService = {
 
   async readSourceDiary() {
     const res = await PGClient.query(`
-      SELECT id, date, catalogue_id, food_weight, users_id
+      SELECT id, date::text AS date, catalogue_id, food_weight, users_id
       FROM diary
-      ORDER BY id ASC;
+      ORDER BY date ASC, id ASC;
     `);
     return res.rows;
   },
 
   async readSourceWeights() {
     const res = await PGClient.query(`
-      SELECT id, date, weight, users_id
+      SELECT id, date::text AS date, weight, users_id
       FROM weights
-      ORDER BY id ASC;
+      ORDER BY date ASC;
     `);
     return res.rows;
   },
@@ -67,17 +67,19 @@ export const sqliteService = {
     const connection = await getConnection();
     for (let i = 0; i < listOfDicts.length; i += BATCH_SIZE) {
       const batch = listOfDicts.slice(i, i + BATCH_SIZE);
-      const placeholders = batch.map(() => '(?, ?, ?, ?, ?)').join(', ');
+      const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
       const values = batch.flatMap((item) => [
         item.date,
         item.catalogue_id,
         item.food_weight,
         JSON.stringify([]),
         item.users_id,
+        1,
+        false,
       ]);
       await connection.run(
         `
-        INSERT INTO food_diary (date, foodCatalogueId, foodWeight, history, usersId)
+        INSERT INTO food_diary (date, foodCatalogueId, foodWeight, history, usersId, ver, del)
         VALUES ${placeholders}
       `,
         values
@@ -90,7 +92,11 @@ export const sqliteService = {
     for (let i = 0; i < listOfDicts.length; i += BATCH_SIZE) {
       const batch = listOfDicts.slice(i, i + BATCH_SIZE);
       const placeholders = batch.map(() => '(?, ?, ?)').join(', ');
-      const values = batch.flatMap((item) => [item.date, item.weight, item.users_id]);
+      const values = batch.flatMap((item) => [
+        item.date,
+        item.weight,
+        item.users_id,
+      ]);
       await connection.run(
         `
         INSERT INTO food_body_weight (date, weight, usersId)

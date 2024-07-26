@@ -11,6 +11,7 @@ import staticServe from '@fastify/static';
 import initDatabase from './db/init.js';
 
 import authRoutes from './api/auth/authRoutes.js';
+import foodRoutes from './api/food/foodRoutes.js';
 import debugRoutes from './api/debug/debugRoutes.js';
 import settingsRoutes from './api/settings/settingsRoutes.js';
 import websocketRoutes from './api/ws/wsRoutes.js';
@@ -33,6 +34,7 @@ server.register(fastifySwagger, swaggerConfig);
 server.register(fastifySwaggerUi, swaggerUiConfig);
 
 server.register(authRoutes, { prefix: '/api/auth' });
+server.register(foodRoutes, { prefix: '/api/food' });
 server.register(debugRoutes, { prefix: '/api/debug' });
 server.register(settingsRoutes, { prefix: '/api/settings' });
 server.register(websocketRoutes, { prefix: '/api/ws' });

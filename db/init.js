@@ -129,7 +129,9 @@ const createTables = async () => {
       foodCatalogueId INTEGER,
       foodWeight INTEGER,
       history TEXT,
-      usersId INTEGER
+      usersId INTEGER,
+      ver INTEGER,
+      del BOOLEAN
     );
     `,
 

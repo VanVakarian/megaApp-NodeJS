@@ -14,7 +14,7 @@ const settingsController = {
         settings = defaultSettings;
       }
       settings.userName = request.user.username;
-      await reply.code(201).send(settings);
+      await reply.code(200).send(settings);
     } catch (error) {
       reply.code(400).send({ message: error.message });
     }

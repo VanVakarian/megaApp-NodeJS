@@ -6,14 +6,14 @@ const debugService = {
   },
 
   async transfer() {
-    const sourceCatalogue = await PGService.readSourceCatalogue();
     const sourceDiary = await PGService.readSourceDiary();
+    const sourceCatalogue = await PGService.readSourceCatalogue();
     const sourceWeights = await PGService.readSourceWeights();
 
     await sqliteService.clearTargetTables();
 
-    await sqliteService.writeTargetCatalogue(sourceCatalogue);
     await sqliteService.writeTargetDiary(sourceDiary);
+    await sqliteService.writeTargetCatalogue(sourceCatalogue);
     await sqliteService.writeTargetWeights(sourceWeights);
   },
 };

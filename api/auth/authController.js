@@ -45,6 +45,7 @@ const authController = {
       const decoded = await authService.verifyToken(token);
       request.user = decoded;
     } catch (error) {
+      // console.log('error', error);
       reply.code(401).send({ detail: 'Invalid token' });
     }
   },

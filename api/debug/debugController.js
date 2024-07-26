@@ -14,6 +14,15 @@ const debugController = {
       reply.status(500).send({ error: error.message });
     }
   },
+
+  // async chrextest(request, reply) {
+  //   try {
+  //     console.log('request', request.body);
+  //     reply.send({ response: 'received' });
+  //   } catch (error) {
+  //     reply.status(500).send({ error: error.message });
+  //   }
+  // },
 };
 
 export default debugController;
