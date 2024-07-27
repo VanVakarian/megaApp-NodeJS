@@ -8,13 +8,13 @@ import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import staticServe from '@fastify/static';
 
-import initDatabase from './db/init.js';
+import { initDatabase } from './db/init.js';
 
-import authRoutes from './api/auth/authRoutes.js';
-import foodRoutes from './api/food/foodRoutes.js';
-import debugRoutes from './api/debug/debugRoutes.js';
-import settingsRoutes from './api/settings/settingsRoutes.js';
-import websocketRoutes from './api/ws/wsRoutes.js';
+import { authRoutes } from './api/auth/auth-routes.js';
+import { foodRoutes } from './api/food/food-routes.js';
+import { debugRoutes } from './api/debug/debug-routes.js';
+import { settingsRoutes } from './api/settings/settings-routes.js';
+import { websocketRoutes } from './api/ws/ws-routes.js';
 
 import { APP_IP, APP_PORT, JWT_SECRET } from './env.js';
 import { swaggerConfig, swaggerUiConfig } from './swagger-config.js';
@@ -22,7 +22,7 @@ import { swaggerConfig, swaggerUiConfig } from './swagger-config.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-initDatabase();
+await initDatabase();
 
 const server = Fastify({ logger: true });
 

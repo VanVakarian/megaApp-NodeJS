@@ -1,12 +1,13 @@
 import { getConnection } from './db.js';
+import { RECHECK_DB, INIT_USERS } from '../env.js';
 
-const createTables = async () => {
+async function createTablesIfNotExist() {
   const connection = await getConnection();
 
   const createTablesQueries = [
     // `
     // CREATE TABLE IF NOT EXISTS food_body_weight (
-    //   id INTEGER PRIMARY KEY AUTOINCREMENT,
+    //   id TEXT PRIMARY KEY,
     //   date DATE,
     //   weight NUMERIC,
     //   user_id INTEGER
@@ -14,18 +15,8 @@ const createTables = async () => {
     // `,
 
     // `
-    // CREATE TABLE IF NOT EXISTS food_settings (
-    //   id INTEGER PRIMARY KEY AUTOINCREMENT,
-    //   height INTEGER,
-    //   use_coeffs BOOLEAN,
-    //   coefficients TEXT,
-    //   user_id INTEGER
-    // );
-    // `,
-
-    // `
     // CREATE TABLE IF NOT EXISTS food_stats (
-    //   id INTEGER PRIMARY KEY AUTOINCREMENT,
+    //   id TEXT PRIMARY KEY,
     //   up_to_date TEXT,
     //   stats TEXT,
     //   user_id INTEGER
@@ -33,16 +24,8 @@ const createTables = async () => {
     // `,
 
     // `
-    // CREATE TABLE IF NOT EXISTS food_users_catalogue (
-    //   id INTEGER PRIMARY KEY AUTOINCREMENT,
-    //   food_id_list TEXT,
-    //   user_id INTEGER
-    // );
-    // `,
-
-    // `
     // CREATE TABLE IF NOT EXISTS money_account (
-    //   id INTEGER PRIMARY KEY AUTOINCREMENT,
+    //   id TEXT PRIMARY KEY,
     //   title TEXT,
     //   currency_id INTEGER,
     //   bank_id INTEGER,
@@ -54,7 +37,7 @@ const createTables = async () => {
 
     // `
     // CREATE TABLE IF NOT EXISTS money_bank (
-    //   id INTEGER PRIMARY KEY AUTOINCREMENT,
+    //   id TEXT PRIMARY KEY,
     //   title TEXT,
     //   user_id INTEGER
     // );
@@ -62,7 +45,7 @@ const createTables = async () => {
 
     // `
     // CREATE TABLE IF NOT EXISTS money_category (
-    //   id INTEGER PRIMARY KEY AUTOINCREMENT,
+    //   id TEXT PRIMARY KEY,
     //   title TEXT,
     //   kind TEXT,
     //   user_id INTEGER
@@ -71,7 +54,7 @@ const createTables = async () => {
 
     // `
     // CREATE TABLE IF NOT EXISTS money_currency (
-    //   id INTEGER PRIMARY KEY AUTOINCREMENT,
+    //   id TEXT PRIMARY KEY,
     //   title TEXT,
     //   ticker TEXT,
     //   symbol TEXT,
@@ -83,7 +66,7 @@ const createTables = async () => {
 
     // `
     // CREATE TABLE IF NOT EXISTS money_transaction (
-    //   id INTEGER PRIMARY KEY AUTOINCREMENT,
+    //   id TEXT PRIMARY KEY,
     //   date DATE,
     //   amount REAL,
     //   account_id INTEGER,
@@ -98,16 +81,17 @@ const createTables = async () => {
 
     `
     CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id TEXT PRIMARY KEY,
       username TEXT,
-      hashedPassword TEXT
+      hashedPassword TEXT,
+      isAdmin BOOLEAN
     );
     `,
 
     `
     CREATE TABLE IF NOT EXISTS settings (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      usersId INTEGER NOT NULL,
+      id TEXT PRIMARY KEY,
+      usersId TEXT NOT NULL,
       darkTheme BOOLEAN NOT NULL,
       selectedChapterFood BOOLEAN NOT NULL,
       selectedChapterMoney BOOLEAN NOT NULL
@@ -115,21 +99,13 @@ const createTables = async () => {
     `,
 
     `
-    CREATE TABLE IF NOT EXISTS food_catalogue (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT,
-      kcals INTEGER
-    );
-    `,
-
-    `
     CREATE TABLE IF NOT EXISTS food_diary (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id TEXT PRIMARY KEY,
       date DATE,
       foodCatalogueId INTEGER,
       foodWeight INTEGER,
       history TEXT,
-      usersId INTEGER,
+      usersId TEXT,
       ver INTEGER,
       del BOOLEAN
     );
@@ -137,10 +113,29 @@ const createTables = async () => {
 
     `
     CREATE TABLE IF NOT EXISTS food_body_weight (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id TEXT PRIMARY KEY,
       date DATE,
       weight NUMERIC,
-      usersId INTEGER
+      usersId TEXT
+    );
+    `,
+
+    `
+    CREATE TABLE IF NOT EXISTS food_catalogue (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      kcals INTEGER
+    );
+    `,
+
+    `
+    CREATE TABLE IF NOT EXISTS food_settings (
+      id TEXT PRIMARY KEY,
+      height INTEGER,
+      useCoeffs BOOLEAN,
+      coefficients TEXT,
+      selectedCatalogueIds TEXT,
+      usersId TEXT
     );
     `,
   ];
@@ -152,12 +147,33 @@ const createTables = async () => {
     // console.log('Tables created successfully');
   } catch (error) {
     console.error('Error creating tables:', error);
-    throw error;
   }
-};
+}
 
-const initDatabase = () => {
-  createTables();
-};
+async function addUserIfNotExists(user) {
+  const connection = await getConnection();
+  try {
+    const checkQuery = 'SELECT COUNT(*) as count FROM users WHERE username = ?';
+    const checkResult = await connection.get(checkQuery, [user.username]);
 
-export default initDatabase;
+    if (checkResult.count === 0) {
+      const insertQuery = 'INSERT INTO users (id, username, hashedPassword, isAdmin) VALUES (?, ?, ?, ?)';
+      await connection.run(insertQuery, [user.id, user.username, user.hashedPassword, user.isAdmin]);
+      console.log(`User ${user.username} added.`);
+    } else {
+      console.log(`User ${user.username} already exists. Skipping...`);
+    }
+  } catch (error) {
+    console.error(`Failed to add user ${user.username}:`, error);
+  }
+}
+
+export async function initDatabase() {
+  if (RECHECK_DB) {
+    await createTablesIfNotExist();
+
+    Object.entries(INIT_USERS).forEach(async ([key, value]) => {
+      await addUserIfNotExists(value);
+    });
+  }
+}

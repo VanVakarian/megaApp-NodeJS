@@ -1,6 +1,6 @@
-import { wsService } from './wsService.js';
+import * as wsService  from './ws-service.js';
 
-const websocketRoutes = async (fastify) => {
+export async function websocketRoutes(fastify) {
   fastify.get('/', { schema: { tags: ['ws'] }, websocket: true }, (socket, req) => {
     let userId;
 
@@ -30,6 +30,4 @@ const websocketRoutes = async (fastify) => {
       wsService.removeSocket(userId, socket);
     });
   });
-};
-
-export default websocketRoutes;
+}

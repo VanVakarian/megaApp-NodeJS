@@ -1,19 +1,9 @@
-import authController from '../auth/authController.js';
-import foodController from './foodController.js';
+import * as authController from '../auth/auth-controller.js';
+import * as foodController from './food-controller.js';
 
-const foodRoutes = async (fastify) => {
+export async function foodRoutes(fastify) {
   fastify.get('/diary', {
-    schema: {
-      tags: ['food'],
-      querystring: {
-        type: 'object',
-        properties: {
-          date: { type: 'string' },
-          range: { type: 'number' },
-        },
-        required: [],
-      },
-    },
+    schema: { tags: ['food'] },
     preValidation: [authController.authMiddleware],
     handler: foodController.getDiary,
   });
@@ -29,6 +19,4 @@ const foodRoutes = async (fastify) => {
     preValidation: [authController.authMiddleware],
     handler: foodController.postFood,
   });
-};
-
-export default foodRoutes;
+}

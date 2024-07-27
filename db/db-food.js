@@ -1,6 +1,6 @@
 import { getConnection } from './db.js';
 
-export async function dbGetRangeOfUsersDiaryEntries(dateIsoStart, dateIsoEnd, userId) {
+export async function getRangeOfUsersDiaryEntries(dateIsoStart, dateIsoEnd, userId) {
   const connection = await getConnection();
   try {
     const query = `
@@ -23,7 +23,7 @@ export async function dbGetRangeOfUsersDiaryEntries(dateIsoStart, dateIsoEnd, us
   }
 }
 
-export async function dbGetAllFoodCatalogueEntries() {
+export async function getAllFoodCatalogueEntries() {
   const connection = await getConnection();
   try {
     const query = `

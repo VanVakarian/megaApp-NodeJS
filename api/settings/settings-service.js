@@ -4,7 +4,3 @@ export const defaultSettings = {
   selectedChapterFood: false,
   selectedChapterMoney: false,
 };
-
-const settingsService = {};
-
-export default settingsService;

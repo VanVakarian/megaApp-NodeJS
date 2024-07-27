@@ -1,6 +1,7 @@
 import { getConnection } from './db.js';
+import * as dbUtils from './utils.js';
 
-export async function dbGetUsersSettings(userId) {
+export async function getUsersSettings(userId) {
   const connection = await getConnection();
   try {
     const query = 'SELECT darkTheme, selectedChapterFood, selectedChapterMoney FROM settings WHERE usersId = ?';
@@ -19,16 +20,16 @@ export async function dbGetUsersSettings(userId) {
   }
 }
 
-export async function dbPostUsersSettings(userId, settings) {
+export async function postUsersSettings(userId, settings) {
   const connection = await getConnection();
   try {
     const checkQuery = 'SELECT COUNT(*) as count FROM settings WHERE usersId = ?';
     const checkResult = await connection.get(checkQuery, [userId]);
 
     if (checkResult.count > 0) {
-      await dbUpdateUserSettings(userId, settings);
+      await updateUserSettings(userId, settings);
     } else {
-      await dbCreateUserSettings(userId, settings);
+      await createUserSettings(userId, settings);
     }
   } catch (error) {
     console.error(error);
@@ -36,7 +37,7 @@ export async function dbPostUsersSettings(userId, settings) {
   }
 }
 
-export async function dbUpdateUserSettings(userId, settings) {
+export async function updateUserSettings(userId, settings) {
   const connection = await getConnection();
   try {
     const updateQuery = `
@@ -56,14 +57,16 @@ export async function dbUpdateUserSettings(userId, settings) {
   }
 }
 
-export async function dbCreateUserSettings(userId, settings) {
+export async function createUserSettings(userId, settings) {
   const connection = await getConnection();
+  const id = await dbUtils.generateUniqueId(2, connection, 'settings');
   try {
     const insertQuery = `
-        INSERT INTO settings (usersId, darkTheme, selectedChapterFood, selectedChapterMoney)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO settings (id, usersId, darkTheme, selectedChapterFood, selectedChapterMoney)
+        VALUES (?, ?, ?, ?, ?)
       `;
     await connection.run(insertQuery, [
+      id,
       userId,
       settings.darkTheme,
       settings.selectedChapterFood,

@@ -1,4 +1,4 @@
-export function isValidDate(dateString) {
+export function isValidISODate(dateString) {
   const regex = /^\d{4}-\d{2}-\d{2}$/; // Регулярное выражение для проверки формата YYYY-MM-DD
   if (!regex.test(dateString)) {
     return false;

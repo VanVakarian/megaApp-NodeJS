@@ -1,7 +1,7 @@
-import settingsController from './settingsController.js';
-import authController from '../auth/authController.js';
+import * as settingsController from './settings-controller.js';
+import * as authController from '../auth/auth-controller.js';
 
-const settingsRoutes = async (fastify) => {
+export async function settingsRoutes(fastify) {
   fastify.get(
     '/',
     { schema: { tags: ['settings'] }, preValidation: [authController.authMiddleware] },
@@ -12,6 +12,4 @@ const settingsRoutes = async (fastify) => {
     { schema: { tags: ['settings'] }, preValidation: [authController.authMiddleware] },
     settingsController.postSettings
   );
-};
-
-export default settingsRoutes;
+}
