@@ -7,86 +7,80 @@ export async function ping() {
 }
 
 export async function pg2sqliteTransfer(oldUserId) {
-  const idTranslation = Object.fromEntries(Object.entries(INIT_USERS).map(([key, value]) => [key, value.id]));
-
   try {
-    // DIARY
+    // Getting source data
     const sourceDiary = await dbDebug.readSourceDiary(oldUserId);
-    // console.log('sourceDiary', sourceDiary.slice(0, 3));
-    sourceDiary.forEach((row) => (row.users_id = idTranslation[oldUserId]));
-    const sourceDiaryWithNewIds = await generateUniqueIdsForArrayOfObjects(5, sourceDiary, 'food_diary');
-    await dbDebug.clearTargetTableOfUser('food_diary', oldUserId);
-    await dbDebug.writeTargetDiary(sourceDiaryWithNewIds);
-
-    // WEIGHTS
-    const sourceWeights = await dbDebug.readSourceWeights(oldUserId);
-    sourceWeights.forEach((row) => (row.users_id = idTranslation[oldUserId]));
-    const sourceWeightsWithNewIds = await generateUniqueIdsForArrayOfObjects(5, sourceWeights, 'food_body_weight');
-    await dbDebug.clearTargetTableOfUser('food_body_weight', oldUserId);
-    await dbDebug.writeTargetWeights(sourceWeightsWithNewIds);
-
-    // CATALOGUE
+    const sourceBodyWeights = await dbDebug.readSourceWeights(oldUserId);
     const sourceCatalogue = await dbDebug.readSourceCatalogue();
-    const sourceCatalogueWithNewIds = await generateUniqueIdsForArrayOfObjects(3, sourceCatalogue, 'food_catalogue');
-    await dbDebug.clearWholeTargetTable('food_catalogue');
-    await dbDebug.writeTargetCatalogue(sourceCatalogueWithNewIds);
-
-    // FOOD SETTINGS
     const sourceSettings = await dbDebug.readSourceSettings();
-    sourceSettings.forEach((row) => (row.user_id = idTranslation[row.user_id]));
-    const sourceSettingsWithNewIds = await generateUniqueIdsForArrayOfObjects(2, sourceSettings, 'food_settings');
-    const sourceSettingsWithUsersFoodIds = updateSettingsWithCatalogueIds(sourceCatalogueWithNewIds, sourceSettingsWithNewIds, idTranslation);
 
+    // Generating new ids
+    const userIdMap = Object.fromEntries(Object.entries(INIT_USERS).map(([key, value]) => [key, value.id]));
+    const [newDiary] = await generateUniqueIdsForArrayOfObjects(5, sourceDiary, 'food_diary');
+    const [newBodyWeights] = await generateUniqueIdsForArrayOfObjects(5, sourceBodyWeights, 'food_body_weight');
+    const [newCatalogue, catalogueIdMap] = await generateUniqueIdsForArrayOfObjects(3, sourceCatalogue, 'food_catalogue'); // prettier-ignore
+    const [newSettings] = await generateUniqueIdsForArrayOfObjects(2, sourceSettings, 'food_settings');
+
+    // a little bit of data transformation
+    newDiary.forEach((row) => {
+      row.users_id = userIdMap[row.users_id];
+      row.catalogue_id = catalogueIdMap[row.catalogue_id];
+    });
+    newBodyWeights.forEach((row) => (row.users_id = userIdMap[row.users_id]));
+    newCatalogue.forEach((row) => (row.users_id = userIdMap[row.users_id] ?? 0));
+    const catalogueIdsGroupedByUser = {};
+    Object.values(userIdMap).forEach((newUserId) => {
+      catalogueIdsGroupedByUser[newUserId] = [];
+      newCatalogue.forEach((row) => {
+        if (row.users_id === newUserId || row.users_id === 0) {
+          catalogueIdsGroupedByUser[newUserId].push(row.id);
+        }
+      });
+    });
+    newSettings.forEach((row) => {
+      row.user_id = userIdMap[row.user_id];
+      row.selectedCatalogueIds = JSON.stringify(catalogueIdsGroupedByUser[row.user_id]);
+    });
+
+    // clearing tables
+    await dbDebug.clearTargetTableOfUser('food_diary', userIdMap[oldUserId]);
+    await dbDebug.clearTargetTableOfUser('food_body_weight', userIdMap[oldUserId]);
+    await dbDebug.clearWholeTargetTable('food_catalogue');
     await dbDebug.clearWholeTargetTable('food_settings');
-    await dbDebug.writeTargetFoodSettings(sourceSettingsWithUsersFoodIds);
+
+    // dumping data into db
+    await dbDebug.writeTargetDiary(newDiary);
+    await dbDebug.writeTargetWeights(newBodyWeights);
+    await dbDebug.writeTargetCatalogue(newCatalogue);
+    await dbDebug.writeTargetFoodSettings(newSettings);
   } catch (error) {
     console.error(error);
   }
 }
 
-function updateSettingsWithCatalogueIds(listOfDictsCatalogue, listOfDictsSettings, idTranslation) {
-  const newCatalogueGroupedByNewUserId = {};
-  for (const value of Object.values(idTranslation)) {
-    newCatalogueGroupedByNewUserId[value] = [];
-  }
-
-  listOfDictsCatalogue.forEach((item) => {
-    const userKey = idTranslation[item.users_id];
-    if (item.users_id === 0) {
-      for (const value of Object.values(idTranslation)) {
-        newCatalogueGroupedByNewUserId[value].push(item.id);
-      }
-    } else if (userKey) {
-      newCatalogueGroupedByNewUserId[userKey].push(item.id);
-    }
-  });
-
-  listOfDictsSettings.forEach((setting) => {
-    const userKey = setting.user_id;
-    if (newCatalogueGroupedByNewUserId[userKey]) {
-      setting.selectedCatalogueIds = JSON.stringify(newCatalogueGroupedByNewUserId[userKey]);
-    }
-  });
-
-  return listOfDictsSettings;
-}
-
 async function generateUniqueIdsForArrayOfObjects(idLen, listOfDicts, tableName) {
-  const existingIdsSet = await dbDebug.getIdsAsSet(tableName);
+  const existingIdsSet = await dbDebug.getIdsFromATableAsSet(tableName);
+  const idMap = {};
 
   for (let item of listOfDicts) {
     let uniqueIdFound = false;
+    const oldId = item.id;
+
     while (!uniqueIdFound) {
       const newId = dbUtils.makeRandomId(idLen);
       if (!existingIdsSet.has(newId)) {
         item.id = newId;
         existingIdsSet.add(newId);
         uniqueIdFound = true;
+
+        if (oldId) {
+          idMap[oldId] = newId;
+        }
       } else {
         console.log(`WTF! Duplicate ID found: ${newId}, regenerating...`);
       }
     }
   }
 
-  return listOfDicts;
+  return [listOfDicts, idMap];
 }

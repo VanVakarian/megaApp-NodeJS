@@ -6,15 +6,6 @@ async function createTablesIfNotExist() {
 
   const createTablesQueries = [
     // `
-    // CREATE TABLE IF NOT EXISTS food_body_weight (
-    //   id TEXT PRIMARY KEY,
-    //   date DATE,
-    //   weight NUMERIC,
-    //   user_id INTEGER
-    // );
-    // `,
-
-    // `
     // CREATE TABLE IF NOT EXISTS food_stats (
     //   id TEXT PRIMARY KEY,
     //   up_to_date TEXT,
@@ -112,15 +103,6 @@ async function createTablesIfNotExist() {
     `,
 
     `
-    CREATE TABLE IF NOT EXISTS food_body_weight (
-      id TEXT PRIMARY KEY,
-      date DATE,
-      weight NUMERIC,
-      usersId TEXT
-    );
-    `,
-
-    `
     CREATE TABLE IF NOT EXISTS food_catalogue (
       id TEXT PRIMARY KEY,
       name TEXT,
@@ -135,6 +117,15 @@ async function createTablesIfNotExist() {
       useCoeffs BOOLEAN,
       coefficients TEXT,
       selectedCatalogueIds TEXT,
+      usersId TEXT
+    );
+    `,
+
+    `
+    CREATE TABLE IF NOT EXISTS food_body_weight (
+      id TEXT PRIMARY KEY,
+      date DATE,
+      weight NUMERIC,
       usersId TEXT
     );
     `,

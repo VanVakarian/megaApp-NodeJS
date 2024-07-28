@@ -151,7 +151,7 @@ export async function writeTargetFoodSettings(listOfDicts) {
   );
 }
 
-export async function getIdsAsSet(tableName) {
+export async function getIdsFromATableAsSet(tableName) {
   const connection = await getConnection();
   const res = await connection.all(`SELECT id FROM ${tableName}`);
   return new Set(res.map((row) => row.id));
