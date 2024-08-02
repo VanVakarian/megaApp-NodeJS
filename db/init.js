@@ -92,7 +92,7 @@ async function createTablesIfNotExist() {
     `
     CREATE TABLE IF NOT EXISTS food_diary (
       id TEXT PRIMARY KEY,
-      date DATE,
+      date INTEGER,
       foodCatalogueId INTEGER,
       foodWeight INTEGER,
       history TEXT,
@@ -124,7 +124,7 @@ async function createTablesIfNotExist() {
     `
     CREATE TABLE IF NOT EXISTS food_body_weight (
       id TEXT PRIMARY KEY,
-      date DATE,
+      date INTEGER,
       weight NUMERIC,
       usersId TEXT
     );
