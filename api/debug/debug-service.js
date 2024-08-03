@@ -18,9 +18,9 @@ export async function pg2sqliteTransfer(oldUserId) {
     // Generating new ids
     const userIdMap = Object.fromEntries(Object.entries(INIT_USERS).map(([key, value]) => [key, value.id]));
     const [newDiary, _] = await generateUniqueIds(5, sourceDiary, 'foodDiary');
-    const [newBodyWeights, __] = await generateUniqueIds(5, sourceBodyWeights, 'food_body_weight');
-    const [newCatalogue, catalogueIdMap] = await generateUniqueIds(3, sourceCatalogue, 'food_catalogue'); // prettier-ignore
-    const [newSettings, ___] = await generateUniqueIds(2, sourceSettings, 'food_settings');
+    const [newBodyWeights, __] = await generateUniqueIds(5, sourceBodyWeights, 'foodBodyWeight');
+    const [newCatalogue, catalogueIdMap] = await generateUniqueIds(3, sourceCatalogue, 'foodCatalogue'); // prettier-ignore
+    const [newSettings, ___] = await generateUniqueIds(2, sourceSettings, 'foodSettings');
 
     // Applying new ids
     newDiary.forEach((row) => {
@@ -38,7 +38,7 @@ export async function pg2sqliteTransfer(oldUserId) {
     newBodyWeights.forEach((entry) => (entry.date = new Date(entry.date).getTime() / 1000 + counter++));
     console.log('newBodyWeights', newBodyWeights.slice(0, 3));
 
-    // Moving food ownership from 'food_catalogue' table to 'food_settings' table
+    // Moving food ownership from 'foodCatalogue' table to 'foodSettings' table
     const catalogueIdsGroupedByUser = {};
     Object.values(userIdMap).forEach((newUserId) => {
       catalogueIdsGroupedByUser[newUserId] = [];
@@ -55,9 +55,9 @@ export async function pg2sqliteTransfer(oldUserId) {
 
     // Clearing tables
     await dbDebug.clearTargetTableOfUser('foodDiary', userIdMap[oldUserId]);
-    await dbDebug.clearTargetTableOfUser('food_body_weight', userIdMap[oldUserId]);
-    await dbDebug.clearWholeTargetTable('food_catalogue');
-    await dbDebug.clearWholeTargetTable('food_settings');
+    await dbDebug.clearTargetTableOfUser('foodBodyWeight', userIdMap[oldUserId]);
+    await dbDebug.clearWholeTargetTable('foodCatalogue');
+    await dbDebug.clearWholeTargetTable('foodSettings');
 
     // Dumping data into db
     await dbDebug.writeTargetDiary(newDiary);

@@ -90,7 +90,7 @@ async function createTablesIfNotExist() {
     `,
 
     `
-    CREATE TABLE IF NOT EXISTS food_diary (
+    CREATE TABLE IF NOT EXISTS foodDiary (
       id TEXT PRIMARY KEY,
       date INTEGER,
       foodCatalogueId INTEGER,
@@ -103,7 +103,7 @@ async function createTablesIfNotExist() {
     `,
 
     `
-    CREATE TABLE IF NOT EXISTS food_catalogue (
+    CREATE TABLE IF NOT EXISTS foodCatalogue (
       id TEXT PRIMARY KEY,
       name TEXT,
       kcals INTEGER
@@ -111,7 +111,7 @@ async function createTablesIfNotExist() {
     `,
 
     `
-    CREATE TABLE IF NOT EXISTS food_settings (
+    CREATE TABLE IF NOT EXISTS foodSettings (
       id TEXT PRIMARY KEY,
       height INTEGER,
       useCoeffs BOOLEAN,
@@ -122,7 +122,7 @@ async function createTablesIfNotExist() {
     `,
 
     `
-    CREATE TABLE IF NOT EXISTS food_body_weight (
+    CREATE TABLE IF NOT EXISTS foodBodyWeight (
       id TEXT PRIMARY KEY,
       date INTEGER,
       weight NUMERIC,
