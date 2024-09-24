@@ -59,14 +59,12 @@ export async function updateUserSettings(userId, settings) {
 
 export async function createUserSettings(userId, settings) {
   const connection = await getConnection();
-  const id = await dbUtils.generateUniqueId(2, connection, 'settings');
   try {
     const insertQuery = `
-        INSERT INTO settings (id, usersId, darkTheme, selectedChapterFood, selectedChapterMoney)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO settings (usersId, darkTheme, selectedChapterFood, selectedChapterMoney)
+        VALUES (?, ?, ?, ?)
       `;
     await connection.run(insertQuery, [
-      id,
       userId,
       settings.darkTheme,
       settings.selectedChapterFood,

@@ -72,7 +72,7 @@ async function createTablesIfNotExist() {
 
     `
     CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT,
       hashedPassword TEXT,
       isAdmin BOOLEAN
@@ -81,22 +81,22 @@ async function createTablesIfNotExist() {
 
     `
     CREATE TABLE IF NOT EXISTS settings (
-      id TEXT PRIMARY KEY,
-      usersId TEXT NOT NULL,
-      darkTheme BOOLEAN NOT NULL,
-      selectedChapterFood BOOLEAN NOT NULL,
-      selectedChapterMoney BOOLEAN NOT NULL
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      usersId INTEGER,
+      darkTheme BOOLEAN,
+      selectedChapterFood BOOLEAN,
+      selectedChapterMoney BOOLEAN
     );
     `,
 
     `
     CREATE TABLE IF NOT EXISTS foodDiary (
-      id TEXT PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       date INTEGER,
       foodCatalogueId INTEGER,
       foodWeight INTEGER,
       history TEXT,
-      usersId TEXT,
+      usersId INTEGER,
       ver INTEGER,
       del BOOLEAN
     );
@@ -104,7 +104,7 @@ async function createTablesIfNotExist() {
 
     `
     CREATE TABLE IF NOT EXISTS foodCatalogue (
-      id TEXT PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT,
       kcals INTEGER
     );
@@ -112,21 +112,21 @@ async function createTablesIfNotExist() {
 
     `
     CREATE TABLE IF NOT EXISTS foodSettings (
-      id TEXT PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       height INTEGER,
       useCoeffs BOOLEAN,
       coefficients TEXT,
       selectedCatalogueIds TEXT,
-      usersId TEXT
+      usersId INTEGER
     );
     `,
 
     `
     CREATE TABLE IF NOT EXISTS foodBodyWeight (
-      id TEXT PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       date INTEGER,
       weight NUMERIC,
-      usersId TEXT
+      usersId INTEGER
     );
     `,
   ];
@@ -150,9 +150,9 @@ async function addUserIfNotExists(user) {
     if (checkResult.count === 0) {
       const insertQuery = 'INSERT INTO users (id, username, hashedPassword, isAdmin) VALUES (?, ?, ?, ?)';
       await connection.run(insertQuery, [user.id, user.username, user.hashedPassword, user.isAdmin]);
-      console.log(`User ${user.username} added.`);
+      // console.log(`User ${user.username} added.`);
     } else {
-      console.log(`User ${user.username} already exists. Skipping...`);
+      // console.log(`User ${user.username} already exists. Skipping...`);
     }
   } catch (error) {
     console.error(`Failed to add user ${user.username}:`, error);

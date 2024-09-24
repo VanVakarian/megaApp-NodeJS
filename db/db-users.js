@@ -1,5 +1,16 @@
 import { getConnection } from './db.js';
-import * as dbUtils from './utils.js';
+
+export async function createUser(username, hashedPassword) {
+  const connection = await getConnection();
+  try {
+    const query = 'INSERT INTO users (username, hashedPassword) VALUES (?, ?)';
+    const result = await connection.run(query, [username, hashedPassword]);
+    return result.lastID;
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
+}
 
 export async function getUserByUsername(username) {
   const connection = await getConnection();
@@ -13,15 +24,19 @@ export async function getUserByUsername(username) {
   }
 }
 
-export async function createUser(username, hashedPassword) {
+export async function isUserAdmin(userId) {
   const connection = await getConnection();
   try {
-    const id = await dbUtils.generateUniqueId(2, connection, 'users');
-    const query = 'INSERT INTO users (id, username, hashedPassword) VALUES (?, ?, ?)';
-    const result = await connection.run(query, [id, username, hashedPassword]);
-    return result.lastID;
+    const query = 'SELECT isAdmin FROM users WHERE id = ?';
+    const result = await connection.get(query, [userId]);
+
+    if (result && result.isAdmin !== null) {
+      return result.isAdmin === true || result.isAdmin === 1;
+    } else {
+      return false;
+    }
   } catch (error) {
     console.error(error);
-    return null;
+    return false;
   }
 }

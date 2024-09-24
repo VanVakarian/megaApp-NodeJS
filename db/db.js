@@ -3,7 +3,7 @@ import sqlite3 from 'sqlite3';
 
 export const getConnection = async () => {
   return open({
-    filename: 'main.db',
+    filename: 'megaapp.db',
     driver: sqlite3.Database,
   });
 };

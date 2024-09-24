@@ -67,7 +67,7 @@ export function prepFoodCatalogue(catalogueArray) {
 }
 
 export async function makeUpdatedHistoryString(diaryId, userId, newHistoryEntry) {
-  const resHistory = await dbFood.dbGetDiaryEntrysHistory(diaryId, userId);
+  const resHistory = await dbFood.dbGetDiaryEntriesHistory(diaryId, userId);
   const updatedHistory = resHistory.length ? JSON.parse(resHistory[0].history) : [];
   updatedHistory.push(newHistoryEntry);
   const historyString = JSON.stringify(updatedHistory);
@@ -76,5 +76,5 @@ export async function makeUpdatedHistoryString(diaryId, userId, newHistoryEntry)
 
 export async function updateDiaryEntryInDB(foodWeight, updatedHistory, diaryId, userId) {
   const historyString = JSON.stringify(updatedHistory);
-  return await dbFood.db_edit_diary_entry(foodWeight, historyString, diaryId, userId);
+  return await dbFood.dbEditDiaryEntry(foodWeight, historyString, diaryId, userId);
 }

@@ -5,6 +5,7 @@ import { getConnection } from '../../db/db.js';
 const BATCH_SIZE = 500;
 
 const { Client } = pkg;
+
 const postgresConfig = {
   host: env.PG_HOST,
   port: env.PG_PORT,
@@ -12,55 +13,87 @@ const postgresConfig = {
   user: env.PG_USER,
   password: env.PG_PASSWORD,
 };
-const PGClient = new Client(postgresConfig);
-await PGClient.connect();
+
+let pgClient = null;
+
+async function getPGClient() {
+  if (!pgClient) {
+    pgClient = new Client(postgresConfig);
+    await pgClient.connect();
+  }
+  return pgClient;
+}
 
 export async function readSourceDiary(userId) {
-  const res = await PGClient.query(
-    `
-    SELECT id, date::text AS date, catalogue_id, food_weight, users_id
-    FROM diary
-    WHERE users_id = $1
-    ORDER BY date ASC, id ASC;
-    `,
-    [userId]
-  );
-  return res.rows;
+  const client = await getPGClient();
+  try {
+    const res = await client.query(
+      `
+      SELECT id, date::text AS date, catalogue_id, food_weight, users_id
+      FROM diary
+      WHERE users_id = $1
+      ORDER BY date ASC, id ASC;
+      `,
+      [userId]
+    );
+    return res.rows;
+  } catch (error) {
+    console.error('Error in readSourceDiary:', error);
+    throw error;
+  }
 }
 
 export async function readSourceWeights(userId) {
-  const res = await PGClient.query(
-    `
-    SELECT id, date::text AS date, weight, users_id
-    FROM weights
-    WHERE users_id = $1
-    ORDER BY date ASC;
+  const client = await getPGClient();
+  try {
+    const res = await client.query(
+      `
+      SELECT id, date::text AS date, weight, users_id
+      FROM weights
+      WHERE users_id = $1
+      ORDER BY date ASC;
       `,
-    [userId]
-  );
-  return res.rows;
+      [userId]
+    );
+    return res.rows;
+  } catch (error) {
+    console.error('Error in readSourceWeights:', error);
+    throw error;
+  }
 }
 
 export async function readSourceCatalogue() {
-  const res = await PGClient.query(
-    `
-    SELECT id, name, kcals, users_id, helth
-    FROM catalogue
-    ORDER BY id ASC;
-    `
-  );
-  return res.rows;
+  const client = await getPGClient();
+  try {
+    const res = await client.query(
+      `
+      SELECT id, name, kcals, users_id, helth
+      FROM catalogue
+      ORDER BY id ASC;
+      `
+    );
+    return res.rows;
+  } catch (error) {
+    console.error('Error in readSourceCatalogue:', error);
+    throw error;
+  }
 }
 
 export async function readSourceSettings() {
-  const res = await PGClient.query(
-    `
-    SELECT id, height, use_coeffs, coefficients, user_id
-    FROM options
-    ORDER BY id ASC;
-    `
-  );
-  return res.rows;
+  const client = await getPGClient();
+  try {
+    const res = await client.query(
+      `
+      SELECT id, height, use_coeffs, coefficients, user_id
+      FROM options
+      ORDER BY id ASC;
+      `
+    );
+    return res.rows;
+  } catch (error) {
+    console.error('Error in readSourceSettings:', error);
+    throw error;
+  }
 }
 
 export async function clearTargetTableOfUser(tableName, userId) {
@@ -77,9 +110,8 @@ export async function writeTargetDiary(listOfDicts) {
   const connection = await getConnection();
   for (let i = 0; i < listOfDicts.length; i += BATCH_SIZE) {
     const batch = listOfDicts.slice(i, i + BATCH_SIZE);
-    const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+    const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
     const values = batch.flatMap((item) => [
-      item.id,
       item.date,
       item.catalogue_id,
       item.food_weight,
@@ -90,7 +122,7 @@ export async function writeTargetDiary(listOfDicts) {
     ]);
     await connection.run(
       `
-      INSERT INTO foodDiary (id, date, foodCatalogueId, foodWeight, history, usersId, ver, del)
+      INSERT INTO foodDiary (date, foodCatalogueId, foodWeight, history, usersId, ver, del)
       VALUES ${placeholders}
       `,
       values
@@ -102,11 +134,11 @@ export async function writeTargetWeights(listOfDicts) {
   const connection = await getConnection();
   for (let i = 0; i < listOfDicts.length; i += BATCH_SIZE) {
     const batch = listOfDicts.slice(i, i + BATCH_SIZE);
-    const placeholders = batch.map(() => '(?, ?, ?, ?)').join(', ');
-    const values = batch.flatMap((item) => [item.id, item.date, item.weight, item.users_id]);
+    const placeholders = batch.map(() => '(?, ?, ?)').join(', ');
+    const values = batch.flatMap((item) => [item.date, item.weight, item.users_id]);
     await connection.run(
       `
-      INSERT INTO foodBodyWeight (id, date, weight, usersId)
+      INSERT INTO foodBodyWeight (date, weight, usersId)
       VALUES ${placeholders}
       `,
       values
@@ -132,9 +164,8 @@ export async function writeTargetCatalogue(listOfDicts) {
 
 export async function writeTargetFoodSettings(listOfDicts) {
   const connection = await getConnection();
-  const placeholders = listOfDicts.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
+  const placeholders = listOfDicts.map(() => '(?, ?, ?, ?, ?)').join(', ');
   const values = listOfDicts.flatMap((item) => [
-    item.id,
     item.height,
     item.use_coeffs,
     item.coefficients,
@@ -144,15 +175,15 @@ export async function writeTargetFoodSettings(listOfDicts) {
 
   await connection.run(
     `
-    INSERT INTO foodSettings (id, height, useCoeffs, coefficients, selectedCatalogueIds, usersId)
+    INSERT INTO foodSettings (height, useCoeffs, coefficients, selectedCatalogueIds, usersId)
     VALUES ${placeholders}
     `,
     values
   );
 }
 
-export async function getIdsFromATableAsSet(tableName) {
-  const connection = await getConnection();
-  const res = await connection.all(`SELECT id FROM ${tableName}`);
-  return new Set(res.map((row) => row.id));
-}
+process.on('exit', async () => {
+  if (pgClient) {
+    await pgClient.end();
+  }
+});
