@@ -1,5 +1,5 @@
+import { INIT_USERS, RECHECK_DB } from '../env.js';
 import { getConnection } from './db.js';
-import { RECHECK_DB, INIT_USERS } from '../env.js';
 
 async function createTablesIfNotExist() {
   const connection = await getConnection();

@@ -1,5 +1,5 @@
-import * as dbDebug from './db-debug.js';
 import { INIT_USERS } from '../../env.js';
+import * as dbDebug from './db-debug.js';
 
 export async function ping() {
   return 'pong';
@@ -21,13 +21,11 @@ export async function pg2sqliteTransfer(oldUserId) {
     bodyWeights.forEach((entry) => (entry.date = new Date(entry.date).getTime() / 1000 + counter++));
 
     // Moving food ownership from 'foodCatalogue' table to 'foodSettings' table
-    const catalogueIdsGroupedByUser = Object.fromEntries(
-      Object.keys(INIT_USERS).map(userId => [userId, []])
-    );
+    const catalogueIdsGroupedByUser = Object.fromEntries(Object.keys(INIT_USERS).map((userId) => [userId, []]));
     catalogue.forEach((catalogueEntry) => {
       const entryUserId = catalogueEntry.users_id.toString();
       if (entryUserId === '0') {
-        Object.values(catalogueIdsGroupedByUser).forEach(arr => arr.push(catalogueEntry.id));
+        Object.values(catalogueIdsGroupedByUser).forEach((arr) => arr.push(catalogueEntry.id));
       } else if (catalogueIdsGroupedByUser.hasOwnProperty(entryUserId)) {
         catalogueIdsGroupedByUser[entryUserId].push(catalogueEntry.id);
       }
@@ -42,7 +40,7 @@ export async function pg2sqliteTransfer(oldUserId) {
     await dbDebug.clearWholeTargetTable('foodCatalogue');
     await dbDebug.clearWholeTargetTable('foodSettings');
 
-    // // Dumping data into db
+    // Dumping data into db
     await dbDebug.writeTargetDiary(diary);
     await dbDebug.writeTargetWeights(bodyWeights);
     await dbDebug.writeTargetCatalogue(catalogue);

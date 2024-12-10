@@ -11,13 +11,29 @@ export function isValidUnixDate(dateUnix) {
   return !isNaN(new Date(dateUnix * 1000).getTime());
 }
 
-export function getStartAndEndUnixDates(dateIso, offsetInDays) {
+export function getStartAndEndUnixDates(dateIso, offsetInDays, userTZOffsetHours, userPreferredMidnightOffsetHours) {
   const originalDate = new Date(dateIso);
-  const startDate = new Date(Date.UTC(originalDate.getUTCFullYear(), originalDate.getUTCMonth(), originalDate.getUTCDate() - offsetInDays)); // prettier-ignore
-  const endDate = new Date(Date.UTC(originalDate.getUTCFullYear(), originalDate.getUTCMonth(), originalDate.getUTCDate() + offsetInDays)); // prettier-ignore
-  endDate.setUTCHours(23, 59, 59, 999);
+
+  // Вычисляем общее смещение
+  const totalOffset = -userTZOffsetHours + userPreferredMidnightOffsetHours;
+
+  // Устанавливаем начальную дату
+  const startDate = new Date(
+    Date.UTC(originalDate.getUTCFullYear(), originalDate.getUTCMonth(), originalDate.getUTCDate() - offsetInDays)
+  );
+  // Применяем общее смещение
+  startDate.setUTCHours(startDate.getUTCHours() + totalOffset, 0, 0, 0);
+
+  // Устанавливаем конечную дату
+  const endDate = new Date(
+    Date.UTC(originalDate.getUTCFullYear(), originalDate.getUTCMonth(), originalDate.getUTCDate() + offsetInDays + 1)
+  );
+  // Применяем то же самое общее смещение
+  endDate.setUTCHours(endDate.getUTCHours() + totalOffset, 0, 0, 0);
+
   const startDateUnix = Math.floor(startDate.getTime() / 1000);
   const endDateUnix = Math.floor(endDate.getTime() / 1000);
+
   return [startDateUnix, endDateUnix];
 }
 

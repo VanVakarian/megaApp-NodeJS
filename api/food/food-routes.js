@@ -8,6 +8,24 @@ export async function foodRoutes(fastify) {
     handler: foodController.getFoodDiaryFullUpdateRange,
   });
 
+  fastify.post('/diary/', {
+    schema: {
+      tags: ['food'],
+      body: {
+        type: 'object',
+        properties: {
+          dateISO: { type: 'string', format: 'date' },
+          foodCatalogueId: { type: 'integer' },
+          foodWeight: { type: 'integer' },
+          history: { type: 'array' },
+        },
+        required: ['dateISO', 'foodCatalogueId', 'foodWeight', 'history'],
+      },
+    },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.createDiaryEntry,
+  });
+
   fastify.get('/catalogue', {
     schema: { tags: ['food'] },
     preValidation: [authController.authMiddleware],
@@ -27,7 +45,7 @@ export async function foodRoutes(fastify) {
       },
     },
     preValidation: [authController.authMiddleware],
-    handler: foodController.addUserCatalogueEntry,
+    handler: foodController.createCatalogueEntry,
   });
 
   fastify.put('/catalogue/', {
@@ -44,7 +62,7 @@ export async function foodRoutes(fastify) {
       },
     },
     preValidation: [authController.authMiddleware],
-    handler: foodController.editUserCatalogueEntry,
+    handler: foodController.editCatalogueEntry,
   });
 
   fastify.get('/user-catalogue', {
@@ -52,7 +70,6 @@ export async function foodRoutes(fastify) {
     preValidation: [authController.authMiddleware],
     handler: foodController.getMyCatalogue,
   });
-
 
   fastify.put('/user-catalogue/pick/', {
     schema: {

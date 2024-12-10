@@ -1,6 +1,7 @@
 import pkg from 'pg';
-import * as env from '../../env.js';
+
 import { getConnection } from '../../db/db.js';
+import * as env from '../../env.js';
 
 const BATCH_SIZE = 500;
 

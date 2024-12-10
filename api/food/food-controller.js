@@ -1,39 +1,77 @@
+import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
 import * as foodService from './food-service.js';
-import * as dbFood from '../../db/db-food.js';
 
 export async function getFoodDiaryFullUpdateRange(request, reply) {
   const userId = request.user.id;
-  const { date: dateIso, offset: offset } = request.query;
-  const offsetInDays = parseInt(offset, 10);
+  console.log('\n\nuserId:', userId);
+  const userTZOffsetHours = 4; // TODO: implement in settings
+  const userPreferredMidnightOffsetHours = 5; // TODO: implement in settings
+  const { date: dateIso, offset: offsetDaysStr } = request.query;
+  console.log('\n\ndateIso:', dateIso, 'offset:', offsetDaysStr);
+  const offsetDaysNum = parseInt(offsetDaysStr);
+  console.log('\n\noffsetInDays:', offsetDaysNum);
 
-  const datesIsoList = foodService.getDateRange(dateIso, offsetInDays);
-  const [startDateUnix, endDateUnix] = utils.getStartAndEndUnixDates(dateIso, offsetInDays);
+  const datesIsoList = foodService.getDateRange(dateIso, offsetDaysNum, userTZOffsetHours, userPreferredMidnightOffsetHours);
+  console.log('\n\ndatesIsoList:', datesIsoList);
+  const [startDateUnix, endDateUnix] = utils.getStartAndEndUnixDates(dateIso, offsetDaysNum, userTZOffsetHours, userPreferredMidnightOffsetHours); // prettier-ignore
+  console.log('\n\nstartDateUnix:', startDateUnix, 'endDateUnix:', endDateUnix);
 
-  let diaryResult = foodService.dictifyDatesList(datesIsoList);
+  let diaryResult = Object.fromEntries(datesIsoList.map((date) => [date, {}]));
+  console.log('\n\ndiaryResult:', diaryResult);
 
   const foodDiaryRawData = await dbFood.getRangeOfUsersDiaryEntries(userId, startDateUnix, endDateUnix);
-  const foodDiaryPrepped = foodService.organizeByDatesAndIds(foodDiaryRawData);
+  console.log('\n\nfoodDiaryRawData:', foodDiaryRawData);
+  const foodDiaryPrepped = foodService.organizeByDatesAndIds(foodDiaryRawData, userTZOffsetHours, userPreferredMidnightOffsetHours); // prettier-ignore
   diaryResult = foodService.extendDiary(diaryResult, 'food', foodDiaryPrepped, {});
+  console.log('\n\ndiaryResult:', diaryResult);
 
   const bodyWeightRawData = await dbFood.getRangeOfUsersBodyWeightEntries(userId, startDateUnix, endDateUnix);
-  diaryResult = foodService.extendDiary(diaryResult, 'targetKcals', {}, 2500);
+  console.log('\n\nbodyWeightRawData:', bodyWeightRawData);
 
-  const bodyWeightPrepped = foodService.organizeWeightsByDate(bodyWeightRawData);
+  const bodyWeightPrepped = foodService.organizeWeightsByDate(bodyWeightRawData, userTZOffsetHours, userPreferredMidnightOffsetHours); // prettier-ignore
+  console.log('\n\nbodyWeightPrepped:', bodyWeightPrepped);
   diaryResult = foodService.extendDiary(diaryResult, 'bodyWeight', bodyWeightPrepped, null);
+
+  diaryResult = foodService.extendDiary(diaryResult, 'targetKcals', {}, 2500); // TOOD: implement autocalc target kcals feature
+  console.log('\n\ndiaryResult:', diaryResult);
+
+  console.log('\n\ndiaryResult:', diaryResult);
 
   await reply.code(200).send(JSON.stringify(diaryResult));
 }
 
 /// DIARY //////////////////////////////////////////////////////////////////////
 
+export async function createDiaryEntry(request, reply) {
+  const { dateISO, foodCatalogueId, foodWeight, history } = request.body;
+  const userId = request.user.id;
+  const userTZOffsetHours = 4; // Это значение должно браться из настроек пользователя
+  const userPreferredMidnightOffsetHours = 5; // Это значение должно браться из настроек пользователя
+
+  try {
+    const unixTimestamp = await foodService.calculateEntryTimestamp(dateISO, userTZOffsetHours, userPreferredMidnightOffsetHours); // prettier-ignore
+    const historyStr = JSON.stringify(history);
+    const result = await dbFood.dbCreateDiaryEntry(unixTimestamp, foodCatalogueId, foodWeight, historyStr, userId);
+
+    if (result) {
+      return await reply.code(201).send({ result: true, diaryId: result });
+    }
+    return await reply.code(400).send({ result: false });
+  } catch (error) {
+    console.error('Error in createDiaryEntry:', error);
+    return await reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
+}
+
 export async function editDiaryEntry(request, reply) {
   const diaryEntry = request.body;
   const userId = request.user.id;
-  const historyString = await foodService.makeUpdatedHistoryString(diaryEntry.id, userId, diaryEntry.history[0]);
-  const res = await dbFood.dbEditDiaryEntry(diaryEntry.foodWeight, historyString, diaryEntry.id, userId);
-  reply.code(200).send({ result: res, diaryId: diaryEntry.id });
+  const historyStr = await foodService.makeUpdatedHistoryString(diaryEntry.id, userId, diaryEntry.history[0]);
+  const res = await dbFood.dbEditDiaryEntry(diaryEntry.foodWeight, historyStr, diaryEntry.id, userId);
+  return await reply.code(200).send({ result: res, diaryId: diaryEntry.id });
 }
+
 export async function postFood(request, reply) {
   const userId = request.user.id;
   console.log('request', request.body);
@@ -55,7 +93,7 @@ export async function getCatalogue(request, reply) {
   await reply.code(200).send(JSON.stringify(catalogue));
 }
 
-export async function addUserCatalogueEntry(request, reply) {
+export async function createCatalogueEntry(request, reply) {
   const { foodName, foodKcals } = request.body;
   const userId = request.user.id;
   const newFoodId = await dbFood.addFoodCatalogueEntry(foodName, foodKcals);
@@ -69,7 +107,7 @@ export async function addUserCatalogueEntry(request, reply) {
   await reply.code(400).send({ result: false });
 }
 
-export async function editUserCatalogueEntry(request, reply) {
+export async function editCatalogueEntry(request, reply) {
   const { foodId, foodName, foodKcals } = request.body;
   const result = await dbFood.updateFoodCatalogueEntry(foodId, foodName, foodKcals);
   if (result) {
@@ -96,12 +134,10 @@ export async function pickUserCatalogueEntry(request, reply) {
     const result = await addToUserCatalogue(userId, parseInt(foodId));
     if (result) {
       await reply.code(200).send({ result: true });
-    } else {
-      await reply.code(400).send({ result: false });
     }
+    await reply.code(400).send({ result: false });
   } catch (error) {
     console.error('Error in pickUserCatalogueEntry:', error);
-    await reply.code(500).send({ result: false, error: 'Internal server error' });
   }
 }
 

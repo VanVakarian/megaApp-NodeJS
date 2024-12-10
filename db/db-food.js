@@ -6,7 +6,7 @@ export async function getRangeOfUsersBodyWeightEntries(userId, startDateUnix, en
   const connection = await getConnection();
   try {
     const query = `
-      SELECT 
+      SELECT
         id, date, weight
       FROM
         foodBodyWeight
@@ -20,17 +20,31 @@ export async function getRangeOfUsersBodyWeightEntries(userId, startDateUnix, en
     return result;
   } catch (error) {
     console.error(error);
-   
   }
 }
 
 /// DIARY //////////////////////////////////////////////////////////////////////
 
+export async function dbCreateDiaryEntry(date, foodCatalogueId, foodWeight, history, userId) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      INSERT INTO foodDiary (date, foodCatalogueId, foodWeight, history, usersId, ver, del)
+      VALUES (?, ?, ?, ?, ?, ?, ?);
+    `;
+    const result = await connection.run(query, [date, foodCatalogueId, foodWeight, history, userId, 0, 0]);
+    return result.lastID;
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
+}
+
 export async function dbGetDiaryEntriesHistory(diaryId, userId) {
   const connection = await getConnection();
   try {
     const query = `
-      SELECT 
+      SELECT
         history
       FROM
         foodDiary
@@ -50,7 +64,7 @@ export async function getRangeOfUsersDiaryEntries(userId, startDateUnix, endDate
   const connection = await getConnection();
   try {
     const query = `
-      SELECT 
+      SELECT
         id, date, foodCatalogueId, foodWeight, history
       FROM
         foodDiary
@@ -72,8 +86,8 @@ export async function dbEditDiaryEntry(foodWeight, history, diaryId, userId) {
   const connection = await getConnection();
   try {
     const query = `
-      UPDATE 
-        foodDiary 
+      UPDATE
+        foodDiary
       SET
         foodWeight = ?, history = ?
       WHERE
@@ -86,6 +100,23 @@ export async function dbEditDiaryEntry(foodWeight, history, diaryId, userId) {
   } catch (error) {
     console.error(error);
     return false;
+  }
+}
+
+export async function getDiaryEntriesForDay(startOfDay, endOfDay) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      SELECT id, date
+      FROM foodDiary
+      WHERE date BETWEEN ? AND ?
+      ORDER BY date ASC;
+    `;
+    const result = await connection.all(query, [startOfDay, endOfDay]);
+    return result;
+  } catch (error) {
+    console.error('Error in getDiaryEntriesForDay:', error);
+    return [];
   }
 }
 
@@ -141,7 +172,7 @@ export async function getAllFoodCatalogueEntries() {
   const connection = await getConnection();
   try {
     const query = `
-      SELECT 
+      SELECT
         id, name, kcals
       FROM
         foodCatalogue
@@ -160,7 +191,7 @@ export async function getUsersFoodCatalogueIds(userId) {
   const connection = await getConnection();
   try {
     const query = `
-      SELECT 
+      SELECT
         selectedCatalogueIds
       FROM
         foodSettings
@@ -180,7 +211,7 @@ export async function updateUsersFoodCatalogueIdsList(selectedCatalogueIds, user
   try {
     const query = `
       UPDATE
-        foodSettings 
+        foodSettings
       SET
         selectedCatalogueIds = ?
       WHERE
