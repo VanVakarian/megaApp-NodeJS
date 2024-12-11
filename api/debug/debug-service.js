@@ -14,12 +14,6 @@ export async function pg2sqliteTransfer(oldUserId) {
     const catalogue = await dbDebug.readSourceCatalogue();
     const settings = await dbDebug.readSourceSettings();
 
-    // Converting ISO dates to UNIX time. Using a counter to give entries unique timestamps.
-    let counter = 36000; // plus 10 hours, so it's not like an entry was made at midnight.
-    diary.forEach((entry) => (entry.date = new Date(entry.date).getTime() / 1000 + counter++));
-    counter = 36000;
-    bodyWeights.forEach((entry) => (entry.date = new Date(entry.date).getTime() / 1000 + counter++));
-
     // Moving food ownership from 'foodCatalogue' table to 'foodSettings' table
     const catalogueIdsGroupedByUser = Object.fromEntries(Object.keys(INIT_USERS).map((userId) => [userId, []]));
     catalogue.forEach((catalogueEntry) => {

@@ -4,39 +4,26 @@ import * as foodService from './food-service.js';
 
 export async function getFoodDiaryFullUpdateRange(request, reply) {
   const userId = request.user.id;
-  console.log('\n\nuserId:', userId);
   const userTZOffsetHours = 4; // TODO: implement in settings
   const userPreferredMidnightOffsetHours = 5; // TODO: implement in settings
   const { date: dateIso, offset: offsetDaysStr } = request.query;
-  console.log('\n\ndateIso:', dateIso, 'offset:', offsetDaysStr);
   const offsetDaysNum = parseInt(offsetDaysStr);
-  console.log('\n\noffsetInDays:', offsetDaysNum);
 
   const datesIsoList = foodService.getDateRange(dateIso, offsetDaysNum, userTZOffsetHours, userPreferredMidnightOffsetHours);
-  console.log('\n\ndatesIsoList:', datesIsoList);
-  const [startDateUnix, endDateUnix] = utils.getStartAndEndUnixDates(dateIso, offsetDaysNum, userTZOffsetHours, userPreferredMidnightOffsetHours); // prettier-ignore
-  console.log('\n\nstartDateUnix:', startDateUnix, 'endDateUnix:', endDateUnix);
+  const [startDate, endDate] = utils.getStartAndEndDates(dateIso, offsetDaysNum);
 
   let diaryResult = Object.fromEntries(datesIsoList.map((date) => [date, {}]));
-  console.log('\n\ndiaryResult:', diaryResult);
 
-  const foodDiaryRawData = await dbFood.getRangeOfUsersDiaryEntries(userId, startDateUnix, endDateUnix);
-  console.log('\n\nfoodDiaryRawData:', foodDiaryRawData);
-  const foodDiaryPrepped = foodService.organizeByDatesAndIds(foodDiaryRawData, userTZOffsetHours, userPreferredMidnightOffsetHours); // prettier-ignore
+  const foodDiaryRawData = await dbFood.getRangeOfUsersDiaryEntries(userId, startDate, endDate);
+  const foodDiaryPrepped = foodService.organizeByDatesAndIds(foodDiaryRawData);
   diaryResult = foodService.extendDiary(diaryResult, 'food', foodDiaryPrepped, {});
-  console.log('\n\ndiaryResult:', diaryResult);
 
-  const bodyWeightRawData = await dbFood.getRangeOfUsersBodyWeightEntries(userId, startDateUnix, endDateUnix);
-  console.log('\n\nbodyWeightRawData:', bodyWeightRawData);
-
-  const bodyWeightPrepped = foodService.organizeWeightsByDate(bodyWeightRawData, userTZOffsetHours, userPreferredMidnightOffsetHours); // prettier-ignore
-  console.log('\n\nbodyWeightPrepped:', bodyWeightPrepped);
+  const bodyWeightRawData = await dbFood.getRangeOfUsersBodyWeightEntries(userId, startDate, endDate);
+  const bodyWeightPrepped = foodService.organizeWeightsByDate(bodyWeightRawData);
   diaryResult = foodService.extendDiary(diaryResult, 'bodyWeight', bodyWeightPrepped, null);
 
-  diaryResult = foodService.extendDiary(diaryResult, 'targetKcals', {}, 2500); // TOOD: implement autocalc target kcals feature
-  console.log('\n\ndiaryResult:', diaryResult);
-
-  console.log('\n\ndiaryResult:', diaryResult);
+  diaryResult = foodService.extendDiary(diaryResult, 'targetKcals', {}, 2500); // TODO: implement autocalc target kcals feature
+  console.log('diaryResult', JSON.stringify(diaryResult, null, 2));
 
   await reply.code(200).send(JSON.stringify(diaryResult));
 }
@@ -50,9 +37,8 @@ export async function createDiaryEntry(request, reply) {
   const userPreferredMidnightOffsetHours = 5; // Это значение должно браться из настроек пользователя
 
   try {
-    const unixTimestamp = await foodService.calculateEntryTimestamp(dateISO, userTZOffsetHours, userPreferredMidnightOffsetHours); // prettier-ignore
     const historyStr = JSON.stringify(history);
-    const result = await dbFood.dbCreateDiaryEntry(unixTimestamp, foodCatalogueId, foodWeight, historyStr, userId);
+    const result = await dbFood.dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, historyStr, userId);
 
     if (result) {
       return await reply.code(201).send({ result: true, diaryId: result });

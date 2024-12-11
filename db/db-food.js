@@ -2,21 +2,21 @@ import { getConnection } from './db.js';
 
 /// WEIGHTS ////////////////////////////////////////////////////////////////////
 
-export async function getRangeOfUsersBodyWeightEntries(userId, startDateUnix, endDateUnix) {
+export async function getRangeOfUsersBodyWeightEntries(userId, startDate, endDate) {
   const connection = await getConnection();
   try {
     const query = `
       SELECT
-        id, date, weight
+        id, dateISO, weight
       FROM
         foodBodyWeight
       WHERE
         usersId = ?
-        AND date BETWEEN ? AND ?
+        AND dateISO BETWEEN ? AND ?
       ORDER BY
-        date ASC;
+        dateISO ASC;
       `;
-    const result = await connection.all(query, [userId, startDateUnix, endDateUnix]);
+    const result = await connection.all(query, [userId, startDate, endDate]);
     return result;
   } catch (error) {
     console.error(error);
@@ -25,14 +25,14 @@ export async function getRangeOfUsersBodyWeightEntries(userId, startDateUnix, en
 
 /// DIARY //////////////////////////////////////////////////////////////////////
 
-export async function dbCreateDiaryEntry(date, foodCatalogueId, foodWeight, history, userId) {
+export async function dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, history, userId) {
   const connection = await getConnection();
   try {
     const query = `
-      INSERT INTO foodDiary (date, foodCatalogueId, foodWeight, history, usersId, ver, del)
+      INSERT INTO foodDiary (dateISO, foodCatalogueId, foodWeight, history, usersId, ver, del)
       VALUES (?, ?, ?, ?, ?, ?, ?);
     `;
-    const result = await connection.run(query, [date, foodCatalogueId, foodWeight, history, userId, 0, 0]);
+    const result = await connection.run(query, [dateISO, foodCatalogueId, foodWeight, history, userId, 0, 0]);
     return result.lastID;
   } catch (error) {
     console.error(error);
@@ -60,21 +60,21 @@ export async function dbGetDiaryEntriesHistory(diaryId, userId) {
   }
 }
 
-export async function getRangeOfUsersDiaryEntries(userId, startDateUnix, endDateUnix) {
+export async function getRangeOfUsersDiaryEntries(userId, startDate, endDate) {
   const connection = await getConnection();
   try {
     const query = `
       SELECT
-        id, date, foodCatalogueId, foodWeight, history
+        id, dateISO, foodCatalogueId, foodWeight, history
       FROM
         foodDiary
       WHERE
         usersId = ?
-        AND date BETWEEN ? AND ?
+        AND dateISO BETWEEN ? AND ?
       ORDER BY
-        date ASC;
+        dateISO ASC;
       `;
-    const result = await connection.all(query, [userId, startDateUnix, endDateUnix]);
+    const result = await connection.all(query, [userId, startDate, endDate]);
     return result;
   } catch (error) {
     console.error(error);

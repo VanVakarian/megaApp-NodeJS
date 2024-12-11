@@ -109,6 +109,7 @@ export async function clearWholeTargetTable(tableName) {
 
 export async function writeTargetDiary(listOfDicts) {
   const connection = await getConnection();
+
   for (let i = 0; i < listOfDicts.length; i += BATCH_SIZE) {
     const batch = listOfDicts.slice(i, i + BATCH_SIZE);
     const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
@@ -121,9 +122,10 @@ export async function writeTargetDiary(listOfDicts) {
       1,
       false,
     ]);
+
     await connection.run(
       `
-      INSERT INTO foodDiary (date, foodCatalogueId, foodWeight, history, usersId, ver, del)
+      INSERT INTO foodDiary (dateISO, foodCatalogueId, foodWeight, history, usersId, ver, del)
       VALUES ${placeholders}
       `,
       values
@@ -139,7 +141,7 @@ export async function writeTargetWeights(listOfDicts) {
     const values = batch.flatMap((item) => [item.date, item.weight, item.users_id]);
     await connection.run(
       `
-      INSERT INTO foodBodyWeight (date, weight, usersId)
+      INSERT INTO foodBodyWeight (dateISO, weight, usersId)
       VALUES ${placeholders}
       `,
       values

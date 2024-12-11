@@ -11,30 +11,18 @@ export function isValidUnixDate(dateUnix) {
   return !isNaN(new Date(dateUnix * 1000).getTime());
 }
 
-export function getStartAndEndUnixDates(dateIso, offsetInDays, userTZOffsetHours, userPreferredMidnightOffsetHours) {
+export function getStartAndEndDates(dateIso, offsetInDays) {
   const originalDate = new Date(dateIso);
 
-  // Вычисляем общее смещение
-  const totalOffset = -userTZOffsetHours + userPreferredMidnightOffsetHours;
+  const startDate = new Date(originalDate);
+  startDate.setDate(startDate.getDate() - offsetInDays);
+  const startDateISO = startDate.toISOString().split('T')[0];
 
-  // Устанавливаем начальную дату
-  const startDate = new Date(
-    Date.UTC(originalDate.getUTCFullYear(), originalDate.getUTCMonth(), originalDate.getUTCDate() - offsetInDays)
-  );
-  // Применяем общее смещение
-  startDate.setUTCHours(startDate.getUTCHours() + totalOffset, 0, 0, 0);
+  const endDate = new Date(originalDate);
+  endDate.setDate(endDate.getDate() + offsetInDays + 1);
+  const endDateISO = endDate.toISOString().split('T')[0];
 
-  // Устанавливаем конечную дату
-  const endDate = new Date(
-    Date.UTC(originalDate.getUTCFullYear(), originalDate.getUTCMonth(), originalDate.getUTCDate() + offsetInDays + 1)
-  );
-  // Применяем то же самое общее смещение
-  endDate.setUTCHours(endDate.getUTCHours() + totalOffset, 0, 0, 0);
-
-  const startDateUnix = Math.floor(startDate.getTime() / 1000);
-  const endDateUnix = Math.floor(endDate.getTime() / 1000);
-
-  return [startDateUnix, endDateUnix];
+  return [startDateISO, endDateISO];
 }
 
 export async function sleep(ms) {
