@@ -1,4 +1,3 @@
-import * as authController from '../auth/auth-controller.js';
 import * as debugController from './debug-controller.js';
 
 export async function debugRoutes(fastify) {

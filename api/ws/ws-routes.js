@@ -1,4 +1,4 @@
-import * as wsService  from './ws-service.js';
+import * as wsService from './ws-service.js';
 
 export async function websocketRoutes(fastify) {
   fastify.get('/', { schema: { tags: ['ws'] }, websocket: true }, (socket, req) => {

@@ -112,4 +112,19 @@ export async function foodRoutes(fastify) {
     preValidation: [authController.authMiddleware],
     handler: foodController.editDiaryEntry,
   });
+
+  fastify.delete('/diary/:diaryId', {
+    schema: {
+      tags: ['food'],
+      params: {
+        type: 'object',
+        properties: {
+          diaryId: { type: 'string', pattern: '^[0-9]+$' },
+        },
+        required: ['diaryId'],
+      },
+    },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.deleteDiaryEntry,
+  });
 }

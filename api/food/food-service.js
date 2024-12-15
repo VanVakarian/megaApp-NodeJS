@@ -2,9 +2,8 @@ import * as dbFood from '../../db/db-food.js';
 
 // import { FOOD_FETCH_DAYS_RANGE_OFFSET } from '../../env.js';
 
-export function getDateRange(dateIso, fetchDaysRangeOffset, userTZOffsetHours, userPreferredMidnightOffsetHours) {
+export function getDateRange(dateIso, fetchDaysRangeOffset) {
   const date = new Date(dateIso);
-  date.setUTCHours(userPreferredMidnightOffsetHours - userTZOffsetHours, 0, 0, 0);
   const result = [];
   for (let i = -fetchDaysRangeOffset; i <= fetchDaysRangeOffset; i++) {
     const d = new Date(date);

@@ -4,12 +4,12 @@ import * as foodService from './food-service.js';
 
 export async function getFoodDiaryFullUpdateRange(request, reply) {
   const userId = request.user.id;
-  const userTZOffsetHours = 4; // TODO: implement in settings
-  const userPreferredMidnightOffsetHours = 5; // TODO: implement in settings
+  // const userTZOffsetHours = 4; // TODO: implement in settings // don't need here anymore?
+  // const userPreferredMidnightOffsetHours = 5; // TODO: implement in settings // don't need here anymore?
   const { date: dateIso, offset: offsetDaysStr } = request.query;
   const offsetDaysNum = parseInt(offsetDaysStr);
 
-  const datesIsoList = foodService.getDateRange(dateIso, offsetDaysNum, userTZOffsetHours, userPreferredMidnightOffsetHours);
+  const datesIsoList = foodService.getDateRange(dateIso, offsetDaysNum);
   const [startDate, endDate] = utils.getStartAndEndDates(dateIso, offsetDaysNum);
 
   let diaryResult = Object.fromEntries(datesIsoList.map((date) => [date, {}]));
@@ -23,7 +23,7 @@ export async function getFoodDiaryFullUpdateRange(request, reply) {
   diaryResult = foodService.extendDiary(diaryResult, 'bodyWeight', bodyWeightPrepped, null);
 
   diaryResult = foodService.extendDiary(diaryResult, 'targetKcals', {}, 2500); // TODO: implement autocalc target kcals feature
-  console.log('diaryResult', JSON.stringify(diaryResult, null, 2));
+  // console.log('diaryResult', JSON.stringify(diaryResult, null, 2));
 
   await reply.code(200).send(JSON.stringify(diaryResult));
 }
@@ -56,6 +56,22 @@ export async function editDiaryEntry(request, reply) {
   const historyStr = await foodService.makeUpdatedHistoryString(diaryEntry.id, userId, diaryEntry.history[0]);
   const res = await dbFood.dbEditDiaryEntry(diaryEntry.foodWeight, historyStr, diaryEntry.id, userId);
   return await reply.code(200).send({ result: res, diaryId: diaryEntry.id });
+}
+
+export async function deleteDiaryEntry(request, reply) {
+  const { diaryId } = request.params;
+  const userId = request.user.id;
+
+  try {
+    const result = await dbFood.dbDeleteDiaryEntry(diaryId, userId);
+    if (result) {
+      return await reply.code(200).send({ result: true });
+    }
+    return await reply.code(404).send({ result: false, error: 'Entry not found' });
+  } catch (error) {
+    console.error('Error deleting diary entry:', error);
+    return await reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
 }
 
 export async function postFood(request, reply) {

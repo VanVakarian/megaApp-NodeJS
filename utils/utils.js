@@ -12,14 +12,13 @@ export function isValidUnixDate(dateUnix) {
 }
 
 export function getStartAndEndDates(dateIso, offsetInDays) {
-  const originalDate = new Date(dateIso);
-
-  const startDate = new Date(originalDate);
-  startDate.setDate(startDate.getDate() - offsetInDays);
+  const date = new Date(dateIso);
+  const startDate = new Date(date);
+  startDate.setDate(date.getDate() - offsetInDays);
   const startDateISO = startDate.toISOString().split('T')[0];
 
-  const endDate = new Date(originalDate);
-  endDate.setDate(endDate.getDate() + offsetInDays + 1);
+  const endDate = new Date(date);
+  endDate.setDate(date.getDate() + offsetInDays + 1);
   const endDateISO = endDate.toISOString().split('T')[0];
 
   return [startDateISO, endDateISO];

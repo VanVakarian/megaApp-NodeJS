@@ -1,5 +1,4 @@
 import { getConnection } from './db.js';
-import * as dbUtils from './utils.js';
 
 export async function getUsersSettings(userId) {
   const connection = await getConnection();

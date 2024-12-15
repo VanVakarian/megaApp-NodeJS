@@ -1,18 +1,18 @@
-import path from 'path';
-import { fileURLToPath } from 'url';
-import Fastify from 'fastify';
 import fastifyCompress from '@fastify/compress';
 import fastifyJwt from '@fastify/jwt';
-import fastifyWebSocket from '@fastify/websocket';
+import staticServe from '@fastify/static';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
-import staticServe from '@fastify/static';
+import fastifyWebSocket from '@fastify/websocket';
+import Fastify from 'fastify';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 import { initDatabase } from './db/init.js';
 
 import { authRoutes } from './api/auth/auth-routes.js';
-import { foodRoutes } from './api/food/food-routes.js';
 import { debugRoutes } from './api/debug/debug-routes.js';
+import { foodRoutes } from './api/food/food-routes.js';
 import { settingsRoutes } from './api/settings/settings-routes.js';
 import { websocketRoutes } from './api/ws/ws-routes.js';
 
@@ -46,9 +46,9 @@ server.register(staticServe, {
   prefix: '/',
 });
 
-server.get('/', async (request, reply) => {
-  return reply.sendFile('index.html');
-});
+// server.get('/', async (request, reply) => {
+//   return reply.sendFile('index.html');
+// });
 
 server.listen({ port: APP_PORT, host: APP_IP }, (err, address) => {
   if (err) {

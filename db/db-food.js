@@ -103,6 +103,24 @@ export async function dbEditDiaryEntry(foodWeight, history, diaryId, userId) {
   }
 }
 
+export async function dbDeleteDiaryEntry(diaryId, userId) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      DELETE FROM
+        foodDiary
+      WHERE
+        id = ?
+        AND usersId = ?;
+    `;
+    const result = await connection.run(query, [diaryId, userId]);
+    return result.changes > 0;
+  } catch (error) {
+    console.error(error);
+    return false;
+  }
+}
+
 export async function getDiaryEntriesForDay(startOfDay, endOfDay) {
   const connection = await getConnection();
   try {
