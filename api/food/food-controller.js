@@ -2,6 +2,8 @@ import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
 import * as foodService from './food-service.js';
 
+//                                                                   FULL UPDATE
+
 export async function getFoodDiaryFullUpdateRange(request, reply) {
   const userId = request.user.id;
   // const userTZOffsetHours = 4; // TODO: implement in settings // don't need here anymore?
@@ -28,7 +30,7 @@ export async function getFoodDiaryFullUpdateRange(request, reply) {
   await reply.code(200).send(JSON.stringify(diaryResult));
 }
 
-/// DIARY //////////////////////////////////////////////////////////////////////
+//                                                                         DIARY
 
 export async function createDiaryEntry(request, reply) {
   const { dateISO, foodCatalogueId, foodWeight, history } = request.body;
@@ -43,7 +45,7 @@ export async function createDiaryEntry(request, reply) {
     if (result) {
       return await reply.code(201).send({ result: true, diaryId: result });
     }
-    return await reply.code(400).send({ result: false });
+    return await reply.code(400).send({ result: false, error: 'Diary entry not created' });
   } catch (error) {
     console.error('Error in createDiaryEntry:', error);
     return await reply.code(500).send({ result: false, error: 'Internal server error' });
@@ -88,7 +90,7 @@ export async function postFood(request, reply) {
   await reply.code(200).send(JSON.stringify({ tempFoodId: request.body.foodId, newFoodId: 777 }));
 }
 
-/// MAIN CATALOGUE /////////////////////////////////////////////////////////////
+//                                                                MAIN CATALOGUE
 
 export async function getCatalogue(request, reply) {
   const catalogue = await foodService.formFoodCatalogue();
@@ -106,7 +108,7 @@ export async function createCatalogueEntry(request, reply) {
       return;
     }
   }
-  await reply.code(400).send({ result: false });
+  await reply.code(400).send({ result: false, error: 'Catalogue entry not created' });
 }
 
 export async function editCatalogueEntry(request, reply) {
@@ -116,10 +118,10 @@ export async function editCatalogueEntry(request, reply) {
     await reply.code(200).send({ result: true, id: foodId, name: foodName, kcals: foodKcals });
     return;
   }
-  await reply.code(400).send({ result: false });
+  await reply.code(400).send({ result: false, error: 'Catalogue entry not found' });
 }
 
-/// USER CATALOGUE /////////////////////////////////////////////////////////////
+//                                                                USER CATALOGUE
 
 export async function getMyCatalogue(request, reply) {
   const userId = request.user.id;
@@ -137,9 +139,10 @@ export async function pickUserCatalogueEntry(request, reply) {
     if (result) {
       await reply.code(200).send({ result: true });
     }
-    await reply.code(400).send({ result: false });
+    await reply.code(400).send({ result: false, error: 'Catalogue entry not found' });
   } catch (error) {
     console.error('Error in pickUserCatalogueEntry:', error);
+    await reply.code(500).send({ result: false, error: 'Internal server error' });
   }
 }
 
@@ -172,5 +175,39 @@ export async function dismissUserCatalogueEntry(request, reply) {
       }
     }
   }
-  await reply.code(400).send({ result: false });
+  await reply.code(400).send({ result: false, error: 'Catalogue entry not found' });
+}
+
+//                                                                   BODY WEIGHT
+
+export async function processWeight(request, reply) {
+  const { dateISO, bodyWeight } = request.body;
+  const userId = request.user.id;
+  const weight = parseFloat(bodyWeight);
+
+  // return await reply.code(500).send({ result: false, error: 'Internal server error' });
+  // return await reply.code(400).send({ result: false, error: 'Weight not saved' });
+  if (isNaN(weight)) {
+    return await reply.code(400).send({ result: false, error: 'Invalid weight value' });
+  }
+
+  try {
+    const existingWeight = await dbFood.getWeightByDate(dateISO, userId);
+    let result;
+
+    if (existingWeight) {
+      result = await dbFood.dbUpdateWeight(weight, dateISO, userId);
+    } else {
+      result = await dbFood.dbCreateWeight(dateISO, weight, userId);
+    }
+
+    if (result) {
+      return await reply.code(201).send({ result: true });
+    } else {
+      return await reply.code(400).send({ result: false, error: 'Weight not saved' });
+    }
+  } catch (error) {
+    console.error('Error saving weight:', error);
+    return await reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
 }

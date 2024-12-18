@@ -1,36 +1,15 @@
 import { getConnection } from './db.js';
 
-/// WEIGHTS ////////////////////////////////////////////////////////////////////
-
-export async function getRangeOfUsersBodyWeightEntries(userId, startDate, endDate) {
-  const connection = await getConnection();
-  try {
-    const query = `
-      SELECT
-        id, dateISO, weight
-      FROM
-        foodBodyWeight
-      WHERE
-        usersId = ?
-        AND dateISO BETWEEN ? AND ?
-      ORDER BY
-        dateISO ASC;
-      `;
-    const result = await connection.all(query, [userId, startDate, endDate]);
-    return result;
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-/// DIARY //////////////////////////////////////////////////////////////////////
+//                                                                         DIARY
 
 export async function dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, history, userId) {
   const connection = await getConnection();
   try {
     const query = `
-      INSERT INTO foodDiary (dateISO, foodCatalogueId, foodWeight, history, usersId, ver, del)
-      VALUES (?, ?, ?, ?, ?, ?, ?);
+      INSERT INTO
+        foodDiary (dateISO, foodCatalogueId, foodWeight, history, usersId, ver, del)
+      VALUES
+        (?, ?, ?, ?, ?, ?, ?);
     `;
     const result = await connection.run(query, [dateISO, foodCatalogueId, foodWeight, history, userId, 0, 0]);
     return result.lastID;
@@ -138,7 +117,7 @@ export async function getDiaryEntriesForDay(startOfDay, endOfDay) {
   }
 }
 
-/// CATALOGUE //////////////////////////////////////////////////////////////////
+//                                                                MAIN CATALOGUE
 
 export async function addFoodCatalogueEntry(foodName, foodKcals) {
   const connection = await getConnection();
@@ -205,6 +184,8 @@ export async function getAllFoodCatalogueEntries() {
   }
 }
 
+//                                                                USER CATALOGUE
+
 export async function getUsersFoodCatalogueIds(userId) {
   const connection = await getConnection();
   try {
@@ -240,5 +221,81 @@ export async function updateUsersFoodCatalogueIdsList(selectedCatalogueIds, user
   } catch (error) {
     console.error(error);
     return false;
+  }
+}
+
+//                                                                   BODY WEIGHT
+
+export async function getWeightByDate(dateISO, userId) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      SELECT id, weight
+      FROM foodBodyWeight
+      WHERE dateISO = ? AND usersId = ?;
+    `;
+    const result = await connection.get(query, [dateISO, userId]);
+    return result;
+  } catch (error) {
+    console.error('Error getting weight:', error);
+    throw error;
+  }
+}
+
+export async function getRangeOfUsersBodyWeightEntries(userId, startDate, endDate) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      SELECT
+        id, dateISO, weight
+      FROM
+        foodBodyWeight
+      WHERE
+        usersId = ?
+        AND dateISO BETWEEN ? AND ?
+      ORDER BY
+        dateISO ASC;
+    `;
+    const result = await connection.all(query, [userId, startDate, endDate]);
+    return result;
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+export async function dbCreateWeight(dateISO, weight, userId) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      INSERT INTO
+        foodBodyWeight (dateISO, weight, usersId)
+      VALUES
+        (?, ?, ?);
+    `;
+    const result = await connection.run(query, [dateISO, weight, userId]);
+    return result.lastID;
+  } catch (error) {
+    console.error('Error creating weight:', error);
+    throw error;
+  }
+}
+
+export async function dbUpdateWeight(weight, dateISO, userId) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      UPDATE
+        foodBodyWeight
+      SET
+        weight = ?
+      WHERE
+        dateISO = ?
+        AND usersId = ?;
+    `;
+    const result = await connection.run(query, [weight, dateISO, userId]);
+    return result.changes > 0;
+  } catch (error) {
+    console.error('Error updating weight:', error);
+    throw error;
   }
 }

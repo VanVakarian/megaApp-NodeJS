@@ -2,12 +2,14 @@ import * as authController from '../auth/auth-controller.js';
 import * as foodController from './food-controller.js';
 
 export async function foodRoutes(fastify) {
+  //                                                           FULL UPDATE ROUTE
   fastify.get('/diary-full-update', {
     schema: { tags: ['food'] },
     preValidation: [authController.authMiddleware],
     handler: foodController.getFoodDiaryFullUpdateRange,
   });
 
+  //                                                                DIARY ROUTES
   fastify.post('/diary/', {
     schema: {
       tags: ['food'],
@@ -26,6 +28,34 @@ export async function foodRoutes(fastify) {
     handler: foodController.createDiaryEntry,
   });
 
+  fastify.post('/', {
+    schema: { tags: ['food'] },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.postFood,
+  });
+
+  fastify.put('/diary', {
+    schema: { tags: ['food'] },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.editDiaryEntry,
+  });
+
+  fastify.delete('/diary/:diaryId', {
+    schema: {
+      tags: ['food'],
+      params: {
+        type: 'object',
+        properties: {
+          diaryId: { type: 'string', pattern: '^[0-9]+$' },
+        },
+        required: ['diaryId'],
+      },
+    },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.deleteDiaryEntry,
+  });
+
+  //                                                       MAIN CATALOGUE ROUTES
   fastify.get('/catalogue', {
     schema: { tags: ['food'] },
     preValidation: [authController.authMiddleware],
@@ -65,6 +95,7 @@ export async function foodRoutes(fastify) {
     handler: foodController.editCatalogueEntry,
   });
 
+  //                                                       USER CATALOGUE ROUTES
   fastify.get('/user-catalogue', {
     schema: { tags: ['food'] },
     preValidation: [authController.authMiddleware],
@@ -101,30 +132,20 @@ export async function foodRoutes(fastify) {
     handler: foodController.dismissUserCatalogueEntry,
   });
 
-  fastify.post('/', {
-    schema: { tags: ['food'] },
-    preValidation: [authController.authMiddleware],
-    handler: foodController.postFood,
-  });
-
-  fastify.put('/diary', {
-    schema: { tags: ['food'] },
-    preValidation: [authController.authMiddleware],
-    handler: foodController.editDiaryEntry,
-  });
-
-  fastify.delete('/diary/:diaryId', {
+  //                                                               WEIGHT ROUTES
+  fastify.post('/body_weight/', {
     schema: {
       tags: ['food'],
-      params: {
+      body: {
         type: 'object',
         properties: {
-          diaryId: { type: 'string', pattern: '^[0-9]+$' },
+          bodyWeight: { type: 'string' },
+          dateISO: { type: 'string', format: 'date' },
         },
-        required: ['diaryId'],
+        required: ['bodyWeight', 'dateISO'],
       },
     },
     preValidation: [authController.authMiddleware],
-    handler: foodController.deleteDiaryEntry,
+    handler: foodController.processWeight,
   });
 }
