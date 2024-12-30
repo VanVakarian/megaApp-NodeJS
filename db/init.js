@@ -160,11 +160,11 @@ async function addUserIfNotExists(user) {
 }
 
 export async function initDatabase() {
-  if (RECHECK_DB) {
-    await createTablesIfNotExist();
+  await createTablesIfNotExist();
 
-    Object.entries(INIT_USERS).forEach(async ([key, value]) => {
-      await addUserIfNotExists(value);
-    });
+  if (RECHECK_DB) {
+    for (const user of INIT_USERS) {
+      await addUserIfNotExists(user);
+    }
   }
 }
