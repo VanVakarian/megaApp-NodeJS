@@ -85,7 +85,8 @@ async function createTablesIfNotExist() {
       usersId INTEGER,
       darkTheme BOOLEAN,
       selectedChapterFood BOOLEAN,
-      selectedChapterMoney BOOLEAN
+      selectedChapterMoney BOOLEAN,
+      height INTEGER
     );
     `,
 
@@ -160,9 +161,9 @@ async function addUserIfNotExists(user) {
 }
 
 export async function initDatabase() {
-  await createTablesIfNotExist();
-
   if (RECHECK_DB) {
+    await createTablesIfNotExist();
+
     for (const user of INIT_USERS) {
       await addUserIfNotExists(user);
     }

@@ -3,4 +3,5 @@ export const defaultSettings = {
   darkTheme: false,
   selectedChapterFood: false,
   selectedChapterMoney: false,
+  height: null,
 };

@@ -3,7 +3,14 @@ import { getConnection } from './db.js';
 export async function getUsersSettings(userId) {
   const connection = await getConnection();
   try {
-    const query = 'SELECT darkTheme, selectedChapterFood, selectedChapterMoney FROM settings WHERE usersId = ?';
+    const query = `
+      SELECT
+        darkTheme, selectedChapterFood, selectedChapterMoney, height
+      FROM
+        settings
+      WHERE
+        usersId = ?
+    `;
     const result = await connection.get(query, [userId]);
 
     if (result) {
@@ -22,7 +29,14 @@ export async function getUsersSettings(userId) {
 export async function postUsersSettings(userId, settings) {
   const connection = await getConnection();
   try {
-    const checkQuery = 'SELECT COUNT(*) as count FROM settings WHERE usersId = ?';
+    const checkQuery = `
+      SELECT
+        COUNT(*) as count
+      FROM
+        settings
+      WHERE
+        usersId = ?
+    `;
     const checkResult = await connection.get(checkQuery, [userId]);
 
     if (checkResult.count > 0) {
@@ -40,14 +54,18 @@ export async function updateUserSettings(userId, settings) {
   const connection = await getConnection();
   try {
     const updateQuery = `
-      UPDATE settings
-      SET darkTheme = ?, selectedChapterFood = ?, selectedChapterMoney = ?
-      WHERE usersId = ?
+      UPDATE
+        settings
+      SET
+        darkTheme = ?, selectedChapterFood = ?, selectedChapterMoney = ?, height = ?
+      WHERE
+        usersId = ?
     `;
     await connection.run(updateQuery, [
       settings.darkTheme,
       settings.selectedChapterFood,
       settings.selectedChapterMoney,
+      settings.height,
       userId,
     ]);
   } catch (error) {
@@ -60,14 +78,17 @@ export async function createUserSettings(userId, settings) {
   const connection = await getConnection();
   try {
     const insertQuery = `
-        INSERT INTO settings (usersId, darkTheme, selectedChapterFood, selectedChapterMoney)
-        VALUES (?, ?, ?, ?)
-      `;
+      INSERT INTO
+        settings (usersId, darkTheme, selectedChapterFood, selectedChapterMoney, height)
+      VALUES
+        (?, ?, ?, ?, ?)
+    `;
     await connection.run(insertQuery, [
       userId,
       settings.darkTheme,
       settings.selectedChapterFood,
       settings.selectedChapterMoney,
+      settings.height,
     ]);
   } catch (error) {
     console.error(error);
