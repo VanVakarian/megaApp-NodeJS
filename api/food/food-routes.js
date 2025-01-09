@@ -28,12 +28,6 @@ export async function foodRoutes(fastify) {
     handler: foodController.createDiaryEntry,
   });
 
-  fastify.post('/', {
-    schema: { tags: ['food'] },
-    preValidation: [authController.authMiddleware],
-    handler: foodController.postFood,
-  });
-
   fastify.put('/diary', {
     schema: { tags: ['food'] },
     preValidation: [authController.authMiddleware],

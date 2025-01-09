@@ -4,9 +4,9 @@ export async function register(request, reply) {
   const { username, password } = request.body;
   try {
     await authService.register(username, password);
-    reply.code(201).send({ message: 'User created successfully' });
+    return reply.code(201).send({ message: 'User created successfully' });
   } catch (error) {
-    reply.code(400).send({ detail: error.message });
+    return reply.code(400).send({ detail: error.message });
   }
 }
 
@@ -14,9 +14,9 @@ export async function login(request, reply) {
   const { username, password } = request.body;
   try {
     const tokens = await authService.login(username, password);
-    reply.send(tokens);
+    return reply.send(tokens);
   } catch (error) {
-    reply.code(401).send({ detail: error.message });
+    return reply.code(401).send({ detail: error.message });
   }
 }
 
@@ -24,9 +24,9 @@ export async function refresh(request, reply) {
   const { refreshToken } = request.body;
   try {
     const tokens = await authService.refreshToken(refreshToken);
-    reply.send(tokens);
+    return reply.send(tokens);
   } catch (error) {
-    reply.code(401).send({ detail: error.message });
+    return reply.code(401).send({ detail: error.message });
   }
 }
 
@@ -45,6 +45,6 @@ export async function authMiddleware(request, reply) {
     request.user = decoded;
   } catch (error) {
     // console.log('error', error);
-    reply.code(401).send({ detail: 'Invalid token' });
+    return reply.code(401).send({ detail: 'Invalid token' });
   }
 }

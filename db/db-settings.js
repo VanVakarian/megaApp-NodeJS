@@ -95,3 +95,22 @@ export async function createUserSettings(userId, settings) {
     throw new Error('Failed to create settings');
   }
 }
+
+export async function updateSingleSetting(userId, setting, value) {
+  const connection = await getConnection();
+  try {
+    const updateQuery = `
+      UPDATE
+        settings
+      SET
+        ${setting} = ?
+      WHERE
+        usersId = ?
+    `;
+
+    await connection.run(updateQuery, [value, userId]);
+  } catch (error) {
+    console.error(error);
+    throw new Error('Failed to update setting');
+  }
+}
