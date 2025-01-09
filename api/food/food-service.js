@@ -83,3 +83,61 @@ export async function updateDiaryEntryInDB(foodWeight, updatedHistory, diaryId, 
   const historyString = JSON.stringify(updatedHistory);
   return await dbFood.dbEditDiaryEntry(foodWeight, historyString, diaryId, userId);
 }
+
+export async function calculateTargetKcals(userId, endDate) {
+  const DAYS_AVG_7 = 7;
+  const DAYS_AVG_60 = 60;
+  const KCALS_IN_1_KG = 7700;
+
+  const startDate = await dbFood.getUserFirstDate(userId);
+  const diaryHistory = await dbFood.getDiaryEntriesHistory(userId, startDate, endDate);
+  const weightHistory = await dbFood.getWeightHistory(userId, startDate, endDate);
+
+  const dailyKcals = {};
+  const dailyWeights = {};
+  const targetKcals = {};
+  const smoothedTargetKcals = {};
+
+  weightHistory.forEach((entry) => {
+    dailyWeights[entry.dateISO] = entry.weight;
+  });
+
+  diaryHistory.forEach((entry) => {
+    if (!dailyKcals[entry.dateISO]) {
+      dailyKcals[entry.dateISO] = 0;
+    }
+    dailyKcals[entry.dateISO] += (entry.foodWeight / 100) * entry.kcals;
+  });
+
+  const dates = Object.keys(dailyKcals).sort();
+
+  for (let i = DAYS_AVG_7; i < dates.length; i++) {
+    const currentDate = dates[i];
+    const startIdx = i - DAYS_AVG_7;
+
+    if (dailyWeights[currentDate] && dailyWeights[dates[startIdx]]) {
+      const weightDiff = dailyWeights[currentDate] - dailyWeights[dates[startIdx]];
+      const kcalsInPeriod = dates.slice(startIdx, i + 1).reduce((sum, date) => sum + (dailyKcals[date] || 0), 0);
+
+      const avgDailyKcals = (kcalsInPeriod - weightDiff * KCALS_IN_1_KG) / DAYS_AVG_7;
+      targetKcals[currentDate] = Math.round(avgDailyKcals);
+    }
+  }
+
+  for (let i = DAYS_AVG_60; i < dates.length; i++) {
+    const currentDate = dates[i];
+    const startIdx = i - DAYS_AVG_60;
+
+    const kcalsToAverage = dates
+      .slice(startIdx, i + 1)
+      .filter((date) => targetKcals[date])
+      .map((date) => targetKcals[date]);
+
+    if (kcalsToAverage.length > 0) {
+      const avgKcals = kcalsToAverage.reduce((sum, kcals) => sum + kcals, 0) / kcalsToAverage.length;
+      smoothedTargetKcals[currentDate] = Math.round(avgKcals);
+    }
+  }
+
+  return smoothedTargetKcals;
+}

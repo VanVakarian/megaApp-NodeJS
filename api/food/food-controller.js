@@ -24,8 +24,8 @@ export async function getFoodDiaryFullUpdateRange(request, reply) {
   const bodyWeightPrepped = foodService.organizeWeightsByDate(bodyWeightRawData);
   diaryResult = foodService.extendDiary(diaryResult, 'bodyWeight', bodyWeightPrepped, null);
 
-  diaryResult = foodService.extendDiary(diaryResult, 'targetKcals', {}, 2500); // TODO: implement autocalc target kcals feature
-  // console.log('diaryResult', JSON.stringify(diaryResult, null, 2));
+  const targetKcals = await foodService.calculateTargetKcals(userId, endDate);
+  diaryResult = foodService.extendDiary(diaryResult, 'targetKcals', targetKcals, 0);
 
   return reply.code(200).send(JSON.stringify(diaryResult));
 }

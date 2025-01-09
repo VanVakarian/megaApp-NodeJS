@@ -117,6 +117,54 @@ export async function getDiaryEntriesForDay(startOfDay, endOfDay) {
   }
 }
 
+export async function getDiaryEntriesHistory(userId, startDate, endDate) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      SELECT
+        d.dateISO,
+        d.foodWeight,
+        c.kcals
+      FROM
+        foodDiary d
+        JOIN foodCatalogue c ON d.foodCatalogueId = c.id
+      WHERE
+        d.usersId = ?
+        AND d.dateISO BETWEEN ? AND ?
+      ORDER BY
+        d.dateISO ASC;
+    `;
+    const result = await connection.all(query, [userId, startDate, endDate]);
+    return result;
+  } catch (error) {
+    console.error(error);
+    return [];
+  }
+}
+
+export async function getUserFirstDate(userId) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      SELECT
+        MIN(date) as firstDate
+      FROM (
+        SELECT dateISO as date FROM foodDiary WHERE usersId = ?
+          UNION
+        SELECT dateISO as date FROM foodBodyWeight WHERE usersId = ?
+      );
+    `;
+    const result = await connection.get(query, [userId, userId]);
+    return result.firstDate;
+  } catch (error) {
+    console.error(error);
+    // Return date from 2 months ago as fallback
+    const date = new Date();
+    date.setMonth(date.getMonth() - 2);
+    return date.toISOString().split('T')[0];
+  }
+}
+
 //                                                                MAIN CATALOGUE
 
 export async function addFoodCatalogueEntry(foodName, foodKcals) {
@@ -297,5 +345,28 @@ export async function dbUpdateWeight(weight, dateISO, userId) {
   } catch (error) {
     console.error('Error updating weight:', error);
     throw error;
+  }
+}
+
+export async function getWeightHistory(userId, startDate, endDate) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      SELECT
+        dateISO,
+        weight
+      FROM
+        foodBodyWeight
+      WHERE
+        usersId = ?
+        AND dateISO BETWEEN ? AND ?
+      ORDER BY
+        dateISO ASC;
+    `;
+    const result = await connection.all(query, [userId, startDate, endDate]);
+    return result;
+  } catch (error) {
+    console.error(error);
+    return [];
   }
 }
