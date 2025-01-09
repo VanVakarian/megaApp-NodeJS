@@ -42,9 +42,9 @@ export function organizeByDatesAndIds(inboundList) {
   return resultDict;
 }
 
-export function extendDiary(targetDict, propertyName, value, valueIfNone) {
+export function extendDiary(targetDict, propertyName, value, defaultValue) {
   for (const date in targetDict) {
-    targetDict[date][propertyName] = value[date] || valueIfNone;
+    targetDict[date][propertyName] = value[date] || defaultValue;
   }
   return targetDict;
 }

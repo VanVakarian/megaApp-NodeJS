@@ -7,10 +7,7 @@ export async function getSettings(request, reply) {
   if (!userId) return reply.code(401).send({ message: 'Unauthorized' });
 
   try {
-    let settings = await dbSettings.getUsersSettings(userId);
-    if (settings === undefined) {
-      settings = defaultSettings;
-    }
+    const settings = (await dbSettings.getUsersSettings(userId)) ?? defaultSettings;
     const isUserAdmin = await dbUsers.isUserAdmin(userId);
     settings.isUserAdmin = isUserAdmin;
     settings.userName = request.user.username;

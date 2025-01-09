@@ -134,7 +134,7 @@ export async function pickUserCatalogueEntry(request, reply) {
 
 async function addToUserCatalogue(userId, foodId) {
   const catalogueIdsRaw = await dbFood.getUsersFoodCatalogueIds(userId);
-  let catalogueIds = catalogueIdsRaw[0] ? JSON.parse(catalogueIdsRaw[0].selectedCatalogueIds) : [];
+  const catalogueIds = catalogueIdsRaw[0] ? JSON.parse(catalogueIdsRaw[0].selectedCatalogueIds) : [];
   if (!catalogueIds.includes(foodId)) {
     catalogueIds.push(foodId);
     catalogueIds.sort((a, b) => a - b);
@@ -178,13 +178,9 @@ export async function processWeight(request, reply) {
 
   try {
     const existingWeight = await dbFood.getWeightByDate(dateISO, userId);
-    let result;
-
-    if (existingWeight) {
-      result = await dbFood.dbUpdateWeight(weight, dateISO, userId);
-    } else {
-      result = await dbFood.dbCreateWeight(dateISO, weight, userId);
-    }
+    const result = existingWeight
+      ? await dbFood.dbUpdateWeight(weight, dateISO, userId)
+      : await dbFood.dbCreateWeight(dateISO, weight, userId);
 
     if (result) {
       return reply.code(201).send({ result: true });
