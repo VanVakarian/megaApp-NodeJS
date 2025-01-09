@@ -15,11 +15,14 @@ export async function transfer(request, reply) {
   }
 }
 
-// export async function chrextest(request, reply) {
-//   try {
-//     console.log('request', request.body);
-//     reply.send({ response: 'received' });
-//   } catch (error) {
-//     reply.status(500).send({ error: error.message });
-//   }
-// }
+export async function transfer2(request, reply) {
+  const userId = request.user.id;
+  if (!userId) return reply.code(401).send({ message: 'Unauthorized' });
+
+  try {
+    await debugService.pg2sqliteTransfer(userId);
+    return reply.code(200).send({ result: true });
+  } catch (error) {
+    return reply.code(500).send({ error: error.message });
+  }
+}
