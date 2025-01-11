@@ -126,8 +126,9 @@ export async function writeTargetDiary(listOfDicts) {
 
   for (let i = 0; i < listOfDicts.length; i += BATCH_SIZE) {
     const batch = listOfDicts.slice(i, i + BATCH_SIZE);
-    const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+    const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
     const values = batch.flatMap((item) => [
+      item.id,
       item.date,
       item.catalogue_id,
       item.food_weight,
@@ -140,7 +141,7 @@ export async function writeTargetDiary(listOfDicts) {
     await connection.run(
       `
       INSERT INTO
-        foodDiary (dateISO, foodCatalogueId, foodWeight, history, usersId, ver, del)
+        foodDiary (id, dateISO, foodCatalogueId, foodWeight, history, usersId, ver, del)
       VALUES
         ${placeholders}
       `,
@@ -205,6 +206,25 @@ export async function writeTargetFoodSettings(listOfDicts) {
     `,
     values
   );
+}
+
+export async function getExistingDiaryIds(userId) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      SELECT
+        id
+      FROM
+        foodDiary
+      WHERE
+        usersId = ?
+    `;
+    const result = await connection.all(query, [userId]);
+    return result.map(row => row.id);
+  } catch (error) {
+    console.error(error);
+    return [];
+  }
 }
 
 process.on('exit', async () => {

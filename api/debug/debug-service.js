@@ -28,14 +28,17 @@ export async function pg2sqliteTransfer(oldUserId) {
       row.selectedCatalogueIds = JSON.stringify(catalogueIdsGroupedByUser[row.user_id]);
     });
 
-    // Clearing tables
-    await dbDebug.clearTargetTableOfUser('foodDiary', oldUserId);
-    await dbDebug.clearTargetTableOfUser('foodBodyWeight', oldUserId);
+    const existingIds = await dbDebug.getExistingDiaryIds(oldUserId);
+    // Leaving only new entries
+    const newDiaryEntries = diary.filter((entry) => !existingIds.includes(entry.id));
+
     await dbDebug.clearWholeTargetTable('foodCatalogue');
     await dbDebug.clearWholeTargetTable('foodSettings');
 
-    // Dumping data into db
-    await dbDebug.writeTargetDiary(diary);
+    // Writing only new entries
+    if (newDiaryEntries.length > 0) await dbDebug.writeTargetDiary(newDiaryEntries);
+
+    // Dumping other data into db
     await dbDebug.writeTargetWeights(bodyWeights);
     await dbDebug.writeTargetCatalogue(catalogue);
     await dbDebug.writeTargetFoodSettings(settings);
