@@ -10,6 +10,7 @@ export async function settingsRoutes(fastify) {
     },
     settingsController.getSettings
   );
+
   fastify.post(
     '/',
     {
@@ -25,6 +26,7 @@ export async function settingsRoutes(fastify) {
     },
     settingsController.postSettings
   );
+
   fastify.put(
     '/',
     {
