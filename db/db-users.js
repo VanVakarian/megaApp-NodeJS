@@ -3,7 +3,12 @@ import { getConnection } from './db.js';
 export async function createUser(username, hashedPassword) {
   const connection = await getConnection();
   try {
-    const query = 'INSERT INTO users (username, hashedPassword) VALUES (?, ?)';
+    const query = `
+      INSERT INTO
+        users (username, hashedPassword)
+      VALUES
+        (?, ?)
+    `;
     const result = await connection.run(query, [username, hashedPassword]);
     return result.lastID;
   } catch (error) {
@@ -15,7 +20,14 @@ export async function createUser(username, hashedPassword) {
 export async function getUserByUsername(username) {
   const connection = await getConnection();
   try {
-    const query = 'SELECT * FROM users WHERE username = ?';
+    const query = `
+      SELECT
+        *
+      FROM
+        users
+      WHERE
+        username = ?
+    `;
     const result = await connection.get(query, [username]);
     return result;
   } catch (error) {
@@ -27,7 +39,14 @@ export async function getUserByUsername(username) {
 export async function isUserAdmin(userId) {
   const connection = await getConnection();
   try {
-    const query = 'SELECT isAdmin FROM users WHERE id = ?';
+    const query = `
+      SELECT
+        isAdmin
+      FROM
+        users
+      WHERE
+        id = ?
+    `;
     const result = await connection.get(query, [userId]);
 
     if (result && result.isAdmin !== null) {

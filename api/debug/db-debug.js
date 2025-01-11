@@ -30,11 +30,15 @@ export async function readSourceDiary(userId) {
   try {
     const res = await client.query(
       `
-      SELECT id, date::text AS date, catalogue_id, food_weight, users_id
-      FROM diary
-      WHERE users_id = $1
-      ORDER BY date ASC, id ASC;
-      `,
+      SELECT
+        id, date::text AS date, catalogue_id, food_weight, users_id
+      FROM
+        diary
+      WHERE
+        users_id = $1
+      ORDER BY
+        date ASC, id ASC;
+    `,
       [userId]
     );
     return res.rows;
@@ -49,10 +53,14 @@ export async function readSourceWeights(userId) {
   try {
     const res = await client.query(
       `
-      SELECT id, date::text AS date, weight, users_id
-      FROM weights
-      WHERE users_id = $1
-      ORDER BY date ASC;
+      SELECT
+        id, date::text AS date, weight, users_id
+      FROM
+        weights
+      WHERE
+        users_id = $1
+      ORDER BY
+        date ASC;
       `,
       [userId]
     );
@@ -68,9 +76,12 @@ export async function readSourceCatalogue() {
   try {
     const res = await client.query(
       `
-      SELECT id, name, kcals, users_id, helth
-      FROM catalogue
-      ORDER BY id ASC;
+      SELECT
+        id, name, kcals, users_id, helth
+      FROM
+        catalogue
+      ORDER BY
+        id ASC;
       `
     );
     return res.rows;
@@ -85,9 +96,12 @@ export async function readSourceSettings() {
   try {
     const res = await client.query(
       `
-      SELECT id, height, use_coeffs, coefficients, user_id
-      FROM options
-      ORDER BY id ASC;
+      SELECT
+        id, height, use_coeffs, coefficients, user_id
+      FROM
+        options
+      ORDER BY
+        id ASC;
       `
     );
     return res.rows;
@@ -125,8 +139,10 @@ export async function writeTargetDiary(listOfDicts) {
 
     await connection.run(
       `
-      INSERT INTO foodDiary (dateISO, foodCatalogueId, foodWeight, history, usersId, ver, del)
-      VALUES ${placeholders}
+      INSERT INTO
+        foodDiary (dateISO, foodCatalogueId, foodWeight, history, usersId, ver, del)
+      VALUES
+        ${placeholders}
       `,
       values
     );
@@ -141,8 +157,10 @@ export async function writeTargetWeights(listOfDicts) {
     const values = batch.flatMap((item) => [item.date, item.weight, item.users_id]);
     await connection.run(
       `
-      INSERT INTO foodBodyWeight (dateISO, weight, usersId)
-      VALUES ${placeholders}
+      INSERT INTO
+        foodBodyWeight (dateISO, weight, usersId)
+      VALUES
+        ${placeholders}
       `,
       values
     );
@@ -157,8 +175,10 @@ export async function writeTargetCatalogue(listOfDicts) {
     const values = batch.flatMap((item) => [item.id, item.name, item.kcals]);
     await connection.run(
       `
-      INSERT INTO foodCatalogue (id, name, kcals)
-      VALUES ${placeholders}
+      INSERT INTO
+        foodCatalogue (id, name, kcals)
+      VALUES
+        ${placeholders}
       `,
       values
     );
@@ -178,8 +198,10 @@ export async function writeTargetFoodSettings(listOfDicts) {
 
   await connection.run(
     `
-    INSERT INTO foodSettings (height, useCoeffs, coefficients, selectedCatalogueIds, usersId)
-    VALUES ${placeholders}
+    INSERT INTO
+      foodSettings (height, useCoeffs, coefficients, selectedCatalogueIds, usersId)
+    VALUES
+      ${placeholders}
     `,
     values
   );

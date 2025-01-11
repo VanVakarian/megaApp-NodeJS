@@ -104,10 +104,14 @@ export async function getDiaryEntriesForDay(startOfDay, endOfDay) {
   const connection = await getConnection();
   try {
     const query = `
-      SELECT id, date
-      FROM foodDiary
-      WHERE date BETWEEN ? AND ?
-      ORDER BY date ASC;
+      SELECT
+        id, date
+      FROM
+        foodDiary
+      WHERE
+        date BETWEEN ? AND ?
+      ORDER BY
+        date ASC;
     `;
     const result = await connection.all(query, [startOfDay, endOfDay]);
     return result;
