@@ -91,7 +91,6 @@ export async function createCatalogueEntry(request, reply) {
     const result = await addToUserCatalogue(userId, newFoodId);
     if (result) {
       return reply.code(200).send({ result: true, id: newFoodId });
-      return;
     }
   }
   return reply.code(400).send({ result: false, error: 'Catalogue entry not created' });
@@ -102,7 +101,6 @@ export async function editCatalogueEntry(request, reply) {
   const result = await dbFood.updateFoodCatalogueEntry(foodId, foodName, foodKcals);
   if (result) {
     return reply.code(200).send({ result: true, id: foodId, name: foodName, kcals: foodKcals });
-    return;
   }
   return reply.code(400).send({ result: false, error: 'Catalogue entry not found' });
 }
@@ -163,6 +161,14 @@ export async function dismissUserCatalogueEntry(request, reply) {
   return reply.code(400).send({ result: false, error: 'Catalogue entry not found' });
 }
 
+//                                                                  COEFFICIENTS
+
+export async function getCoefficients(request, reply) {
+  const userId = request.user.id;
+  const coefficients = await foodService.getCoefficients(userId);
+  return reply.code(200).send({ result: true, coefficients });
+}
+
 //                                                                   BODY WEIGHT
 
 export async function processWeight(request, reply) {
@@ -170,8 +176,6 @@ export async function processWeight(request, reply) {
   const userId = request.user.id;
   const weight = parseFloat(bodyWeight);
 
-  // return await reply.code(500).send({ result: false, error: 'Internal server error' });
-  // return await reply.code(400).send({ result: false, error: 'Weight not saved' });
   if (isNaN(weight)) {
     return reply.code(400).send({ result: false, error: 'Invalid weight value' });
   }
@@ -190,5 +194,21 @@ export async function processWeight(request, reply) {
   } catch (error) {
     console.error('Error saving weight:', error);
     return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
+}
+
+//                                                                         STATS
+
+export async function getStats(request, reply) {
+  const userId = request.user.id;
+  const { date: dateIso } = request.query;
+
+  try {
+    const coefficients = await foodService.getCoefficients(userId);
+    const stats = await foodService.getCachedStats(userId, dateIso, coefficients);
+    return reply.code(200).send(stats);
+  } catch (error) {
+    console.error(error);
+    return reply.code(500).send({ error: 'Failed to get stats' });
   }
 }

@@ -126,20 +126,43 @@ export async function foodRoutes(fastify) {
     handler: foodController.dismissUserCatalogueEntry,
   });
 
+  //                                                         COEFFICIENTS ROUTES
+  fastify.get('/coefficients', {
+    schema: { tags: ['food'] },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.getCoefficients,
+  });
+
   //                                                               WEIGHT ROUTES
-  fastify.post('/body_weight/', {
+  fastify.post('/body-weight', {
     schema: {
       tags: ['food'],
       body: {
         type: 'object',
         properties: {
-          bodyWeight: { type: 'string' },
           dateISO: { type: 'string', format: 'date' },
+          bodyWeight: { type: 'number' },
         },
-        required: ['bodyWeight', 'dateISO'],
+        required: ['dateISO', 'bodyWeight'],
       },
     },
     preValidation: [authController.authMiddleware],
     handler: foodController.processWeight,
+  });
+
+  //                                                                STATS ROUTES
+  fastify.get('/stats', {
+    schema: {
+      tags: ['food'],
+      querystring: {
+        type: 'object',
+        properties: {
+          date: { type: 'string', format: 'date' },
+        },
+        required: ['date'],
+      },
+    },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.getStats,
   });
 }

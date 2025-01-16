@@ -5,6 +5,16 @@ async function createTablesIfNotExist() {
   const connection = await getConnection();
 
   const createTablesQueries = [
+    `
+    CREATE TABLE IF NOT EXISTS userStats (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      usersId INTEGER NOT NULL,
+      upToDate TEXT NOT NULL,
+      stats TEXT NOT NULL,
+      FOREIGN KEY (usersId) REFERENCES users(id)
+    );
+    `,
+
     // `
     // CREATE TABLE IF NOT EXISTS food_stats (
     //   id TEXT PRIMARY KEY,

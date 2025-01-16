@@ -128,6 +128,7 @@ export async function getDiaryEntriesHistory(userId, startDate, endDate) {
       SELECT
         d.dateISO,
         d.foodWeight,
+        d.foodCatalogueId,
         c.kcals
       FROM
         foodDiary d
@@ -162,10 +163,7 @@ export async function getUserFirstDate(userId) {
     return result.firstDate;
   } catch (error) {
     console.error(error);
-    // Return date from 2 months ago as fallback
-    const date = new Date();
-    date.setMonth(date.getMonth() - 2);
-    return date.toISOString().split('T')[0];
+    return null;
   }
 }
 
@@ -175,8 +173,10 @@ export async function addFoodCatalogueEntry(foodName, foodKcals) {
   const connection = await getConnection();
   try {
     const query = `
-      INSERT INTO foodCatalogue (name, kcals)
-      VALUES (?, ?);
+      INSERT INTO
+        foodCatalogue (name, kcals)
+      VALUES
+        (?, ?);
     `;
     const result = await connection.run(query, [foodName, foodKcals]);
     return result.lastID;
@@ -190,9 +190,12 @@ export async function updateFoodCatalogueEntry(foodId, foodName, foodKcals) {
   const connection = await getConnection();
   try {
     const query = `
-      UPDATE foodCatalogue
-      SET name = ?, kcals = ?
-      WHERE id = ?;
+      UPDATE
+        foodCatalogue
+      SET
+        name = ?, kcals = ?
+      WHERE
+        id = ?;
     `;
     await connection.run(query, [foodName, foodKcals, foodId]);
     return true;
@@ -206,8 +209,10 @@ export async function deleteFoodCatalogueEntry(id) {
   const connection = await getConnection();
   try {
     const query = `
-      DELETE FROM foodCatalogue
-      WHERE id = ?;
+      DELETE FROM
+        foodCatalogue
+      WHERE
+        id = ?;
     `;
     await connection.run(query, [id]);
     return true;
@@ -282,9 +287,12 @@ export async function getWeightByDate(dateISO, userId) {
   const connection = await getConnection();
   try {
     const query = `
-      SELECT id, weight
-      FROM foodBodyWeight
-      WHERE dateISO = ? AND usersId = ?;
+      SELECT
+        id, weight
+      FROM
+        foodBodyWeight
+      WHERE
+        dateISO = ? AND usersId = ?;
     `;
     const result = await connection.get(query, [dateISO, userId]);
     return result;
@@ -372,5 +380,162 @@ export async function getWeightHistory(userId, startDate, endDate) {
   } catch (error) {
     console.error(error);
     return [];
+  }
+}
+
+//                                                                         STATS
+
+export async function getUsersCachedStats(userId) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      SELECT
+        upToDate, stats
+      FROM
+        userStats
+      WHERE
+        usersId = ?;
+    `;
+    const result = await connection.get(query, [userId]);
+    return result;
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
+}
+
+export async function saveUserStats(userId, upToDate, stats) {
+  const connection = await getConnection();
+  try {
+    const checkQuery = `
+      SELECT
+        COUNT(*) as count
+      FROM
+        userStats
+      WHERE
+        usersId = ?;
+    `;
+    const checkResult = await connection.get(checkQuery, [userId]);
+
+    if (checkResult.count > 0) {
+      await updateUserStats(userId, upToDate, stats);
+    } else {
+      await createUserStats(userId, upToDate, stats);
+    }
+  } catch (error) {
+    console.error(error);
+    throw new Error('Failed to save user stats');
+  }
+}
+
+async function updateUserStats(userId, upToDate, stats) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      UPDATE
+        userStats
+      SET
+        upToDate = ?,
+        stats = ?
+      WHERE
+        usersId = ?;
+    `;
+    await connection.run(query, [upToDate, stats, userId]);
+  } catch (error) {
+    console.error(error);
+    throw new Error('Failed to update user stats');
+  }
+}
+
+async function createUserStats(userId, upToDate, stats) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      INSERT INTO
+        userStats (usersId, upToDate, stats)
+      VALUES
+        (?, ?, ?);
+    `;
+    await connection.run(query, [userId, upToDate, stats]);
+  } catch (error) {
+    console.error(error);
+    throw new Error('Failed to create user stats');
+  }
+}
+
+export async function getUsersCoefficients(userId) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      SELECT
+        coefficients
+      FROM
+        foodSettings
+      WHERE
+        usersId = ?;
+    `;
+    const result = await connection.get(query, [userId]);
+    return result;
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
+}
+
+export async function setUsersCoefficients(userId, coefficients) {
+  const connection = await getConnection();
+  try {
+    const checkQuery = `
+      SELECT
+        COUNT(*) as count
+      FROM
+        foodSettings
+      WHERE
+        usersId = ?;
+    `;
+    const checkResult = await connection.get(checkQuery, [userId]);
+
+    if (checkResult.count > 0) {
+      await updateUserCoefficients(userId, coefficients);
+    } else {
+      await createUserCoefficients(userId, coefficients);
+    }
+  } catch (error) {
+    console.error(error);
+    throw new Error('Failed to save coefficients');
+  }
+}
+
+async function updateUserCoefficients(userId, coefficients) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      UPDATE
+        foodSettings
+      SET
+        coefficients = ?
+      WHERE
+        usersId = ?;
+    `;
+    await connection.run(query, [coefficients, userId]);
+  } catch (error) {
+    console.error(error);
+    throw new Error('Failed to update coefficients');
+  }
+}
+
+async function createUserCoefficients(userId, coefficients) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      INSERT INTO
+        foodSettings (usersId, coefficients)
+      VALUES
+        (?, ?);
+    `;
+    await connection.run(query, [userId, coefficients]);
+  } catch (error) {
+    console.error(error);
+    throw new Error('Failed to create coefficients');
   }
 }

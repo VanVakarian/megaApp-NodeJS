@@ -11,6 +11,13 @@ export function isValidUnixDate(dateUnix) {
   return !isNaN(new Date(dateUnix * 1000).getTime());
 }
 
+export function createUtcDateFromIsoString(dateIso) {
+  const [year, month, day] = dateIso.split('-');
+  const monthIndex = Number(month) - 1;
+  const utcTimestamp = Date.UTC(Number(year), monthIndex, Number(day));
+  return new Date(utcTimestamp);
+}
+
 export function getStartAndEndDates(dateIso, offsetInDays) {
   const date = new Date(dateIso);
   const startDate = new Date(date);
