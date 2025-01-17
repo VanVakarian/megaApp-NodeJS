@@ -166,7 +166,7 @@ export async function dismissUserCatalogueEntry(request, reply) {
 export async function getCoefficients(request, reply) {
   const userId = request.user.id;
   const coefficients = await foodService.getCoefficients(userId);
-  return reply.code(200).send({ result: true, coefficients });
+  return reply.code(200).send({ result: true, data: coefficients });
 }
 
 //                                                                   BODY WEIGHT
