@@ -131,8 +131,7 @@ export async function getDiaryEntriesHistory(userId, startDate, endDate) {
         d.foodCatalogueId,
         c.kcals
       FROM
-        foodDiary d
-        JOIN foodCatalogue c ON d.foodCatalogueId = c.id
+        foodDiary d JOIN foodCatalogue c ON d.foodCatalogueId = c.id
       WHERE
         d.usersId = ?
         AND d.dateISO BETWEEN ? AND ?

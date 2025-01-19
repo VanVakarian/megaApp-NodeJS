@@ -12,10 +12,6 @@ export function getDateRange(dateIso, fetchDaysRangeOffset) {
   return result;
 }
 
-// export function dictifyDatesList(datesList) {
-//   return Object.fromEntries(datesList.map((date) => [date, {}]));
-// }
-
 export function organizeByDatesAndIds(inboundList) {
   const resultDict = {};
   inboundList.forEach((food) => {
@@ -29,16 +25,18 @@ export function organizeByDatesAndIds(inboundList) {
       foodCatalogueId: food.foodCatalogueId,
       foodWeight: food.foodWeight,
       dateIso: date,
-      history: [],
+      history: parseHistory(food.history),
     };
-
-    try {
-      resultDict[date][id].history = JSON.parse(food.history);
-    } catch (error) {
-      // история уже инициализирована пустым массивом выше
-    }
   });
   return resultDict;
+}
+
+function parseHistory(historyStr) {
+  try {
+    return JSON.parse(historyStr) ?? [];
+  } catch {
+    return [];
+  }
 }
 
 export function extendDiary(targetDict, propertyName, value, defaultValue) {
@@ -62,7 +60,7 @@ export async function formFoodCatalogue() {
   return foodCataloguePrepped;
 }
 
-export function prepFoodCatalogue(catalogueArray) {
+function prepFoodCatalogue(catalogueArray) {
   const catalogueObj = {};
   for (const entry of catalogueArray) {
     catalogueObj[entry.id] = entry;
@@ -76,11 +74,6 @@ export async function makeUpdatedHistoryString(diaryId, userId, newHistoryEntry)
   updatedHistory.push(newHistoryEntry);
   const historyString = JSON.stringify(updatedHistory);
   return historyString;
-}
-
-export async function updateDiaryEntryInDB(foodWeight, updatedHistory, diaryId, userId) {
-  const historyString = JSON.stringify(updatedHistory);
-  return await dbFood.dbEditDiaryEntry(foodWeight, historyString, diaryId, userId);
 }
 
 export async function calculateTargetKcals(userId, endDate) {
@@ -145,35 +138,127 @@ export async function calculateTargetKcals(userId, endDate) {
 
 //                                                                         STATS
 
-export async function getCachedStats(userId, dateIso, coefficients) {
+export async function getCachedStats(userId, dateIso) {
   const cachedStats = await dbFood.getUsersCachedStats(userId);
 
   if (!cachedStats) {
-    const stats = await recalcAndSaveNewStats(userId, dateIso, coefficients);
+    const stats = await recalcAndSaveNewStats(userId, dateIso);
     return stats;
   }
 
   if (dateIso > cachedStats.upToDate) {
-    const stats = await recalcAndSaveNewStats(userId, dateIso, coefficients);
+    const stats = await recalcAndSaveNewStats(userId, dateIso);
     return stats;
   }
 
   return JSON.parse(cachedStats.stats);
 }
 
-export async function recalcAndSaveNewStats(userId, dateIso, coefficients) {
-  const stats = await statsRecalc(userId, dateIso, coefficients);
+async function recalcAndSaveNewStats(userId, dateIso) {
+  const stats = await statsRecalc(userId, dateIso);
   await dbFood.saveUserStats(userId, dateIso, JSON.stringify(stats));
   return stats;
 }
 
+async function statsRecalc(userId, dateIso) {
+  const firstDate = await dbFood.getUserFirstDate(userId);
+  if (!firstDate) throw new Error('No user data found');
+
+  const allDates = getDatesList(firstDate, dateIso);
+
+  const weightsRaw = await dbFood.getWeightHistory(userId, firstDate, dateIso);
+  const weightsPrepped = prepareWeights(weightsRaw, allDates);
+
+  const diaryEntriesRaw = await dbFood.getDiaryEntriesHistory(userId, firstDate, dateIso);
+  const diaryEntriesPrepped = prepareDiaryEntries(diaryEntriesRaw, allDates);
+
+  const coefficients = await getCoefficients(userId);
+  const dailySumKcals = calculateDailySumKcals(diaryEntriesPrepped, coefficients, allDates);
+
+  const avgDays = 7;
+  const dailySumKcalsAvg = calculateAverage(dailySumKcals, avgDays, true, 0);
+  const weightsPrepAvg = calculateAverage(weightsPrepped, avgDays, true, 1);
+
+  const normDays = 30;
+  const targetKcals = computeTargetKcalsFromHistory(dailySumKcalsAvg, weightsPrepAvg, normDays);
+  const targetKcalsAvg = calculateAverage(targetKcals, normDays, true, 0);
+
+  const preparedStats = prepareStats(allDates, weightsPrepped, weightsPrepAvg, dailySumKcals, targetKcalsAvg);
+  return preparedStats;
+}
+
+function getDatesList(dateIsoFirst, dateIsoLast) {
+  const dateFirst = utils.createUtcDateFromIsoString(dateIsoFirst);
+  const dateLast = utils.createUtcDateFromIsoString(dateIsoLast);
+  const daysAmt = Math.floor((dateLast - dateFirst) / (1000 * 60 * 60 * 24)) + 1;
+  const datesList = [];
+  const currentDate = dateFirst;
+
+  for (let dayIndex = 0; dayIndex < daysAmt; dayIndex++) {
+    const nextDate = new Date(currentDate.getTime());
+    nextDate.setUTCDate(currentDate.getUTCDate() + dayIndex);
+    const formattedDate = nextDate.toISOString().split('T')[0];
+    datesList.push(formattedDate);
+  }
+
+  return datesList;
+}
+
+function prepareWeights(weightsRaw, allDates) {
+  const weights = Object.fromEntries(allDates.map((date) => [date, null]));
+
+  weightsRaw.forEach((item) => {
+    weights[item.dateISO] = parseFloat(item.weight);
+  });
+
+  return weights;
+}
+
+function prepareDiaryEntries(diaryEntriesRaw, allDates) {
+  const entries = Object.fromEntries(allDates.map((date) => [date, null]));
+
+  diaryEntriesRaw.forEach((row) => {
+    if (!entries[row.dateISO]) {
+      entries[row.dateISO] = [];
+    }
+    entries[row.dateISO].push({
+      foodId: row.foodCatalogueId,
+      weight: row.foodWeight,
+      calories: row.kcals,
+    });
+  });
+
+  return entries;
+}
+
+function calculateDailySumKcals(diaryEntries, coefficients, allDates) {
+  const dailySumKcals = Object.fromEntries(allDates.map((date) => [date, null]));
+
+  for (const [date, entries] of Object.entries(diaryEntries)) {
+    if (entries === null) continue;
+
+    dailySumKcals[date] = 0;
+
+    for (const { foodId, weight, calories } of entries) {
+      dailySumKcals[date] += (weight / 100) * calories * coefficients[foodId];
+    }
+  }
+
+  return dailySumKcals;
+}
+
 export async function getCoefficients(userId) {
-  const useCoeffs = true; // TODO[067]: implement in settings
+  const useCoeffs = true; // TODO[067]: Force enabled for now, implement in settings
   if (!useCoeffs) {
     return await makeOnesForCoefficients();
   }
 
   return await getAndValidateCoefficients(userId);
+}
+
+async function makeOnesForCoefficients() {
+  const catalogueEntries = await dbFood.getAllFoodCatalogueEntries();
+  return Object.fromEntries(catalogueEntries.map((item) => [item.id, 1.0]));
 }
 
 async function getAndValidateCoefficients(userId) {
@@ -211,92 +296,6 @@ async function getAndValidateCoefficients(userId) {
   }
 
   return usersCoeffs;
-}
-
-async function makeOnesForCoefficients() {
-  const catalogueEntries = await dbFood.getAllFoodCatalogueEntries();
-  return Object.fromEntries(catalogueEntries.map((item) => [item.id, 1.0]));
-}
-
-async function statsRecalc(userId, dateIso, coefficients) {
-  const firstDate = await dbFood.getUserFirstDate(userId);
-  if (!firstDate) throw new Error('No user data found');
-
-  const allDates = getDatesList(firstDate, dateIso);
-
-  const weightsRaw = await dbFood.getWeightHistory(userId, firstDate, dateIso);
-  const weightsPrepped = prepareWeights(weightsRaw, allDates);
-
-  const diaryEntriesRaw = await dbFood.getDiaryEntriesHistory(userId, firstDate, dateIso);
-  const diaryEntriesPrepped = prepareDiaryEntries(diaryEntriesRaw, allDates);
-
-  const dailySumKcals = calculateDailySumKcals(diaryEntriesPrepped, coefficients, allDates);
-
-  const avgDays = 7;
-  const dailySumKcalsAvg = calculateAverage(dailySumKcals, avgDays, true, 0);
-  const weightsPrepAvg = calculateAverage(weightsPrepped, avgDays, true, 1);
-
-  const normDays = 30;
-  const targetKcals = computeTargetKcalsFromHistory(dailySumKcalsAvg, weightsPrepAvg, normDays);
-  const targetKcalsAvg = calculateAverage(targetKcals, normDays, true, 0);
-
-  return prepareStats(allDates, weightsPrepped, weightsPrepAvg, dailySumKcals, targetKcalsAvg);
-}
-
-function getDatesList(dateIsoFirst, dateIsoLast) {
-  const dateFirst = utils.createUtcDateFromIsoString(dateIsoFirst);
-  const dateLast = utils.createUtcDateFromIsoString(dateIsoLast);
-  const daysAmt = Math.floor((dateLast - dateFirst) / (1000 * 60 * 60 * 24)) + 1;
-  const datesList = [];
-  const currentDate = dateFirst;
-
-  for (let dayIndex = 0; dayIndex < daysAmt; dayIndex++) {
-    const nextDate = new Date(currentDate.getTime());
-    nextDate.setUTCDate(currentDate.getUTCDate() + dayIndex);
-    const formattedDate = nextDate.toISOString().split('T')[0];
-    datesList.push(formattedDate);
-  }
-
-  return datesList;
-}
-
-function prepareWeights(weightsRaw, allDates) {
-  const weights = Object.fromEntries(allDates.map((date) => [date, null]));
-
-  weightsRaw.forEach((item) => {
-    weights[item.dateISO] = parseFloat(item.weight);
-  });
-
-  return weights;
-}
-
-function prepareDiaryEntries(diaryEntriesRaw, allDates) {
-  const entries = Object.fromEntries(allDates.map((date) => [date, null]));
-
-  diaryEntriesRaw.forEach((row) => {
-    if (!entries[row.dateISO]) {
-      entries[row.dateISO] = [];
-    }
-    entries[row.dateISO].push([row.foodCatalogueId, row.foodWeight]);
-  });
-
-  return entries;
-}
-
-function calculateDailySumKcals(diaryEntries, coefficients, allDates) {
-  const dailySumKcals = Object.fromEntries(allDates.map((date) => [date, null]));
-
-  for (const [date, entries] of Object.entries(diaryEntries)) {
-    if (entries === null) continue;
-
-    dailySumKcals[date] = 0;
-
-    for (const [foodId, weight] of entries) {
-      dailySumKcals[date] += coefficients[foodId] * weight;
-    }
-  }
-
-  return dailySumKcals;
 }
 
 function calculateAverage(inputDict, avgRange, roundBool = false, roundPlaces = 0) {

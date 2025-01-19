@@ -46,10 +46,6 @@ server.register(staticServe, {
   prefix: '/',
 });
 
-// server.get('/', async (request, reply) => {
-//   return reply.sendFile('index.html');
-// });
-
 server.listen({ port: APP_PORT, host: APP_IP }, (err, address) => {
   if (err) {
     server.log.error(err);

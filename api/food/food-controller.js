@@ -204,8 +204,7 @@ export async function getStats(request, reply) {
   const { date: dateIso } = request.query;
 
   try {
-    const coefficients = await foodService.getCoefficients(userId);
-    const stats = await foodService.getCachedStats(userId, dateIso, coefficients);
+    const stats = await foodService.getCachedStats(userId, dateIso);
     return reply.code(200).send(stats);
   } catch (error) {
     console.error(error);
