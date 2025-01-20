@@ -8,6 +8,7 @@ import Fastify from 'fastify';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { initCache } from './api/food/stats-cache.js';
 import { initDatabase } from './db/init.js';
 
 import { authRoutes } from './api/auth/auth-routes.js';
@@ -23,6 +24,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 await initDatabase();
+initCache();
 
 const server = Fastify({ logger: true });
 

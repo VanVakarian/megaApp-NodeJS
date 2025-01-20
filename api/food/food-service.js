@@ -1,5 +1,6 @@
 import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
+import * as statsCache from './stats-cache.js';
 
 export function getDateRange(dateIso, fetchDaysRangeOffset) {
   const date = new Date(dateIso);
@@ -138,31 +139,23 @@ export async function calculateTargetKcals(userId, endDate) {
 
 //                                                                         STATS
 
-export async function getCachedStats(userId, dateIso) {
-  const cachedStats = await dbFood.getUsersCachedStats(userId);
+export async function getStats(userId, dateIso) {
+  const cachedStats = statsCache.getCachedStats(userId);
 
-  if (!cachedStats) {
-    const stats = await recalcAndSaveNewStats(userId, dateIso);
-    return stats;
-  }
-
-  if (dateIso > cachedStats.upToDate) {
-    const stats = await recalcAndSaveNewStats(userId, dateIso);
+  if (!cachedStats || dateIso > cachedStats.upToDate) {
+    const stats = await statsRecalc(userId, dateIso);
+    if (Object.keys(stats).length) {
+      statsCache.saveStats(userId, dateIso, stats);
+    }
     return stats;
   }
 
   return JSON.parse(cachedStats.stats);
 }
 
-async function recalcAndSaveNewStats(userId, dateIso) {
-  const stats = await statsRecalc(userId, dateIso);
-  await dbFood.saveUserStats(userId, dateIso, JSON.stringify(stats));
-  return stats;
-}
-
 async function statsRecalc(userId, dateIso) {
   const firstDate = await dbFood.getUserFirstDate(userId);
-  if (!firstDate) throw new Error('No user data found');
+  if (!firstDate) return {};
 
   const allDates = getDatesList(firstDate, dateIso);
 

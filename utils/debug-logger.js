@@ -1,4 +1,4 @@
-export function log(prefix, data, stringify = false) {
+export function print(prefix, data, stringify = false) {
   if (!data) {
     console.log('\n', prefix, data, '\n');
     return;

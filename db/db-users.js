@@ -59,3 +59,19 @@ export async function isUserAdmin(userId) {
     return false;
   }
 }
+
+export async function getAllUserIds() {
+  const connection = await getConnection();
+  try {
+    const query = `
+      SELECT
+        id
+      FROM
+        users
+    `;
+    return await connection.all(query);
+  } catch (error) {
+    console.error(error);
+    return [];
+  }
+}
