@@ -152,16 +152,7 @@ export async function foodRoutes(fastify) {
 
   //                                                                STATS ROUTES
   fastify.get('/stats', {
-    schema: {
-      tags: ['food'],
-      querystring: {
-        type: 'object',
-        properties: {
-          date: { type: 'string', format: 'date' },
-        },
-        required: ['date'],
-      },
-    },
+    schema: { tags: ['food'] },
     preValidation: [authController.authMiddleware],
     handler: foodController.getStats,
   });

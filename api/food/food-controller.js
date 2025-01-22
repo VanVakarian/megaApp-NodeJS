@@ -43,6 +43,7 @@ export async function createDiaryEntry(request, reply) {
     const result = await dbFood.dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, historyStr, userId);
 
     if (result) {
+      request.server.scheduleStatsRecalculation(userId);
       return reply.code(201).send({ result: true, diaryId: result });
     }
     return reply.code(400).send({ result: false, error: 'Diary entry not created' });
@@ -57,7 +58,11 @@ export async function editDiaryEntry(request, reply) {
   const userId = request.user.id;
   const historyStr = await foodService.makeUpdatedHistoryString(diaryEntry.id, userId, diaryEntry.history[0]);
   const res = await dbFood.dbEditDiaryEntry(diaryEntry.foodWeight, historyStr, diaryEntry.id, userId);
-  return reply.code(200).send({ result: res, diaryId: diaryEntry.id });
+  if (res) {
+    request.server.scheduleStatsRecalculation(userId);
+    return reply.code(200).send({ result: res, diaryId: diaryEntry.id });
+  }
+  return reply.code(400).send({ result: false, error: 'Diary entry not found' });
 }
 
 export async function deleteDiaryEntry(request, reply) {
@@ -67,6 +72,7 @@ export async function deleteDiaryEntry(request, reply) {
   try {
     const result = await dbFood.dbDeleteDiaryEntry(diaryId, userId);
     if (result) {
+      request.server.scheduleStatsRecalculation(userId);
       return reply.code(200).send({ result: true });
     }
     return reply.code(404).send({ result: false, error: 'Entry not found' });
@@ -201,10 +207,9 @@ export async function processWeight(request, reply) {
 
 export async function getStats(request, reply) {
   const userId = request.user.id;
-  const { date: dateIso } = request.query;
 
   try {
-    const stats = await foodService.getStats(userId, dateIso);
+    const stats = await foodService.getStats(userId);
     return reply.code(200).send(stats);
   } catch (error) {
     console.error(error);

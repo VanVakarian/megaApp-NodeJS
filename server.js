@@ -8,6 +8,7 @@ import Fastify from 'fastify';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { setupEventHandlers } from './api/food/event-handlers.js';
 import { initCache } from './api/food/stats-cache.js';
 import { initDatabase } from './db/init.js';
 
@@ -24,9 +25,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 await initDatabase();
-initCache();
+await initCache();
 
 const server = Fastify({ logger: true });
+setupEventHandlers(server);
 
 server.register(fastifyCompress);
 server.register(fastifyJwt, { secret: JWT_SECRET });

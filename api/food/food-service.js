@@ -139,45 +139,66 @@ export async function calculateTargetKcals(userId, endDate) {
 
 //                                                                         STATS
 
-export async function getStats(userId, dateIso) {
+export async function getStats(userId) {
   const cachedStats = statsCache.getCachedStats(userId);
 
-  if (!cachedStats || dateIso > cachedStats.upToDate) {
-    const stats = await statsRecalc(userId, dateIso);
-    if (Object.keys(stats).length) {
-      statsCache.saveStats(userId, dateIso, stats);
+  if (!cachedStats) {
+    const newStats = await calculateStats(userId);
+    if (Object.keys(newStats).length) {
+      statsCache.saveCachedStats(userId, newStats);
     }
-    return stats;
+    return newStats;
   }
 
   return JSON.parse(cachedStats.stats);
 }
 
-async function statsRecalc(userId, dateIso) {
-  const firstDate = await dbFood.getUserFirstDate(userId);
-  if (!firstDate) return {};
+export async function recalculateStats(userId) {
+  try {
+    const stats = await calculateStats(userId);
 
-  const allDates = getDatesList(firstDate, dateIso);
+    if (Object.keys(stats).length) {
+      statsCache.saveCachedStats(userId, stats);
+    }
 
-  const weightsRaw = await dbFood.getWeightHistory(userId, firstDate, dateIso);
-  const weightsPrepped = prepareWeights(weightsRaw, allDates);
+    return true;
+  } catch (error) {
+    console.error(error);
+    return false;
+  }
+}
 
-  const diaryEntriesRaw = await dbFood.getDiaryEntriesHistory(userId, firstDate, dateIso);
-  const diaryEntriesPrepped = prepareDiaryEntries(diaryEntriesRaw, allDates);
+async function calculateStats(userId) {
+  try {
+    const firstDate = await dbFood.getUserFirstDate(userId);
+    const lastDate = new Date().toISOString().split('T')[0];
+    if (!firstDate) return {};
 
-  const coefficients = await getCoefficients(userId);
-  const dailySumKcals = calculateDailySumKcals(diaryEntriesPrepped, coefficients, allDates);
+    const allDates = getDatesList(firstDate, lastDate);
 
-  const avgDays = 7;
-  const dailySumKcalsAvg = calculateAverage(dailySumKcals, avgDays, true, 0);
-  const weightsPrepAvg = calculateAverage(weightsPrepped, avgDays, true, 1);
+    const weightsRaw = await dbFood.getWeightHistory(userId, firstDate, lastDate);
+    const weightsPrepped = prepareWeights(weightsRaw, allDates);
 
-  const normDays = 30;
-  const targetKcals = computeTargetKcalsFromHistory(dailySumKcalsAvg, weightsPrepAvg, normDays);
-  const targetKcalsAvg = calculateAverage(targetKcals, normDays, true, 0);
+    const diaryEntriesRaw = await dbFood.getDiaryEntriesHistory(userId, firstDate, lastDate);
+    const diaryEntriesPrepped = prepareDiaryEntries(diaryEntriesRaw, allDates);
 
-  const preparedStats = prepareStats(allDates, weightsPrepped, weightsPrepAvg, dailySumKcals, targetKcalsAvg);
-  return preparedStats;
+    const coefficients = await getCoefficients(userId);
+    const dailySumKcals = calculateDailySumKcals(diaryEntriesPrepped, coefficients, allDates);
+
+    const avgDays = 7;
+    const dailySumKcalsAvg = calculateAverage(dailySumKcals, avgDays, true, 0);
+    const weightsPrepAvg = calculateAverage(weightsPrepped, avgDays, true, 1);
+
+    const normDays = 30;
+    const targetKcals = computeTargetKcalsFromHistory(dailySumKcalsAvg, weightsPrepAvg, normDays);
+    const targetKcalsAvg = calculateAverage(targetKcals, normDays, true, 0);
+
+    const preparedStats = prepareStats(allDates, weightsPrepped, weightsPrepAvg, dailySumKcals, targetKcalsAvg);
+    return preparedStats;
+  } catch (error) {
+    console.error(error);
+    return {};
+  }
 }
 
 function getDatesList(dateIsoFirst, dateIsoLast) {
