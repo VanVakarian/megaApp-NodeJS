@@ -57,10 +57,10 @@ export async function editDiaryEntry(request, reply) {
   const diaryEntry = request.body;
   const userId = request.user.id;
   const historyStr = await foodService.makeUpdatedHistoryString(diaryEntry.id, userId, diaryEntry.history[0]);
-  const res = await dbFood.dbEditDiaryEntry(diaryEntry.foodWeight, historyStr, diaryEntry.id, userId);
-  if (res) {
+  const result = await dbFood.dbEditDiaryEntry(diaryEntry.foodWeight, historyStr, diaryEntry.id, userId);
+  if (result) {
     request.server.scheduleStatsRecalculation(userId);
-    return reply.code(200).send({ result: res, diaryId: diaryEntry.id });
+    return reply.code(200).send({ result: result, diaryId: diaryEntry.id });
   }
   return reply.code(400).send({ result: false, error: 'Diary entry not found' });
 }
@@ -158,8 +158,8 @@ export async function dismissUserCatalogueEntry(request, reply) {
     const index = catalogueIds.indexOf(parseInt(foodId));
     if (index > -1) {
       catalogueIds.splice(index, 1);
-      const res = await dbFood.updateUsersFoodCatalogueIdsList(JSON.stringify(catalogueIds), userId);
-      if (res) {
+      const result = await dbFood.updateUsersFoodCatalogueIdsList(JSON.stringify(catalogueIds), userId);
+      if (result) {
         return reply.code(200).send({ result: true });
       }
     }
@@ -189,10 +189,11 @@ export async function processWeight(request, reply) {
   try {
     const existingWeight = await dbFood.getWeightByDate(dateISO, userId);
     const result = existingWeight
-      ? await dbFood.dbUpdateWeight(weight, dateISO, userId)
+      ? await dbFood.dbUpdateWeight(dateISO, weight, userId)
       : await dbFood.dbCreateWeight(dateISO, weight, userId);
 
     if (result) {
+      request.server.scheduleStatsRecalculation(userId);
       return reply.code(201).send({ result: true });
     } else {
       return reply.code(400).send({ result: false, error: 'Weight not saved' });

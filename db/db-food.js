@@ -339,7 +339,7 @@ export async function dbCreateWeight(dateISO, weight, userId) {
   }
 }
 
-export async function dbUpdateWeight(weight, dateISO, userId) {
+export async function dbUpdateWeight(dateISO, weight, userId) {
   const connection = await getConnection();
   try {
     const query = `
