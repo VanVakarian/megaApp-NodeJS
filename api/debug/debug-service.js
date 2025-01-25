@@ -5,6 +5,38 @@ export async function ping() {
   return 'pong';
 }
 
+export async function pg2sqliteTransferLite() {
+  try {
+    const catalogue = await dbDebug.readSourceCatalogue();
+    const settings = await dbDebug.readSourceSettings();
+
+    // Moving food ownership from 'foodCatalogue' table to 'foodSettings' table
+    const catalogueIdsGroupedByUser = Object.fromEntries(Object.keys(INIT_USERS).map((userId) => [userId, []]));
+    catalogue.forEach((catalogueEntry) => {
+      const entryUserId = catalogueEntry.users_id.toString();
+      if (entryUserId === '0') {
+        Object.values(catalogueIdsGroupedByUser).forEach((arr) => arr.push(catalogueEntry.id));
+      } else if (catalogueIdsGroupedByUser.hasOwnProperty(entryUserId)) {
+        catalogueIdsGroupedByUser[entryUserId].push(catalogueEntry.id);
+      }
+    });
+
+    settings.forEach((row) => {
+      row.selectedCatalogueIds = JSON.stringify(catalogueIdsGroupedByUser[row.user_id]);
+    });
+
+    await dbDebug.clearWholeTargetTable('foodCatalogue');
+    await dbDebug.writeTargetCatalogue(catalogue);
+
+    await dbDebug.clearWholeTargetTable('foodSettings');
+    await dbDebug.writeTargetFoodSettings(settings);
+
+    console.log('pg2sqliteTransferLite ran successfully');
+  } catch (error) {
+    console.error(error);
+  }
+}
+
 export async function pg2sqliteTransfer(oldUserId) {
   try {
     // Getting source data

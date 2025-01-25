@@ -21,10 +21,16 @@ import { websocketRoutes } from './api/ws/ws-routes.js';
 import { APP_IP, APP_PORT, JWT_SECRET } from './env.js';
 import { swaggerConfig, swaggerUiConfig } from './swagger-config.js';
 
+import { pg2sqliteTransferLite } from './api/debug/debug-service.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 await initDatabase();
+
+// ❗ TODO[074] Delete after migration ❗
+await pg2sqliteTransferLite();
+
 await initCache();
 
 const server = Fastify({ logger: true });

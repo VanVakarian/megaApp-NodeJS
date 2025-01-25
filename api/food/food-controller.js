@@ -1,11 +1,18 @@
 import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
 import * as foodService from './food-service.js';
+import * as syncWhileMigrating from './while-migrating/migration-sync.js';
+
+// import * as dbFoodWhileMigrating from './while-migrating/migration-db-food.js';
 
 //                                                                   FULL UPDATE
 
 export async function getFoodDiaryFullUpdateRange(request, reply) {
   const userId = request.user.id;
+
+  // ❗ TODO[074] Delete after migration ❗
+  await syncWhileMigrating.syncAll(userId);
+
   // const userTZOffsetHours = 4; // TODO: implement in settings // don't need here anymore?
   // const userPreferredMidnightOffsetHours = 5; // TODO: implement in settings // don't need here anymore?
   const { date: dateIso, offset: offsetDaysStr } = request.query;
@@ -40,6 +47,10 @@ export async function createDiaryEntry(request, reply) {
 
   try {
     const historyStr = JSON.stringify(history);
+
+    // ❗ TODO[074] Roll back after migration ❗
+    // const result = await dbFoodWhileMigrating.dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, historyStr, userId); // prettier-ignore
+
     const result = await dbFood.dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, historyStr, userId);
 
     if (result) {

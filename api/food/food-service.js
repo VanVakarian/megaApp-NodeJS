@@ -25,7 +25,7 @@ export function organizeByDatesAndIds(inboundList) {
       id: food.id,
       foodCatalogueId: food.foodCatalogueId,
       foodWeight: food.foodWeight,
-      dateIso: date,
+      dateISO: date,
       history: parseHistory(food.history),
     };
   });
