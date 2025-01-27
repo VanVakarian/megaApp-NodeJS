@@ -3,7 +3,7 @@ import * as utils from '../../utils/utils.js';
 import * as foodService from './food-service.js';
 import * as syncWhileMigrating from './while-migrating/migration-sync.js';
 
-// import * as dbFoodWhileMigrating from './while-migrating/migration-db-food.js';
+import * as dbFoodWhileMigrating from './while-migrating/migration-db-food.js';
 
 //                                                                   FULL UPDATE
 
@@ -49,9 +49,9 @@ export async function createDiaryEntry(request, reply) {
     const historyStr = JSON.stringify(history);
 
     // ❗ TODO[074] Roll back after migration ❗
-    // const result = await dbFoodWhileMigrating.dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, historyStr, userId); // prettier-ignore
+    const result = await dbFoodWhileMigrating.dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, historyStr, userId); // prettier-ignore
 
-    const result = await dbFood.dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, historyStr, userId);
+    // const result = await dbFood.dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, historyStr, userId);
 
     if (result) {
       request.server.scheduleStatsRecalculation(userId);
@@ -68,7 +68,11 @@ export async function editDiaryEntry(request, reply) {
   const diaryEntry = request.body;
   const userId = request.user.id;
   const historyStr = await foodService.makeUpdatedHistoryString(diaryEntry.id, userId, diaryEntry.history[0]);
-  const result = await dbFood.dbEditDiaryEntry(diaryEntry.foodWeight, historyStr, diaryEntry.id, userId);
+
+  // ❗ TODO[074] Roll back after migration ❗
+  const result = await dbFoodWhileMigrating.dbEditDiaryEntry(diaryEntry.foodWeight, historyStr, diaryEntry.id, userId); // prettier-ignore
+
+  // const result = await dbFood.dbEditDiaryEntry(diaryEntry.foodWeight, historyStr, diaryEntry.id, userId);
   if (result) {
     request.server.scheduleStatsRecalculation(userId);
     return reply.code(200).send({ result: result, diaryId: diaryEntry.id });
@@ -81,7 +85,10 @@ export async function deleteDiaryEntry(request, reply) {
   const userId = request.user.id;
 
   try {
-    const result = await dbFood.dbDeleteDiaryEntry(diaryId, userId);
+    // ❗ TODO[074] Roll back after migration ❗
+    const result = await dbFoodWhileMigrating.dbDeleteDiaryEntry(diaryId, userId);
+
+    // const result = await dbFood.dbDeleteDiaryEntry(diaryId, userId);
     if (result) {
       request.server.scheduleStatsRecalculation(userId);
       return reply.code(200).send({ result: true });
