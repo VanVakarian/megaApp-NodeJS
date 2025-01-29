@@ -205,10 +205,16 @@ export async function processWeight(request, reply) {
   }
 
   try {
-    const existingWeight = await dbFood.getWeightByDate(dateISO, userId);
+    // ❗ TODO[074] Roll back after migration ❗
+    const existingWeight = await dbFoodWhileMigrating.getWeightByDate(dateISO, userId);
     const result = existingWeight
-      ? await dbFood.dbUpdateWeight(dateISO, weight, userId)
-      : await dbFood.dbCreateWeight(dateISO, weight, userId);
+      ? await dbFoodWhileMigrating.dbUpdateWeight(dateISO, weight, userId)
+      : await dbFoodWhileMigrating.dbCreateWeight(dateISO, weight, userId);
+
+    // const existingWeight = await dbFood.getWeightByDate(dateISO, userId);
+    // const result = existingWeight
+    //   ? await dbFood.dbUpdateWeight(dateISO, weight, userId)
+    //   : await dbFood.dbCreateWeight(dateISO, weight, userId);
 
     if (result) {
       request.server.scheduleStatsRecalculation(userId);

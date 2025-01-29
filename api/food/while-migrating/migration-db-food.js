@@ -179,6 +179,140 @@ export async function dbDeleteDiaryEntry(diaryId, userId) {
   }
 }
 
+export async function getWeightByDate(dateISO, userId) {
+  const pgClient = await getPGClient();
+  try {
+    const pgQuery = `
+      SELECT
+        weight
+      FROM
+        weights
+      WHERE
+        date = $1
+        AND users_id = $2;
+    `;
+    const pgResult = await pgClient.query(pgQuery, [dateISO, userId]);
+    return pgResult.rows[0]?.weight || null;
+  } catch (error) {
+    console.error('Error in getWeightByDate:', error);
+    return null;
+  }
+}
+
+export async function dbCreateWeight(dateISO, weight, userId) {
+  const pgClient = await getPGClient();
+  let pgId = null;
+
+  try {
+    // Insert into PostgreSQL first
+    const pgQuery = `
+      INSERT INTO
+        weights (date, weight, users_id)
+      VALUES
+        ($1, $2, $3)
+      RETURNING
+        id;
+    `;
+    const pgResult = await pgClient.query(pgQuery, [dateISO, weight, userId]);
+    pgId = pgResult.rows[0].id;
+
+    // Then insert into SQLite with the same ID
+    const sqliteConnection = await getConnection();
+    const sqliteQuery = `
+      INSERT INTO
+        foodBodyWeight (id, dateISO, weight, usersId)
+      VALUES
+        (?, ?, ?, ?);
+    `;
+    await sqliteConnection.run(sqliteQuery, [pgId, dateISO, weight, userId]);
+
+    return true;
+  } catch (error) {
+    console.error('Error in dbCreateWeight during migration:', error);
+    // If SQLite insert fails after successful PG insert, we should roll back PG
+    if (pgId) {
+      try {
+        await pgClient.query('DELETE FROM weights WHERE id = $1', [pgId]);
+      } catch (rollbackError) {
+        console.error('Failed to rollback PostgreSQL insert:', rollbackError);
+      }
+    }
+    return false;
+  }
+}
+
+export async function dbUpdateWeight(dateISO, weight, userId) {
+  const pgClient = await getPGClient();
+  let pgResult;
+  let originalWeight;
+
+  try {
+    // Saving original value for possible rollback
+    const getOriginalQuery = 'SELECT weight FROM weights WHERE date = $1 AND users_id = $2';
+    const originalData = await pgClient.query(getOriginalQuery, [dateISO, userId]);
+    originalWeight = originalData.rows[0]?.weight;
+
+    if (!originalWeight) {
+      throw new Error('Weight entry not found in legacy DB');
+    }
+
+    // First update in PostgreSQL
+    const pgQuery = `
+      UPDATE
+        weights
+      SET
+        weight = $1
+      WHERE
+        date = $2
+        AND users_id = $3
+      RETURNING
+        id;
+    `;
+    pgResult = await pgClient.query(pgQuery, [weight, dateISO, userId]);
+
+    if (pgResult.rows.length === 0) {
+      throw new Error('Weight entry not found in legacy DB');
+    }
+
+    // Updating in SQLite after successful update in PostgreSQL
+    const sqliteConnection = await getConnection();
+    const sqliteQuery = `
+      UPDATE
+        foodBodyWeight
+      SET
+        weight = ?
+      WHERE
+        dateISO = ?
+        AND usersId = ?;
+    `;
+    await sqliteConnection.run(sqliteQuery, [weight, dateISO, userId]);
+
+    return true;
+  } catch (error) {
+    console.error('Error in dbUpdateWeight during migration:', error);
+    // If the update in SQLite fails, rollback the PostgreSQL update
+    if (pgResult?.rows?.length > 0 && originalWeight) {
+      try {
+        await pgClient.query(
+          `
+          UPDATE
+            weights
+          SET
+            weight = $1
+          WHERE
+            date = $2
+            AND users_id = $3;
+        `,
+          [originalWeight, dateISO, userId]
+        );
+      } catch (rollbackError) {
+        console.error('Failed to rollback PostgreSQL update:', rollbackError);
+      }
+    }
+    return false;
+  }
+}
+
 // Clean up PostgreSQL connection on process exit
 process.on('exit', async () => {
   if (pgClient) {
