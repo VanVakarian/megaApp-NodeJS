@@ -31,7 +31,7 @@ async function getOldDiaryEntries(userId) {
     const res = await client.query(
       `
       SELECT
-        id, food_weight, date, catalogue_id
+        id, food_weight, date::text, catalogue_id
       FROM
         diary
       WHERE
@@ -134,12 +134,9 @@ async function syncDiary(userId) {
   const entriesToCreate = oldEntries
     .filter((entry) => !newEntriesMap.has(entry.id))
     .map((entry) => {
-      const date = new Date(entry.date.getFullYear(), entry.date.getMonth(), entry.date.getDate());
-      date.setDate(date.getDate() + 1);
-      const dateISO = date.toISOString().split('T')[0];
       return {
         ...entry,
-        dateISO: dateISO,
+        dateISO: entry.date,
       };
     });
 
