@@ -79,7 +79,7 @@ async function getOldWeights(userId) {
     const res = await client.query(
       `
       SELECT
-        id, weight, date
+        id, weight, date::text
       FROM
         weights
       WHERE
@@ -244,12 +244,9 @@ async function syncWeights(userId) {
   const weightsToCreate = oldWeights
     .filter((entry) => !newWeightsMap.has(entry.id))
     .map((entry) => {
-      const date = new Date(entry.date.getFullYear(), entry.date.getMonth(), entry.date.getDate());
-      date.setDate(date.getDate() + 1);
-      const dateISO = date.toISOString().split('T')[0];
       return {
         ...entry,
-        dateISO: dateISO,
+        dateISO: entry.date,
       };
     });
 
