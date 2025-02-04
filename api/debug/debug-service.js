@@ -11,7 +11,7 @@ export async function pg2sqliteTransferLite() {
     const settings = await dbDebug.readSourceSettings();
 
     // Moving food ownership from 'foodCatalogue' table to 'foodSettings' table
-    const catalogueIdsGroupedByUser = Object.fromEntries(Object.keys(INIT_USERS).map((userId) => [userId, []]));
+    const catalogueIdsGroupedByUser = Object.fromEntries(INIT_USERS.map((user) => [user.id, []]));
     catalogue.forEach((catalogueEntry) => {
       const entryUserId = catalogueEntry.users_id.toString();
       if (entryUserId === '0') {
@@ -41,13 +41,12 @@ export async function pg2sqliteTransfer(oldUserId) {
   try {
     // Getting source data
     const diary = await dbDebug.readSourceDiary(oldUserId);
-    // console.log('diary', diary.slice(0, 3));
     const bodyWeights = await dbDebug.readSourceWeights(oldUserId);
     const catalogue = await dbDebug.readSourceCatalogue();
     const settings = await dbDebug.readSourceSettings();
 
     // Moving food ownership from 'foodCatalogue' table to 'foodSettings' table
-    const catalogueIdsGroupedByUser = Object.fromEntries(Object.keys(INIT_USERS).map((userId) => [userId, []]));
+    const catalogueIdsGroupedByUser = Object.fromEntries(INIT_USERS.map((user) => [user.id, []]));
     catalogue.forEach((catalogueEntry) => {
       const entryUserId = catalogueEntry.users_id.toString();
       if (entryUserId === '0') {
