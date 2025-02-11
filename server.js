@@ -17,6 +17,7 @@ import { debugRoutes } from './api/debug/debug-routes.js';
 import { foodRoutes } from './api/food/food-routes.js';
 import { settingsRoutes } from './api/settings/settings-routes.js';
 import { websocketRoutes } from './api/ws/ws-routes.js';
+import { backupDayData } from './backup/backup.js';
 
 import { APP_IP, APP_PORT, JWT_SECRET } from './env.js';
 import { swaggerConfig, swaggerUiConfig } from './swagger-config.js';
@@ -27,6 +28,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 await initDatabase();
+await backupDayData(false);
 
 // ❗ TODO[074] Delete after migration ❗
 await pg2sqliteTransferLite();

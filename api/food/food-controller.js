@@ -1,3 +1,4 @@
+import * as backup from '../../backup/backup.js';
 import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
 import * as foodService from './food-service.js';
@@ -34,6 +35,7 @@ export async function getFoodDiaryFullUpdateRange(request, reply) {
   const targetKcals = await foodService.calculateTargetKcals(userId, endDate);
   diaryResult = foodService.extendDiary(diaryResult, 'targetKcals', targetKcals, 0);
 
+  await backup.backupDayData(true);
   return reply.code(200).send(JSON.stringify(diaryResult));
 }
 
@@ -55,6 +57,7 @@ export async function createDiaryEntry(request, reply) {
 
     if (result) {
       request.server.scheduleStatsRecalculation(userId);
+      await backup.backupDayData(true);
       return reply.code(201).send({ result: true, diaryId: result });
     }
     return reply.code(400).send({ result: false, error: 'Diary entry not created' });
@@ -75,6 +78,7 @@ export async function editDiaryEntry(request, reply) {
   // const result = await dbFood.dbEditDiaryEntry(diaryEntry.foodWeight, historyStr, diaryEntry.id, userId);
   if (result) {
     request.server.scheduleStatsRecalculation(userId);
+    await backup.backupDayData(true);
     return reply.code(200).send({ result: result, diaryId: diaryEntry.id });
   }
   return reply.code(400).send({ result: false, error: 'Diary entry not found' });
@@ -91,6 +95,7 @@ export async function deleteDiaryEntry(request, reply) {
     // const result = await dbFood.dbDeleteDiaryEntry(diaryId, userId);
     if (result) {
       request.server.scheduleStatsRecalculation(userId);
+      await backup.backupDayData(true);
       return reply.code(200).send({ result: true });
     }
     return reply.code(404).send({ result: false, error: 'Entry not found' });
@@ -218,6 +223,7 @@ export async function processWeight(request, reply) {
 
     if (result) {
       request.server.scheduleStatsRecalculation(userId);
+      await backup.backupDayData(true);
       return reply.code(201).send({ result: true });
     } else {
       return reply.code(400).send({ result: false, error: 'Weight not saved' });

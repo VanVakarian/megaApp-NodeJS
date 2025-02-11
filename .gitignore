@@ -4,3 +4,4 @@ megaapp.db
 prettierrc.json
 *.project_src
 .DS_Store
+backups
