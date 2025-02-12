@@ -1,4 +1,4 @@
-import * as backup from '../../backup/backup.js';
+import * as backup from '../../api/debug/debug-controller.js';
 import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
 import * as foodService from './food-service.js';
@@ -6,7 +6,7 @@ import * as syncWhileMigrating from './while-migrating/migration-sync.js';
 
 import * as dbFoodWhileMigrating from './while-migrating/migration-db-food.js';
 
-//                                                                   FULL UPDATE
+// ===================================================================================================== FULL UPDATE ===
 
 export async function getFoodDiaryFullUpdateRange(request, reply) {
   const userId = request.user.id;
@@ -39,7 +39,7 @@ export async function getFoodDiaryFullUpdateRange(request, reply) {
   return reply.code(200).send(JSON.stringify(diaryResult));
 }
 
-//                                                                         DIARY
+// =========================================================================================================== DIARY ===
 
 export async function createDiaryEntry(request, reply) {
   const { dateISO, foodCatalogueId, foodWeight, history } = request.body;
@@ -105,7 +105,7 @@ export async function deleteDiaryEntry(request, reply) {
   }
 }
 
-//                                                                MAIN CATALOGUE
+// ================================================================================================== MAIN CATALOGUE ===
 
 export async function getCatalogue(request, reply) {
   const catalogue = await foodService.formFoodCatalogue();
@@ -134,7 +134,7 @@ export async function editCatalogueEntry(request, reply) {
   return reply.code(400).send({ result: false, error: 'Catalogue entry not found' });
 }
 
-//                                                                USER CATALOGUE
+// ================================================================================================== USER CATALOGUE ===
 
 export async function getMyCatalogue(request, reply) {
   const userId = request.user.id;
@@ -190,7 +190,7 @@ export async function dismissUserCatalogueEntry(request, reply) {
   return reply.code(400).send({ result: false, error: 'Catalogue entry not found' });
 }
 
-//                                                                  COEFFICIENTS
+// ==================================================================================================== COEFFICIENTS ===
 
 export async function getCoefficients(request, reply) {
   const userId = request.user.id;
@@ -198,7 +198,7 @@ export async function getCoefficients(request, reply) {
   return reply.code(200).send({ result: true, data: coefficients });
 }
 
-//                                                                   BODY WEIGHT
+// ===================================================================================================== BODY WEIGHT ===
 
 export async function processWeight(request, reply) {
   const { dateISO, bodyWeight } = request.body;
@@ -234,7 +234,7 @@ export async function processWeight(request, reply) {
   }
 }
 
-//                                                                         STATS
+// =========================================================================================================== STATS ===
 
 export async function getStats(request, reply) {
   const userId = request.user.id;

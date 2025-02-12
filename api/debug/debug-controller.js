@@ -1,3 +1,7 @@
+import fs from 'fs/promises';
+import path from 'path';
+import { BACKUP_DIR_NAME, DO_BACKUP } from '../../env.js';
+import * as backupDB from './db-debug.js';
 import * as debugService from './debug-service.js';
 
 export async function ping(request, reply) {
@@ -5,24 +9,36 @@ export async function ping(request, reply) {
   return reply.send({ message: message });
 }
 
-export async function transfer(request, reply) {
-  const { oldUserId } = request.params;
-  try {
-    await debugService.pg2sqliteTransfer(oldUserId);
-    return reply.code(200).send({ result: true });
-  } catch (error) {
-    return reply.code(500).send({ error: error.message });
-  }
+export async function restore(request, reply) {
+  console.log('to be implemented...');
 }
 
-export async function transfer2(request, reply) {
-  const userId = request.user.id;
-  if (!userId) return reply.code(401).send({ message: 'Unauthorized' });
+export async function backupDayData(lastDayOnly) {
+  if (!DO_BACKUP) return;
 
-  try {
-    await debugService.pg2sqliteTransfer(userId);
-    return reply.code(200).send({ result: true });
-  } catch (error) {
-    return reply.code(500).send({ error: error.message });
-  }
+  await fs.mkdir(BACKUP_DIR_NAME, { recursive: true });
+
+  const allIsoDates = await backupDB.getAllDates();
+  if (allIsoDates.length === 0 || !allIsoDates) return;
+
+  const datesIsoList = lastDayOnly ? [allIsoDates.at(-1)] : [...allIsoDates];
+
+  datesIsoList.forEach(async (isoDate) => {
+    const fileName = `${isoDate}.json`;
+    const filePath = path.join(BACKUP_DIR_NAME, fileName);
+
+    const [foodDiary, bodyWeight] = await Promise.all([
+      backupDB.getFoodDiaryByDate(isoDate),
+      backupDB.getBodyWeightByDate(isoDate),
+    ]);
+
+    const backupData = {
+      date: isoDate,
+      foodDiary: foodDiary,
+      bodyWeight: bodyWeight,
+    };
+
+    await fs.writeFile(filePath, JSON.stringify(backupData, null, 2));
+  });
+  console.log(`Backup saved successfully!`);
 }

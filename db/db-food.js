@@ -1,6 +1,6 @@
 import { getConnection } from './db.js';
 
-//                                                                         DIARY
+// =========================================================================================================== DIARY ===
 
 export async function dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, history, userId) {
   const connection = await getConnection();
@@ -166,7 +166,7 @@ export async function getUserFirstDate(userId) {
   }
 }
 
-//                                                                MAIN CATALOGUE
+// ================================================================================================== MAIN CATALOGUE ===
 
 export async function addFoodCatalogueEntry(foodName, foodKcals) {
   const connection = await getConnection();
@@ -240,7 +240,7 @@ export async function getAllFoodCatalogueEntries() {
   }
 }
 
-//                                                                USER CATALOGUE
+// ================================================================================================== USER CATALOGUE ===
 
 export async function getUsersFoodCatalogueIds(userId) {
   const connection = await getConnection();
@@ -280,7 +280,7 @@ export async function updateUsersFoodCatalogueIdsList(selectedCatalogueIds, user
   }
 }
 
-//                                                                   BODY WEIGHT
+// ===================================================================================================== BODY WEIGHT ===
 
 export async function getWeightByDate(dateISO, userId) {
   const connection = await getConnection();
@@ -382,7 +382,7 @@ export async function getWeightHistory(userId, startDate, endDate) {
   }
 }
 
-//                                                                 FOOD SETTINGS
+// =================================================================================================== FOOD SETTINGS ===
 
 export async function getUsersCoefficients(userId) {
   const connection = await getConnection();

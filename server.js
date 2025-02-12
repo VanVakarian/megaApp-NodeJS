@@ -13,11 +13,11 @@ import { initCache } from './api/food/stats-cache.js';
 import { initDatabase } from './db/init.js';
 
 import { authRoutes } from './api/auth/auth-routes.js';
+import { backupDayData } from './api/debug/debug-controller.js';
 import { debugRoutes } from './api/debug/debug-routes.js';
 import { foodRoutes } from './api/food/food-routes.js';
 import { settingsRoutes } from './api/settings/settings-routes.js';
 import { websocketRoutes } from './api/ws/ws-routes.js';
-import { backupDayData } from './backup/backup.js';
 
 import { APP_IP, APP_PORT, JWT_SECRET } from './env.js';
 import { swaggerConfig, swaggerUiConfig } from './swagger-config.js';
