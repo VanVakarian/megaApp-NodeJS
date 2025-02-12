@@ -22,8 +22,9 @@ export async function backupDayData(lastDayOnly) {
   if (allIsoDates.length === 0 || !allIsoDates) return;
 
   const datesIsoList = lastDayOnly ? [allIsoDates.at(-1)] : [...allIsoDates];
+  let updatedCount = 0;
 
-  datesIsoList.forEach(async (isoDate) => {
+  for (const isoDate of datesIsoList) {
     const fileName = `${isoDate}.json`;
     const filePath = path.join(BACKUP_DIR_NAME, fileName);
 
@@ -32,13 +33,31 @@ export async function backupDayData(lastDayOnly) {
       backupDB.getBodyWeightByDate(isoDate),
     ]);
 
-    const backupData = {
+    const newBackupData = {
       date: isoDate,
       foodDiary: foodDiary,
       bodyWeight: bodyWeight,
     };
 
-    await fs.writeFile(filePath, JSON.stringify(backupData, null, 2));
-  });
-  console.log(`Backup saved successfully!`);
+    let shouldUpdate = true;
+
+    try {
+      const existingData = JSON.parse(await fs.readFile(filePath, 'utf8'));
+      const existingFoodCount = existingData.foodDiary?.length || 0;
+      const existingWeightCount = existingData.bodyWeight?.length || 0;
+      const newFoodCount = foodDiary?.length || 0;
+      const newWeightCount = bodyWeight?.length || 0;
+
+      shouldUpdate = existingFoodCount !== newFoodCount || existingWeightCount !== newWeightCount;
+    } catch (error) {
+      shouldUpdate = true;
+    }
+
+    if (shouldUpdate) {
+      await fs.writeFile(filePath, JSON.stringify(newBackupData, null, 2));
+      updatedCount++;
+    }
+  }
+
+  console.log(`Backup completed: ${updatedCount} files were updated`);
 }
