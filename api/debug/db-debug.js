@@ -229,12 +229,6 @@ export async function getExistingDiaryIds(userId) {
   }
 }
 
-process.on('exit', async () => {
-  if (pgClient) {
-    await pgClient.end();
-  }
-});
-
 // ========================================================================================================== BACKUP ===
 
 export async function getAllDates() {
@@ -289,7 +283,9 @@ export async function getBodyWeightByDate(dateISO) {
       FROM
         foodBodyWeight
       WHERE
-        dateISO = ?;
+        dateISO = ?
+      ORDER BY
+        dateISO ASC;
     `;
     const result = await connection.all(query, [dateISO]);
     return result;
@@ -298,3 +294,119 @@ export async function getBodyWeightByDate(dateISO) {
     return [];
   }
 }
+
+export async function insertFoodDiaryEntry(entry) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      INSERT INTO
+        foodDiary (id, dateISO, foodCatalogueId, foodWeight, history, usersId, ver, del)
+      VALUES
+        (?, ?, ?, ?, ?, ?, ?, ?);
+    `;
+    await connection.run(query, [
+      entry.id,
+      entry.dateISO,
+      entry.foodCatalogueId,
+      entry.foodWeight,
+      entry.history,
+      entry.usersId,
+      entry.ver || 0,
+      entry.del || 0,
+    ]);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+export async function insertBodyWeightEntry(entry) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      INSERT INTO
+        foodBodyWeight (id, dateISO, weight, usersId)
+      VALUES
+        (?, ?, ?, ?);
+    `;
+    await connection.run(query, [entry.id, entry.dateISO, entry.weight, entry.usersId]);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+export async function clearDateData(dateISO) {
+  const connection = await getConnection();
+  try {
+    await connection.run('DELETE FROM foodDiary WHERE dateISO = ?', [dateISO]);
+    await connection.run('DELETE FROM foodBodyWeight WHERE dateISO = ?', [dateISO]);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+export async function getAllFoodDiaryEntries() {
+  const connection = await getConnection();
+  try {
+    const query = `
+      SELECT *
+      FROM foodDiary
+      WHERE del = 0
+      ORDER BY dateISO ASC
+    `;
+    return await connection.all(query);
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+}
+
+export async function deleteFoodDiaryEntriesByIds(ids) {
+  if (!ids.length) return;
+  const connection = await getConnection();
+  try {
+    const placeholders = ids.map(() => '?').join(',');
+    const query = `
+      DELETE FROM foodDiary
+      WHERE id IN (${placeholders})
+    `;
+    await connection.run(query, ids);
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+}
+
+export async function insertFoodDiaryEntries(entries) {
+  if (!entries.length) return;
+  const connection = await getConnection();
+  try {
+    const query = `
+      INSERT INTO foodDiary (id, dateISO, foodCatalogueId, foodWeight, history, usersId, ver, del)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    
+    for (const entry of entries) {
+      await connection.run(query, [
+        entry.id,
+        entry.dateISO,
+        entry.foodCatalogueId,
+        entry.foodWeight,
+        entry.history,
+        entry.usersId,
+        entry.ver || 0,
+        entry.del || 0,
+      ]);
+    }
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+}
+
+// ========================================================================================================= ON EXIT ===
+
+process.on('exit', async () => {
+  if (pgClient) {
+    await pgClient.end();
+  }
+});

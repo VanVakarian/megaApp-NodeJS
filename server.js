@@ -13,7 +13,7 @@ import { initCache } from './api/food/stats-cache.js';
 import { initDatabase } from './db/init.js';
 
 import { authRoutes } from './api/auth/auth-routes.js';
-import { backupDayData } from './api/debug/debug-controller.js';
+import { backupDiaryAndWeightsData } from './api/debug/debug-controller.js';
 import { debugRoutes } from './api/debug/debug-routes.js';
 import { foodRoutes } from './api/food/food-routes.js';
 import { settingsRoutes } from './api/settings/settings-routes.js';
@@ -22,16 +22,16 @@ import { websocketRoutes } from './api/ws/ws-routes.js';
 import { APP_IP, APP_PORT, JWT_SECRET } from './env.js';
 import { swaggerConfig, swaggerUiConfig } from './swagger-config.js';
 
-import { pg2sqliteTransferLite } from './api/debug/debug-service.js';
+// import { pg2sqliteTransferLite } from './api/debug/debug-service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 await initDatabase();
-await backupDayData(false);
+await backupDiaryAndWeightsData();
 
 // ❗ TODO[074] Delete after migration ❗
-await pg2sqliteTransferLite();
+// await pg2sqliteTransferLite();
 
 await initCache();
 

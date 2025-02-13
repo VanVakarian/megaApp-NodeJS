@@ -1,10 +1,10 @@
-import * as backup from '../../api/debug/debug-controller.js';
+import { backupDiaryAndWeightsData } from '../../api/debug/debug-controller.js';
 import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
 import * as foodService from './food-service.js';
-import * as syncWhileMigrating from './while-migrating/migration-sync.js';
 
-import * as dbFoodWhileMigrating from './while-migrating/migration-db-food.js';
+// import * as syncWhileMigrating from './while-migrating/migration-sync.js';
+// import * as dbFoodWhileMigrating from './while-migrating/migration-db-food.js';
 
 // ===================================================================================================== FULL UPDATE ===
 
@@ -12,7 +12,7 @@ export async function getFoodDiaryFullUpdateRange(request, reply) {
   const userId = request.user.id;
 
   // ❗ TODO[074] Delete after migration ❗
-  await syncWhileMigrating.syncAll(userId);
+  // await syncWhileMigrating.syncAll(userId);
 
   // const userTZOffsetHours = 4; // TODO: implement in settings // don't need here anymore?
   // const userPreferredMidnightOffsetHours = 5; // TODO: implement in settings // don't need here anymore?
@@ -35,7 +35,7 @@ export async function getFoodDiaryFullUpdateRange(request, reply) {
   const targetKcals = await foodService.calculateTargetKcals(userId, endDate);
   diaryResult = foodService.extendDiary(diaryResult, 'targetKcals', targetKcals, 0);
 
-  await backup.backupDayData(true);
+  await backupDiaryAndWeightsData(true);
   return reply.code(200).send(JSON.stringify(diaryResult));
 }
 
@@ -51,13 +51,13 @@ export async function createDiaryEntry(request, reply) {
     const historyStr = JSON.stringify(history);
 
     // ❗ TODO[074] Roll back after migration ❗
-    const result = await dbFoodWhileMigrating.dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, historyStr, userId); // prettier-ignore
+    // const result = await dbFoodWhileMigrating.dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, historyStr, userId); // prettier-ignore
 
     // const result = await dbFood.dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, historyStr, userId);
 
     if (result) {
       request.server.scheduleStatsRecalculation(userId);
-      await backup.backupDayData(true);
+      await backupDiaryAndWeightsData(true);
       return reply.code(201).send({ result: true, diaryId: result });
     }
     return reply.code(400).send({ result: false, error: 'Diary entry not created' });
@@ -73,12 +73,12 @@ export async function editDiaryEntry(request, reply) {
   const historyStr = await foodService.makeUpdatedHistoryString(diaryEntry.id, userId, diaryEntry.history[0]);
 
   // ❗ TODO[074] Roll back after migration ❗
-  const result = await dbFoodWhileMigrating.dbEditDiaryEntry(diaryEntry.foodWeight, historyStr, diaryEntry.id, userId); // prettier-ignore
+  // const result = await dbFoodWhileMigrating.dbEditDiaryEntry(diaryEntry.foodWeight, historyStr, diaryEntry.id, userId); // prettier-ignore
 
   // const result = await dbFood.dbEditDiaryEntry(diaryEntry.foodWeight, historyStr, diaryEntry.id, userId);
   if (result) {
     request.server.scheduleStatsRecalculation(userId);
-    await backup.backupDayData(true);
+    await backupDiaryAndWeightsData(true);
     return reply.code(200).send({ result: result, diaryId: diaryEntry.id });
   }
   return reply.code(400).send({ result: false, error: 'Diary entry not found' });
@@ -90,12 +90,12 @@ export async function deleteDiaryEntry(request, reply) {
 
   try {
     // ❗ TODO[074] Roll back after migration ❗
-    const result = await dbFoodWhileMigrating.dbDeleteDiaryEntry(diaryId, userId);
+    // const result = await dbFoodWhileMigrating.dbDeleteDiaryEntry(diaryId, userId);
 
     // const result = await dbFood.dbDeleteDiaryEntry(diaryId, userId);
     if (result) {
       request.server.scheduleStatsRecalculation(userId);
-      await backup.backupDayData(true);
+      await backupDiaryAndWeightsData(true);
       return reply.code(200).send({ result: true });
     }
     return reply.code(404).send({ result: false, error: 'Entry not found' });
@@ -211,19 +211,19 @@ export async function processWeight(request, reply) {
 
   try {
     // ❗ TODO[074] Roll back after migration ❗
-    const existingWeight = await dbFoodWhileMigrating.getWeightByDate(dateISO, userId);
-    const result = existingWeight
-      ? await dbFoodWhileMigrating.dbUpdateWeight(dateISO, weight, userId)
-      : await dbFoodWhileMigrating.dbCreateWeight(dateISO, weight, userId);
-
-    // const existingWeight = await dbFood.getWeightByDate(dateISO, userId);
+    // const existingWeight = await dbFoodWhileMigrating.getWeightByDate(dateISO, userId);
     // const result = existingWeight
-    //   ? await dbFood.dbUpdateWeight(dateISO, weight, userId)
-    //   : await dbFood.dbCreateWeight(dateISO, weight, userId);
+    //   ? await dbFoodWhileMigrating.dbUpdateWeight(dateISO, weight, userId)
+    //   : await dbFoodWhileMigrating.dbCreateWeight(dateISO, weight, userId);
+
+    const existingWeight = await dbFood.getWeightByDate(dateISO, userId);
+    const result = existingWeight
+      ? await dbFood.dbUpdateWeight(dateISO, weight, userId)
+      : await dbFood.dbCreateWeight(dateISO, weight, userId);
 
     if (result) {
       request.server.scheduleStatsRecalculation(userId);
-      await backup.backupDayData(true);
+      await backupDiaryAndWeightsData(true);
       return reply.code(201).send({ result: true });
     } else {
       return reply.code(400).send({ result: false, error: 'Weight not saved' });
