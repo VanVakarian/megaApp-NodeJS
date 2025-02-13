@@ -26,7 +26,13 @@ export async function getFoodDiaryFullUpdateRange(request, reply) {
   const bodyWeightPrepped = foodService.organizeWeightsByDate(bodyWeightRawData);
   diaryResult = foodService.extendDiary(diaryResult, 'bodyWeight', bodyWeightPrepped, null);
 
-  const targetKcals = await foodService.calculateTargetKcals(userId, endDate);
+  const stats = await foodService.getStats(userId);
+  const targetKcals = {};
+  datesIsoList.forEach((date) => {
+    if (stats[date]) {
+      targetKcals[date] = stats[date][3]; // [3] is targetKcals
+    }
+  });
   diaryResult = foodService.extendDiary(diaryResult, 'targetKcals', targetKcals, 0);
 
   await backupDiaryAndWeightsData(true);
@@ -38,8 +44,8 @@ export async function getFoodDiaryFullUpdateRange(request, reply) {
 export async function createDiaryEntry(request, reply) {
   const { dateISO, foodCatalogueId, foodWeight, history } = request.body;
   const userId = request.user.id;
-  const userTZOffsetHours = 4; // Это значение должно браться из настроек пользователя
-  const userPreferredMidnightOffsetHours = 5; // Это значение должно браться из настроек пользователя
+  // const userTZOffsetHours = 4; // TODO: implement in settings // don't need here anymore?
+  // const userPreferredMidnightOffsetHours = 5; // TODO: implement in settings // don't need here anymore?
 
   try {
     const historyStr = JSON.stringify(history);

@@ -137,7 +137,7 @@ export async function calculateTargetKcals(userId, endDate) {
   return smoothedTargetKcals;
 }
 
-//                                                                         STATS
+// =========================================================================================================== STATS ===
 
 export async function getStats(userId) {
   const cachedStats = statsCache.getCachedStats(userId);
