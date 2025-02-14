@@ -9,6 +9,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { setupEventHandlers } from './api/food/event-handlers.js';
+
+import { APP_IP, APP_PORT, JWT_SECRET } from './env.js';
+import { swaggerConfig, swaggerUiConfig } from './swagger-config.js';
+
 import { initCache } from './api/food/stats-cache.js';
 import { initDatabase } from './db/init.js';
 
@@ -19,8 +23,7 @@ import { foodRoutes } from './api/food/food-routes.js';
 import { settingsRoutes } from './api/settings/settings-routes.js';
 import { websocketRoutes } from './api/ws/ws-routes.js';
 
-import { APP_IP, APP_PORT, JWT_SECRET } from './env.js';
-import { swaggerConfig, swaggerUiConfig } from './swagger-config.js';
+// import { loggerMiddleware } from './logger/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,6 +35,8 @@ await initCache();
 
 const server = Fastify({ logger: true });
 setupEventHandlers(server);
+
+// server.addHook('onRequest', loggerMiddleware);
 
 server.register(fastifyCompress);
 server.register(fastifyJwt, { secret: JWT_SECRET });
