@@ -7,3 +7,5 @@ prettierrc.json
 backups
 nodemon.json
 *.log
+del
+experiments
