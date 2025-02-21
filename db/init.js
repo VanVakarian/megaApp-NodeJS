@@ -1,4 +1,4 @@
-import { INIT_USERS, RECHECK_DB } from '../env.js';
+import { DO_RECHECK_DB, INIT_USERS } from '../env.js';
 import { getConnection } from './db.js';
 
 async function createTablesIfNotExist() {
@@ -152,7 +152,7 @@ async function addUserIfNotExists(user) {
 }
 
 export async function initDatabase() {
-  if (RECHECK_DB) {
+  if (DO_RECHECK_DB) {
     await createTablesIfNotExist();
 
     for (const user of INIT_USERS) {
