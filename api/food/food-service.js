@@ -185,13 +185,13 @@ async function calculateStats(userId) {
     const coefficients = await getCoefficients(userId);
     const dailySumKcals = calculateDailySumKcals(diaryEntriesPrepped, coefficients, allDates);
 
-    const avgDays = 7;
-    const dailySumKcalsAvg = calculateAverage(dailySumKcals, avgDays, true, 0);
-    const weightsPrepAvg = calculateAverage(weightsPrepped, avgDays, true, 1);
+    const avgDays = 11;
+    const dailySumKcalsAvg = calculateCenteredAverage(dailySumKcals, avgDays, true, 0);
+    const weightsPrepAvg = calculateCenteredAverage(weightsPrepped, avgDays, true, 1);
 
     const normDays = 30;
     const targetKcals = computeTargetKcalsFromHistory(dailySumKcalsAvg, weightsPrepAvg, normDays);
-    const targetKcalsAvg = calculateAverage(targetKcals, normDays, true, 0);
+    const targetKcalsAvg = calculateCenteredAverage(targetKcals, normDays, true, 0);
 
     const preparedStats = prepareStats(allDates, weightsPrepped, weightsPrepAvg, dailySumKcals, targetKcalsAvg);
     return preparedStats;
@@ -312,7 +312,7 @@ async function getAndValidateCoefficients(userId) {
   return usersCoeffs;
 }
 
-function calculateAverage(inputDict, avgRange, roundBool = false, roundPlaces = 0) {
+function calculateSimpleAverage(inputDict, avgRange, roundBool = false, roundPlaces = 0) {
   const keys = Object.keys(inputDict);
   const values = Object.values(inputDict);
 
@@ -325,6 +325,34 @@ function calculateAverage(inputDict, avgRange, roundBool = false, roundPlaces = 
   const averaged = values.map((_, i) => {
     const start = Math.max(0, i - avgRange + 1);
     const slice = values.slice(start, i + 1);
+    const avg = slice.reduce((a, b) => a + b, 0) / slice.length;
+
+    if (roundBool) {
+      return roundPlaces > 0 ? Number(avg.toFixed(roundPlaces)) : Math.round(avg);
+    }
+    return avg;
+  });
+
+  return Object.fromEntries(keys.map((k, i) => [k, averaged[i]]));
+}
+
+function calculateCenteredAverage(inputDict, avgRange, roundBool = false, roundPlaces = 0) {
+  const keys = Object.keys(inputDict);
+  const values = Object.values(inputDict);
+
+  for (let i = 1; i < values.length; i++) {
+    if (values[i] === null) {
+      values[i] = values[i - 1];
+    }
+  }
+
+  const halfRange = Math.floor(avgRange / 2);
+
+  const averaged = values.map((_, i) => {
+    const start = Math.max(0, i - halfRange);
+    const end = Math.min(values.length, i + halfRange + 1);
+
+    const slice = values.slice(start, end);
     const avg = slice.reduce((a, b) => a + b, 0) / slice.length;
 
     if (roundBool) {

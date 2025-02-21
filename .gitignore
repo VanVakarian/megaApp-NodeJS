@@ -6,3 +6,4 @@ prettierrc.json
 .DS_Store
 backups
 nodemon.json
+*.log
