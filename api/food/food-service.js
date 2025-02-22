@@ -185,13 +185,13 @@ async function calculateStats(userId) {
     const coefficients = await getCoefficients(userId);
     const dailySumKcals = calculateDailySumKcals(diaryEntriesPrepped, coefficients, allDates);
 
-    const avgDays = 11;
-    const dailySumKcalsAvg = calculateCenteredAverage(dailySumKcals, avgDays, true, 0);
-    const weightsPrepAvg = calculateCenteredAverage(weightsPrepped, avgDays, true, 1);
+    const AVG_DAYS = 11;
+    const dailySumKcalsAvg = calculateCenteredAverage(dailySumKcals, AVG_DAYS, true, 0);
+    const weightsPrepAvg = calculateCenteredAverage(weightsPrepped, AVG_DAYS, true, 1);
 
-    const normDays = 30;
-    const targetKcals = computeTargetKcalsFromHistory(dailySumKcalsAvg, weightsPrepAvg, normDays);
-    const targetKcalsAvg = calculateCenteredAverage(targetKcals, normDays, true, 0);
+    const NORM_DAYS = 30;
+    const targetKcals = computeTargetKcalsFromHistory(dailySumKcalsAvg, weightsPrepAvg, NORM_DAYS);
+    const targetKcalsAvg = calculateCenteredAverage(targetKcals, NORM_DAYS, true, 0);
 
     const preparedStats = prepareStats(allDates, weightsPrepped, weightsPrepAvg, dailySumKcals, targetKcalsAvg);
     return preparedStats;

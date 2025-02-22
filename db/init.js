@@ -121,6 +121,16 @@ async function createTablesIfNotExist() {
       usersId INTEGER
     );
     `,
+
+    `
+    CREATE TABLE IF NOT EXISTS userActivity (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      dateISO TEXT,
+      activityType TEXT,
+      value INTEGER,
+      usersId INTEGER
+    );
+    `,
   ];
 
   try {

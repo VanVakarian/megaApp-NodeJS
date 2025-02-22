@@ -15,6 +15,7 @@ import { initDatabase } from './db/init.js';
 import { authRoutes } from './api/auth/auth-routes.js';
 import { backupDiaryAndWeightsData } from './api/debug/debug-controller.js';
 import { debugRoutes } from './api/debug/debug-routes.js';
+// import { csvToDb } from './api/debug/debug-service.js';
 import { foodRoutes } from './api/food/food-routes.js';
 import { settingsRoutes } from './api/settings/settings-routes.js';
 import { websocketRoutes } from './api/ws/ws-routes.js';
@@ -27,6 +28,7 @@ const __dirname = path.dirname(__filename);
 
 await initDatabase();
 await backupDiaryAndWeightsData();
+// await csvToDb();
 
 await initCache();
 
