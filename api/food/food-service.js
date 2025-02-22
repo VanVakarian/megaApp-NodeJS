@@ -182,8 +182,11 @@ async function calculateStats(userId) {
     const diaryEntriesRaw = await dbFood.getDiaryEntriesHistory(userId, firstDate, lastDate);
     const diaryEntriesPrepped = prepareDiaryEntries(diaryEntriesRaw, allDates);
 
+    const stepsRaw = await dbFood.dbGetWalkSteps(firstDate, lastDate, userId);
+    const burntKcals = calculateBurntKcalsFromSteps(stepsRaw, allDates);
+
     const coefficients = await getCoefficients(userId);
-    const dailySumKcals = calculateDailySumKcals(diaryEntriesPrepped, coefficients, allDates);
+    const dailySumKcals = calculateDailySumKcals(diaryEntriesPrepped, coefficients, burntKcals, allDates);
 
     const AVG_DAYS = 11;
     const dailySumKcalsAvg = calculateCenteredAverage(dailySumKcals, AVG_DAYS, true, 0);
@@ -245,7 +248,21 @@ function prepareDiaryEntries(diaryEntriesRaw, allDates) {
   return entries;
 }
 
-function calculateDailySumKcals(diaryEntries, coefficients, allDates) {
+function calculateBurntKcalsFromSteps(stepsRaw, allDates) {
+  const steps = Object.fromEntries(allDates.map((date) => [date, null]));
+
+  stepsRaw.forEach((item) => {
+    steps[item.dateISO] = parseInt(item.steps);
+  });
+
+  const burntKcals = Object.fromEntries(
+    Object.entries(steps).map(([date, steps]) => [date, steps ? Math.round(steps * -0.05) : null])
+  );
+
+  return burntKcals;
+}
+
+function calculateDailySumKcals(diaryEntries, coefficients, burntKcals, allDates) {
   const dailySumKcals = Object.fromEntries(allDates.map((date) => [date, null]));
 
   for (const [date, entries] of Object.entries(diaryEntries)) {
@@ -255,6 +272,12 @@ function calculateDailySumKcals(diaryEntries, coefficients, allDates) {
 
     for (const { foodId, weight, calories } of entries) {
       dailySumKcals[date] += (weight / 100) * calories * coefficients[foodId];
+    }
+  }
+
+  for (const date in dailySumKcals) {
+    if (dailySumKcals[date] !== null && burntKcals[date] !== null) {
+      dailySumKcals[date] += burntKcals[date];
     }
   }
 

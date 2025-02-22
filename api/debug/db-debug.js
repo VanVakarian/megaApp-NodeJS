@@ -182,7 +182,7 @@ export async function insertFoodDiaryEntries(entries) {
   }
 }
 
-// ======================================================================================================= CSV TO DB ===
+// ================================================================================================= STEPS CSV TO DB ===
 
 export async function dbSaveWalkSteps(steps, dateISO, userId) {
   const connection = await getConnection();
@@ -197,29 +197,6 @@ export async function dbSaveWalkSteps(steps, dateISO, userId) {
     return result.lastID;
   } catch (error) {
     console.error('Error saving walk steps:', error);
-    throw error;
-  }
-}
-
-export async function dbGetWalkSteps(startDate, endDate, userId) {
-  const connection = await getConnection();
-  try {
-    const query = `
-      SELECT
-        dateISO,
-        value as steps
-      FROM
-        userActivity
-      WHERE
-        usersId = ?
-        AND activityType = 'steps'
-        AND dateISO BETWEEN ? AND ?
-      ORDER BY
-        dateISO ASC;
-    `;
-    return await connection.all(query, [userId, startDate, endDate]);
-  } catch (error) {
-    console.error('Error getting walk steps:', error);
     throw error;
   }
 }

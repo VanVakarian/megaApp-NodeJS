@@ -382,6 +382,31 @@ export async function getWeightHistory(userId, startDate, endDate) {
   }
 }
 
+// ======================================================================================================== ACTIVITY ===
+
+export async function dbGetWalkSteps(startDate, endDate, userId) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      SELECT
+        dateISO,
+        value as steps
+      FROM
+        userActivity
+      WHERE
+        usersId = ?
+        AND activityType = 'steps'
+        AND dateISO BETWEEN ? AND ?
+      ORDER BY
+        dateISO ASC;
+    `;
+    return await connection.all(query, [userId, startDate, endDate]);
+  } catch (error) {
+    console.error('Error getting walk steps:', error);
+    throw error;
+  }
+}
+
 // =================================================================================================== FOOD SETTINGS ===
 
 export async function getUsersCoefficients(userId) {
