@@ -4,6 +4,7 @@ import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import fastifyWebSocket from '@fastify/websocket';
 import Fastify from 'fastify';
+import cron from 'node-cron';
 
 import { initCache } from './api/food/stats-cache.js';
 import { initDatabase } from './db/init.js';
@@ -21,6 +22,7 @@ import { debugRoutes } from './api/debug/debug-routes.js';
 import { foodRoutes } from './api/food/food-routes.js';
 import { settingsRoutes } from './api/settings/settings-routes.js';
 import { websocketRoutes } from './api/ws/ws-routes.js';
+import { startCoefficientsCalculation } from './coefficients/coefficients-service.js';
 
 await initDatabase();
 await backupDiaryAndWeightsData();
@@ -49,6 +51,12 @@ server.register(settingsRoutes, { prefix: '/api/settings' });
 server.register(websocketRoutes, { prefix: '/api/ws' });
 
 export const wsClients = new Map();
+
+//  Every day at 3 AM
+cron.schedule('0 3 * * *', async () => {
+  console.log('Running coefficient calculation for all users...');
+  await startCoefficientsCalculation();
+});
 
 server.listen({ port: APP_PORT, host: APP_IP }, (err, address) => {
   if (err) {

@@ -1,4 +1,5 @@
 import { backupDiaryAndWeightsData } from '../../api/debug/debug-controller.js';
+import * as coefficientsService from '../../coefficients/coefficients-service.js';
 import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
 import * as foodService from './food-service.js';
@@ -185,8 +186,27 @@ export async function dismissUserCatalogueEntry(request, reply) {
 
 export async function getCoefficients(request, reply) {
   const userId = request.user.id;
-  const coefficients = await foodService.getCoefficients(userId);
-  return reply.code(200).send({ result: true, data: coefficients });
+  try {
+    const coefficients = await foodService.getCoefficients(userId);
+    return reply.code(200).send({ result: true, data: coefficients });
+  } catch (error) {
+    console.error('Error getting coefficients:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
+}
+
+export async function calculateCoefficients(request, reply) {
+  const userId = request.user.id;
+  try {
+    const result = await coefficientsService.calculateAndSaveCoefficients(userId);
+    if (result) {
+      return reply.code(200).send({ result: true, message: 'Coefficients calculated and saved.' });
+    }
+    return reply.code(500).send({ result: false, message: 'Coefficients calculation failed.' });
+  } catch (error) {
+    console.error('Error calculating coefficients:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
 }
 
 // ===================================================================================================== BODY WEIGHT ===

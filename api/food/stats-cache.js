@@ -18,3 +18,7 @@ export function getCachedStats(userId) {
 export function saveCachedStats(userId, stats) {
   statsCache.set(userId, { stats: JSON.stringify(stats) });
 }
+
+export function clearCachedStats(userId) {
+  statsCache.delete(userId);
+}
