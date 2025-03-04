@@ -9,3 +9,4 @@ nodemon.json
 *.log
 del
 experiments
+copilot-codeGeneration-instructions.md

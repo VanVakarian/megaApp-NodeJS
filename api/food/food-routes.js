@@ -133,6 +133,11 @@ export async function foodRoutes(fastify) {
     handler: foodController.getCoefficients,
   });
 
+  fastify.get('/coefficients-gen', {
+    schema: { tags: ['food'] },
+    handler: foodController.calculateCoefficients,
+  });
+
   //                                                               WEIGHT ROUTES
   fastify.post('/body-weight', {
     schema: {
