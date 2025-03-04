@@ -1,5 +1,5 @@
 import { backupDiaryAndWeightsData } from '../../api/debug/debug-controller.js';
-import * as coefficientsService from '../../coefficients/coefficients-service.js';
+import * as coefficientsService from '../../coefficients/coeffs-service.js';
 import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
 import * as foodService from './food-service.js';

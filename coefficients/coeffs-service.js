@@ -1,17 +1,22 @@
 import { Worker } from 'worker_threads';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import * as dbFood from '../db/db-food.js';
 import * as dbUsers from '../db/db-users.js';
-import * as dbCoefficients from './db-coefficients.js';
+import * as dbCoefficients from './coeffs-db.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export async function calculateAndSaveCoefficients(userId) {
   return new Promise((resolve, reject) => {
-    const worker = new Worker('./calculate-coefficients-worker.js');
+    const workerPath = path.resolve(__dirname, 'coeffs-worker.js');
+    const worker = new Worker(workerPath);
 
     worker.postMessage({ userId });
 
     worker.on('message', (message) => {
       if (message.status === 'success') {
-        console.log('Coefficients calculated successfully for user:', userId);
         worker.terminate();
         resolve(true);
       } else if (message.status === 'error') {

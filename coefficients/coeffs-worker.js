@@ -2,8 +2,8 @@ import { parentPort } from 'worker_threads';
 import * as statsCache from '../api/food/stats-cache.js';
 import * as dbFood from '../db/db-food.js';
 import { COEFF_SETTINGS } from '../env.js';
-import * as coefficientsService from './coefficients-service.js';
-import * as dbCoefficients from './db-coefficients.js';
+import * as coefficientsService from './coeffs-service.js';
+import * as dbCoefficients from './coeffs-db.js';
 
 parentPort.on('message', async ({ userId }) => {
   if (!userId) {
@@ -12,6 +12,9 @@ parentPort.on('message', async ({ userId }) => {
   }
 
   try {
+    console.log(`Starting coefficients calculation for user: ${userId}`);
+    const startTime = Date.now();
+
     const [diaryEntriesRaw, weightsRaw, catalogueRaw] = await Promise.all([
       dbFood.getRangeOfUsersDiaryEntries(userId, '1970-01-01', '2100-01-01'),
       dbFood.getRangeOfUsersBodyWeightEntries(userId, '1970-01-01', '2100-01-01'),
@@ -25,11 +28,7 @@ parentPort.on('message', async ({ userId }) => {
       coefficientsService.getAndValidateCoefficients(userId, COEFF_SETTINGS.START_WITH_ZEROS),
     ]);
 
-    const dailySumKcals = await coefficientsService.dailySumKcalsCount(
-      diaryEntriesPrepped,
-      cataloguePrepped,
-      personalCoeffs
-    );
+    const dailySumKcals = await coefficientsService.dailySumKcalsCount(diaryEntriesPrepped, cataloguePrepped, personalCoeffs);
     const catalogueFrequency = await coefficientsService.catalogueFrequencyPrep(personalCoeffs, diaryEntriesRaw);
     const dailySumKcalsAvg = coefficientsService.averageList(dailySumKcals, COEFF_SETTINGS.DAYS_7);
     const weightsPreppedAvg = coefficientsService.averageList(weightsPrepped, COEFF_SETTINGS.DAYS_7);
@@ -51,17 +50,9 @@ parentPort.on('message', async ({ userId }) => {
     while (bestScoreCounter < COEFF_SETTINGS.MAX_TRIES_IF_UNCHANGED) {
       const score = {};
       for (const [i, coeffs] of Object.entries(coeffsMainDict)) {
-        const dailySumKcals = await coefficientsService.dailySumKcalsCount(
-          diaryEntriesPrepped,
-          cataloguePrepped,
-          coeffs
-        );
+        const dailySumKcals = await coefficientsService.dailySumKcalsCount(diaryEntriesPrepped, cataloguePrepped, coeffs);
         const dailySumKcalsAvg = coefficientsService.averageList(dailySumKcals, COEFF_SETTINGS.DAYS_7);
-        const targetKcalsEdgy = coefficientsService.targetKcalsPrep(
-          dailySumKcalsAvg,
-          weightsPreppedAvg,
-          COEFF_SETTINGS.DAYS_7
-        );
+        const targetKcalsEdgy = coefficientsService.targetKcalsPrep(dailySumKcalsAvg, weightsPreppedAvg, COEFF_SETTINGS.DAYS_7);
         const targetKcalsSmooth = coefficientsService.averageList(targetKcalsEdgy, COEFF_SETTINGS.DAYS_60);
         score[i] = coefficientsService.fitnessCalc(targetKcalsEdgy, targetKcalsSmooth, coeffs);
       }
@@ -74,7 +65,6 @@ parentPort.on('message', async ({ userId }) => {
       const bestCoeffsIds = bestCoeffs.map(([id]) => id);
 
       lap++;
-      console.log(`Lap ${lap.toString().padStart(3, '0')} for user #${userId} finished with score ${bestScore}`);
 
       const coeffsMainDictNew = {};
       let j = 0;
@@ -100,6 +90,10 @@ parentPort.on('message', async ({ userId }) => {
     const topCoeffStr = JSON.stringify(topCoeff);
     const res = await dbCoefficients.setUsersCoefficients(userId, topCoeffStr);
     statsCache.clearCachedStats(userId);
+
+    const endTime = Date.now();
+    const duration = ((endTime - startTime) / 1000).toFixed(2);
+    console.log(`Coefficients calculated successfully for user: ${userId} (${lap} laps in ${duration} seconds)`);
 
     parentPort.postMessage({ status: 'success' });
   } catch (error) {

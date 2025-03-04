@@ -22,12 +22,18 @@ import { debugRoutes } from './api/debug/debug-routes.js';
 import { foodRoutes } from './api/food/food-routes.js';
 import { settingsRoutes } from './api/settings/settings-routes.js';
 import { websocketRoutes } from './api/ws/ws-routes.js';
-import { startCoefficientsCalculation } from './coefficients/coefficients-service.js';
+import { startCoefficientsCalculation } from './coefficients/coeffs-service.js';
 
 await initDatabase();
 await backupDiaryAndWeightsData();
 
 await initCache();
+
+//  Every day at 1 AM GMT
+cron.schedule('00 01 * * *', async () => {
+  console.log('Running coefficient calculation for all users...');
+  await startCoefficientsCalculation();
+});
 
 const server = Fastify({ logger: true });
 
@@ -51,12 +57,6 @@ server.register(settingsRoutes, { prefix: '/api/settings' });
 server.register(websocketRoutes, { prefix: '/api/ws' });
 
 export const wsClients = new Map();
-
-//  Every day at 3 AM
-cron.schedule('0 3 * * *', async () => {
-  console.log('Running coefficient calculation for all users...');
-  await startCoefficientsCalculation();
-});
 
 server.listen({ port: APP_PORT, host: APP_IP }, (err, address) => {
   if (err) {
