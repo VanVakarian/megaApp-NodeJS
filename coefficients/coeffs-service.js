@@ -63,6 +63,7 @@ export async function diaryEntriesPrep(diaryEntriesRaw) {
     }
   }
   diaryEntriesPrepped.push(thisDaysFood);
+
   return diaryEntriesPrepped;
 }
 
@@ -115,12 +116,22 @@ export function averageList(inputList, avgRange, roundBool = false, roundPlaces 
 }
 
 export function targetKcalsPrep(kcals, weights, n) {
-  const res = [];
-  for (let i = n - 1; i < kcals.length; i++) {
-    const kcalsSlice = kcals.slice(i - n + 1, i + 1);
-    const weightDiff = weights[i] - weights[i - n + 1];
-    res.push((kcalsSlice.reduce((a, b) => a + b, 0) - weightDiff * 7700) / n);
+  if (kcals.length < n || weights.length < n) {
+    throw new Error(`Insufficient data for targetKcalsPrep calculation - need at least ${n} entries`);
   }
+
+  // Limiting calculations to the number of days we have weight data for
+  const effectiveLength = Math.min(kcals.length, weights.length);
+
+  const res = [];
+  for (let i = n - 1; i < effectiveLength; i++) {
+    const startIdx = i - n + 1;
+    const kcalsSlice = kcals.slice(startIdx, i + 1);
+    const weightDiff = weights[i] - weights[startIdx];
+    const targetKcal = (kcalsSlice.reduce((a, b) => a + b, 0) - weightDiff * 7700) / n;
+    res.push(targetKcal);
+  }
+
   return res;
 }
 

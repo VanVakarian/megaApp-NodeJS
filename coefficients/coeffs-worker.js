@@ -21,6 +21,12 @@ parentPort.on('message', async ({ userId }) => {
       dbFood.getAllFoodCatalogueEntries(),
     ]);
 
+    // Checking if there are enough data points for the algorithm
+    if (weightsRaw.length < COEFF_SETTINGS.DAYS_7 + 1) {
+      parentPort.postMessage({ status: 'error', error: 'Insufficient weight data for calculation' });
+      return;
+    }
+
     const [diaryEntriesPrepped, weightsPrepped, cataloguePrepped, personalCoeffs] = await Promise.all([
       coefficientsService.diaryEntriesPrep(diaryEntriesRaw),
       coefficientsService.weightsPrep(weightsRaw),
@@ -28,10 +34,18 @@ parentPort.on('message', async ({ userId }) => {
       coefficientsService.getAndValidateCoefficients(userId, COEFF_SETTINGS.START_WITH_ZEROS),
     ]);
 
+    // Check for data length mismatch that could affect calculations
+    if (diaryEntriesPrepped.length === 0) {
+      parentPort.postMessage({ status: 'error', error: 'No valid diary entries for calculation' });
+      return;
+    }
+
     const dailySumKcals = await coefficientsService.dailySumKcalsCount(diaryEntriesPrepped, cataloguePrepped, personalCoeffs);
     const catalogueFrequency = await coefficientsService.catalogueFrequencyPrep(personalCoeffs, diaryEntriesRaw);
+
     const dailySumKcalsAvg = coefficientsService.averageList(dailySumKcals, COEFF_SETTINGS.DAYS_7);
     const weightsPreppedAvg = coefficientsService.averageList(weightsPrepped, COEFF_SETTINGS.DAYS_7);
+
     const targetKcals = coefficientsService.targetKcalsPrep(dailySumKcalsAvg, weightsPreppedAvg, COEFF_SETTINGS.DAYS_7);
 
     const coeffsMainDict = Object.fromEntries(
@@ -88,7 +102,7 @@ parentPort.on('message', async ({ userId }) => {
     }
 
     const topCoeffStr = JSON.stringify(topCoeff);
-    const res = await dbCoefficients.setUsersCoefficients(userId, topCoeffStr);
+    await dbCoefficients.setUsersCoefficients(userId, topCoeffStr);
     statsCache.clearCachedStats(userId);
 
     const endTime = Date.now();
