@@ -77,6 +77,7 @@ async function createTablesIfNotExist() {
       darkTheme BOOLEAN,
       selectedChapterFood BOOLEAN,
       selectedChapterMoney BOOLEAN,
+      liteVersion BOOLEAN,
       height INTEGER
     );
     `,

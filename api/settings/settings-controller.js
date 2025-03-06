@@ -18,7 +18,7 @@ export async function getSettings(request, reply) {
 
     return reply.code(200).send(settings);
   } catch (error) {
-    return reply.code(400).send({ message: error.message });
+    return reply.code(500).send({ message: error.message });
   }
 }
 
@@ -31,7 +31,7 @@ export async function postSettings(request, reply) {
     await dbSettings.postUsersSettings(userId, settings);
     return reply.code(200).send({ message: 'Settings saved successfully' });
   } catch (error) {
-    return reply.code(400).send({ message: error.message });
+    return reply.code(500).send({ message: error.message });
   }
 }
 
@@ -42,7 +42,7 @@ export async function updateSetting(request, reply) {
   const setting = Object.keys(request.body)[0];
   const value = request.body[setting];
 
-  const allowedSettings = ['darkTheme', 'selectedChapterFood', 'selectedChapterMoney', 'height'];
+  const allowedSettings = ['darkTheme', 'selectedChapterFood', 'selectedChapterMoney', 'liteVersion', 'height'];
 
   if (!allowedSettings.includes(setting)) {
     return reply.code(400).send({ message: 'Invalid setting name' });
@@ -56,6 +56,6 @@ export async function updateSetting(request, reply) {
     await dbSettings.updateSingleSetting(userId, setting, value);
     return reply.code(200).send({ message: 'Setting updated successfully' });
   } catch (error) {
-    return reply.code(400).send({ message: error.message });
+    return reply.code(500).send({ message: error.message });
   }
 }
