@@ -3,5 +3,6 @@ export const defaultSettings = {
   darkTheme: false,
   selectedChapterFood: false,
   selectedChapterMoney: false,
+  liteVersion: false,
   height: null,
 };
