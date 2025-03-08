@@ -5,7 +5,7 @@ export async function getUsersSettings(userId) {
   try {
     const query = `
       SELECT
-        darkTheme, selectedChapterFood, selectedChapterMoney, height
+        darkTheme, selectedChapterFood, selectedChapterMoney, liteVersion, height
       FROM
         settings
       WHERE
@@ -17,6 +17,7 @@ export async function getUsersSettings(userId) {
       result.darkTheme = result.darkTheme === 1; // converting digits to boolean
       result.selectedChapterFood = result.selectedChapterFood === 1;
       result.selectedChapterMoney = result.selectedChapterMoney === 1;
+      result.liteVersion = result.liteVersion === 1;
     }
 
     return result;
@@ -57,7 +58,7 @@ export async function updateUserSettings(userId, settings) {
       UPDATE
         settings
       SET
-        darkTheme = ?, selectedChapterFood = ?, selectedChapterMoney = ?, height = ?
+        darkTheme = ?, selectedChapterFood = ?, selectedChapterMoney = ?, liteVersion = ?, height = ?
       WHERE
         usersId = ?
     `;
@@ -65,6 +66,7 @@ export async function updateUserSettings(userId, settings) {
       settings.darkTheme,
       settings.selectedChapterFood,
       settings.selectedChapterMoney,
+      settings.liteVersion,
       settings.height,
       userId,
     ]);
@@ -79,15 +81,16 @@ export async function createUserSettings(userId, settings) {
   try {
     const insertQuery = `
       INSERT INTO
-        settings (usersId, darkTheme, selectedChapterFood, selectedChapterMoney, height)
+        settings (usersId, darkTheme, selectedChapterFood, selectedChapterMoney, liteVersion, height)
       VALUES
-        (?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?)
     `;
     await connection.run(insertQuery, [
       userId,
       settings.darkTheme,
       settings.selectedChapterFood,
       settings.selectedChapterMoney,
+      settings.liteVersion,
       settings.height,
     ]);
   } catch (error) {
