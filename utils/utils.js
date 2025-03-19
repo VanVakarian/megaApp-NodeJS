@@ -34,3 +34,10 @@ export function getStartAndEndDates(dateIso, offsetInDays) {
 export async function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+export function sumArray(arr) {
+  if (arr.length === 0) {
+    return 0;
+  }
+  return arr.reduce((sum, val) => sum + val, 0);
+}
