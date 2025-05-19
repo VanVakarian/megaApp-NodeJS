@@ -185,7 +185,7 @@ async function calculateStats(userId) {
     const coefficients = await getCoefficients(userId);
     const dailySumKcals = calculateDailySumKcals(diaryEntriesPrepped, coefficients, allDates);
 
-    const avgDays = 11;
+    const avgDays = 10;
     const dailySumKcalsAvg = calculateCenteredAverage(dailySumKcals, avgDays, true, 0);
     const weightsPrepAvg = calculateCenteredAverage(weightsPrepped, avgDays, true, 1);
 
@@ -373,7 +373,10 @@ function computeTargetKcalsFromHistory(kcals, weights, n) {
   for (let i = n - 1; i < kcalsValues.length; i++) {
     const kcalsSlice = kcalsValues.slice(i - n + 1, i + 1);
     const weightDiff = weightsValues[i] - weightsValues[i - n + 1];
-    averaged.push((kcalsSlice.reduce((a, b) => a + b, 0) - weightDiff * 7700) / n);
+    const totalCaloriesConsumedInNDays = utils.sumArray(kcalsSlice);
+    const calorieDeficitFromWeight = weightDiff * 7700;
+    const dailyMaintenanceCalories = (totalCaloriesConsumedInNDays - calorieDeficitFromWeight) / n;
+    averaged.push(dailyMaintenanceCalories);
   }
 
   const resultKeys = kcalsKeys.slice(kcalsKeys.length - averaged.length);

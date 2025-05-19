@@ -29,12 +29,18 @@ export async function getFoodDiaryFullUpdateRange(request, reply) {
 
   const stats = await foodService.getStats(userId);
   const targetKcals = {};
+  let lastKnownTargetKcals = null;
+
   datesIsoList.forEach((date) => {
     if (stats[date]) {
-      targetKcals[date] = stats[date][3]; // [3] is targetKcals
+      lastKnownTargetKcals = stats[date][3]; // [3] is targetKcals
+      targetKcals[date] = lastKnownTargetKcals;
+    } else {
+      targetKcals[date] = lastKnownTargetKcals;
     }
   });
-  diaryResult = foodService.extendDiary(diaryResult, 'targetKcals', targetKcals, 0);
+
+  diaryResult = foodService.extendDiary(diaryResult, 'targetKcals', targetKcals, null);
 
   await backupDiaryAndWeightsData(true);
   return reply.code(200).send(JSON.stringify(diaryResult));
