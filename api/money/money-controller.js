@@ -1,5 +1,5 @@
 import * as dbMoney from '../../db/db-money.js';
-import { SYMBOL_POSITION, isSymbolPositionValid } from './money-service.js';
+import { ENTITY_SCOPE, SYMBOL_POSITION, isEntityScopeValid, isSymbolPositionValid } from './money-service.js';
 
 // ====================================================================================================== CURRENCIES ===
 
@@ -141,6 +141,186 @@ export async function deleteCurrency(request, reply) {
     reply.status(500).send({
       success: false,
       error: 'Failed to delete currency',
+      message: error.message,
+    });
+  }
+}
+
+// ===================================================================================================== CATEGORIES ===
+
+export async function getCategories(request, reply) {
+  try {
+    const { user } = request;
+    const categories = await dbMoney.getAllCategories(user.id);
+
+    reply.send({
+      success: true,
+      data: categories,
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to get categories',
+      message: error.message,
+    });
+  }
+}
+
+export async function createCategory(request, reply) {
+  try {
+    const { user } = request;
+    const { name, entityScope, groupKey } = request.body;
+
+    if (!name || !entityScope) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Missing required fields: name, entityScope',
+      });
+    }
+
+    if (!isEntityScopeValid(entityScope)) {
+      return reply.status(400).send({
+        success: false,
+        error: `entityScope must be one of: ${Object.values(ENTITY_SCOPE).join(', ')}`,
+      });
+    }
+
+    if (groupKey && typeof groupKey !== 'string') {
+      return reply.status(400).send({
+        success: false,
+        error: 'groupKey must be a string',
+      });
+    }
+
+    const categoryId = await dbMoney.createCategory(name, entityScope, groupKey || null, user.id);
+
+    reply.status(201).send({
+      success: true,
+      data: { id: categoryId },
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to create category',
+      message: error.message,
+    });
+  }
+}
+
+export async function updateCategory(request, reply) {
+  try {
+    const { user } = request;
+    const { id } = request.params;
+    const { name, entityScope, groupKey } = request.body;
+
+    if (!name || !entityScope) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Missing required fields: name, entityScope',
+      });
+    }
+
+    if (!isEntityScopeValid(entityScope)) {
+      return reply.status(400).send({
+        success: false,
+        error: `entityScope must be one of: ${Object.values(ENTITY_SCOPE).join(', ')}`,
+      });
+    }
+
+    if (groupKey && typeof groupKey !== 'string') {
+      return reply.status(400).send({
+        success: false,
+        error: 'groupKey must be a string',
+      });
+    }
+
+    const existingCategory = await dbMoney.getCategoryById(id, user.id);
+    if (!existingCategory) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Category not found',
+      });
+    }
+
+    const changedRows = await dbMoney.updateCategory(id, name, entityScope, groupKey || null, user.id);
+
+    if (changedRows === 0) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Category not found',
+      });
+    }
+
+    reply.send({
+      success: true,
+      message: 'Category updated successfully',
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to update category',
+      message: error.message,
+    });
+  }
+}
+
+export async function deleteCategory(request, reply) {
+  try {
+    const { user } = request;
+    const { id } = request.params;
+
+    const changedRows = await dbMoney.deleteCategory(id, user.id);
+
+    if (changedRows === 0) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Category not found',
+      });
+    }
+
+    reply.send({
+      success: true,
+      message: 'Category deleted successfully',
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to delete category',
+      message: error.message,
+    });
+  }
+}
+
+export async function updateGroupKey(request, reply) {
+  try {
+    const { user } = request;
+    const { oldGroupKey, newGroupKey } = request.body;
+
+    if (!oldGroupKey || !newGroupKey) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Missing required fields: oldGroupKey, newGroupKey',
+      });
+    }
+
+    if (typeof oldGroupKey !== 'string' || typeof newGroupKey !== 'string') {
+      return reply.status(400).send({
+        success: false,
+        error: 'oldGroupKey and newGroupKey must be strings',
+      });
+    }
+
+    const changedRows = await dbMoney.updateGroupKey(oldGroupKey, newGroupKey, user.id);
+
+    reply.send({
+      success: true,
+      message: `Group key updated successfully. ${changedRows} categories affected.`,
+      data: { affectedRows: changedRows },
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to update group key',
       message: error.message,
     });
   }
