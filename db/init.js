@@ -5,7 +5,7 @@ async function createTablesIfNotExist(isDevMode = false) {
   const connection = await getConnection();
 
   if (isDevMode) {
-    const tablesToDelete = ['money_transaction', 'money_asset', 'money_account', 'money_currency', 'money_categories'];
+    const tablesToDelete = ['moneyTransaction', 'moneyAsset', 'moneyAccount', 'moneyCurrency', 'moneyCategories'];
 
     try {
       for (const table of tablesToDelete) {
@@ -19,73 +19,73 @@ async function createTablesIfNotExist(isDevMode = false) {
 
   const createTablesQueries = [
     `
-    CREATE TABLE IF NOT EXISTS money_categories (
+    CREATE TABLE IF NOT EXISTS moneyCategories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER,
+      userId INTEGER,
       name TEXT NOT NULL,
-      parent_id INTEGER,
-      entity_scope TEXT NOT NULL,
-      group_key TEXT,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY (parent_id) REFERENCES money_categories(id) ON DELETE SET NULL
+      parentId INTEGER,
+      usedFor TEXT NOT NULL,
+      groupKey TEXT,
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (parentId) REFERENCES moneyCategories(id) ON DELETE SET NULL
     );
     `,
 
     `
-    CREATE TABLE IF NOT EXISTS money_currency (
+    CREATE TABLE IF NOT EXISTS moneyCurrency (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER,
+      userId INTEGER,
       title TEXT NOT NULL,
       ticker TEXT NOT NULL,
       symbol TEXT,
-      symbol_pos_enum TEXT CHECK(symbol_pos_enum IN ('before', 'after')),
+      symbolPosEnum TEXT CHECK(symbolPosEnum IN ('before', 'after')),
       whitespace BOOLEAN DEFAULT 0,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
     );
     `,
 
     `
-    CREATE TABLE IF NOT EXISTS money_account (
+    CREATE TABLE IF NOT EXISTS moneyAccount (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER,
+      userId INTEGER,
       title TEXT NOT NULL,
-      currency_id INTEGER,
+      currencyId INTEGER,
       invest BOOLEAN DEFAULT 0,
       kind TEXT,
-      category_ids TEXT,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY (currency_id) REFERENCES money_currency(id) ON DELETE SET NULL
+      categoryIds TEXT,
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (currencyId) REFERENCES moneyCurrency(id) ON DELETE SET NULL
     );
     `,
 
     `
-    CREATE TABLE IF NOT EXISTS money_asset (
+    CREATE TABLE IF NOT EXISTS moneyAsset (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER,
+      userId INTEGER,
       ticker TEXT NOT NULL,
       title TEXT NOT NULL,
       type TEXT,
-      category_ids TEXT,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      categoryIds TEXT,
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
     );
     `,
 
     `
-    CREATE TABLE IF NOT EXISTS money_transaction (
+    CREATE TABLE IF NOT EXISTS moneyTransaction (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER,
+      userId INTEGER,
       date DATETIME NOT NULL,
-      account_id INTEGER,
+      accountId INTEGER,
       amount REAL NOT NULL,
-      category_ids TEXT,
+      categoryIds TEXT,
       kind TEXT,
-      is_gift BOOLEAN DEFAULT 0,
+      isGift BOOLEAN DEFAULT 0,
       notes TEXT,
       details TEXT,
-      twin_transaction_id INTEGER,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY (account_id) REFERENCES money_account(id) ON DELETE SET NULL,
-      FOREIGN KEY (twin_transaction_id) REFERENCES money_transaction(id) ON DELETE SET NULL
+      twinTransactionId INTEGER,
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (accountId) REFERENCES moneyAccount(id) ON DELETE SET NULL,
+      FOREIGN KEY (twinTransactionId) REFERENCES moneyTransaction(id) ON DELETE SET NULL
     );
     `,
 

@@ -7,12 +7,12 @@ export function isSymbolPositionValid(symbolPosEnum) {
   return Object.values(SYMBOL_POSITION).includes(symbolPosEnum);
 }
 
-export const ENTITY_SCOPE = {
-  TRANSACTION: 'moneyTransaction',
-  ACCOUNT: 'moneyAccount',
-  ASSET: 'moneyAsset',
+export const USED_FOR = {
+  TRANSACTION: 'transaction',
+  ACCOUNT: 'account',
+  ASSET: 'asset',
 };
 
-export function isEntityScopeValid(entityScope) {
-  return Object.values(ENTITY_SCOPE).includes(entityScope);
+export function isUsedForValid(usedFor) {
+  return Object.values(USED_FOR).includes(usedFor);
 }

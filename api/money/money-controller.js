@@ -1,5 +1,5 @@
 import * as dbMoney from '../../db/db-money.js';
-import { ENTITY_SCOPE, SYMBOL_POSITION, isEntityScopeValid, isSymbolPositionValid } from './money-service.js';
+import { SYMBOL_POSITION, USED_FOR, isSymbolPositionValid, isUsedForValid } from './money-service.js';
 
 // ====================================================================================================== CURRENCIES ===
 
@@ -146,7 +146,7 @@ export async function deleteCurrency(request, reply) {
   }
 }
 
-// ===================================================================================================== CATEGORIES ===
+// ====================================================================================================== CATEGORIES ===
 
 export async function getCategories(request, reply) {
   try {
@@ -169,19 +169,19 @@ export async function getCategories(request, reply) {
 export async function createCategory(request, reply) {
   try {
     const { user } = request;
-    const { name, entityScope, groupKey } = request.body;
+    const { name, usedFor, groupKey } = request.body;
 
-    if (!name || !entityScope) {
+    if (!name || !usedFor) {
       return reply.status(400).send({
         success: false,
-        error: 'Missing required fields: name, entityScope',
+        error: 'Missing required fields: name, usedFor',
       });
     }
 
-    if (!isEntityScopeValid(entityScope)) {
+    if (!isUsedForValid(usedFor)) {
       return reply.status(400).send({
         success: false,
-        error: `entityScope must be one of: ${Object.values(ENTITY_SCOPE).join(', ')}`,
+        error: `usedFor must be one of: ${Object.values(USED_FOR).join(', ')}`,
       });
     }
 
@@ -192,7 +192,7 @@ export async function createCategory(request, reply) {
       });
     }
 
-    const categoryId = await dbMoney.createCategory(name, entityScope, groupKey || null, user.id);
+    const categoryId = await dbMoney.createCategory(name, usedFor, groupKey || null, user.id);
 
     reply.status(201).send({
       success: true,
@@ -211,19 +211,19 @@ export async function updateCategory(request, reply) {
   try {
     const { user } = request;
     const { id } = request.params;
-    const { name, entityScope, groupKey } = request.body;
+    const { name, usedFor, groupKey } = request.body;
 
-    if (!name || !entityScope) {
+    if (!name || !usedFor) {
       return reply.status(400).send({
         success: false,
-        error: 'Missing required fields: name, entityScope',
+        error: 'Missing required fields: name, usedFor',
       });
     }
 
-    if (!isEntityScopeValid(entityScope)) {
+    if (!isUsedForValid(usedFor)) {
       return reply.status(400).send({
         success: false,
-        error: `entityScope must be one of: ${Object.values(ENTITY_SCOPE).join(', ')}`,
+        error: `usedFor must be one of: ${Object.values(USED_FOR).join(', ')}`,
       });
     }
 
@@ -242,7 +242,7 @@ export async function updateCategory(request, reply) {
       });
     }
 
-    const changedRows = await dbMoney.updateCategory(id, name, entityScope, groupKey || null, user.id);
+    const changedRows = await dbMoney.updateCategory(id, name, usedFor, groupKey || null, user.id);
 
     if (changedRows === 0) {
       return reply.status(404).send({

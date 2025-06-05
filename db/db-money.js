@@ -7,11 +7,11 @@ export async function getAllCurrencies(userId) {
   return await db.all(
     `
     SELECT
-      id, title, ticker, symbol, symbol_pos_enum as symbolPosEnum, whitespace
+      id, title, ticker, symbol, symbolPosEnum, whitespace
     FROM
-      money_currency
+      moneyCurrency
     WHERE
-      user_id = ?
+      userId = ?
     ORDER BY
       title ASC;
     `,
@@ -24,11 +24,11 @@ export async function getCurrencyById(currencyId, userId) {
   return await db.get(
     `
     SELECT
-      id, title, ticker, symbol, symbol_pos_enum as symbolPosEnum, whitespace
+      id, title, ticker, symbol, symbolPosEnum, whitespace
     FROM
-      money_currency
+      moneyCurrency
     WHERE
-      id = ? AND user_id = ?;
+      id = ? AND userId = ?;
     `,
     [currencyId, userId]
   );
@@ -39,7 +39,7 @@ export async function createCurrency(title, ticker, symbol, symbolPosEnum, white
   const result = await db.run(
     `
     INSERT INTO
-      money_currency (title, ticker, symbol, symbol_pos_enum, whitespace, user_id)
+      moneyCurrency (title, ticker, symbol, symbolPosEnum, whitespace, userId)
     VALUES
       (?, ?, ?, ?, ?, ?);
     `,
@@ -53,11 +53,11 @@ export async function updateCurrency(currencyId, title, ticker, symbol, symbolPo
   const result = await db.run(
     `
     UPDATE
-      money_currency
+      moneyCurrency
     SET
-      title = ?, ticker = ?, symbol = ?, symbol_pos_enum = ?, whitespace = ?
+      title = ?, ticker = ?, symbol = ?, symbolPosEnum = ?, whitespace = ?
     WHERE
-      id = ? AND user_id = ?;
+      id = ? AND userId = ?;
     `,
     [title, ticker, symbol, symbolPosEnum, whitespace, currencyId, userId]
   );
@@ -69,9 +69,9 @@ export async function deleteCurrency(currencyId, userId) {
   const result = await db.run(
     `
     DELETE FROM
-      money_currency
+      moneyCurrency
     WHERE
-      id = ? AND user_id = ?;
+      id = ? AND userId = ?;
     `,
     [currencyId, userId]
   );
@@ -85,13 +85,13 @@ export async function getAllCategories(userId) {
   return await db.all(
     `
     SELECT
-      id, name, entity_scope as entityScope, group_key as groupKey
+      id, name, usedFor, groupKey
     FROM
-      money_categories
+      moneyCategories
     WHERE
-      user_id = ? AND parent_id IS NULL
+      userId = ? AND parentId IS NULL
     ORDER BY
-      entity_scope ASC, group_key ASC, name ASC;
+      usedFor ASC, groupKey ASC, name ASC;
     `,
     [userId]
   );
@@ -102,42 +102,42 @@ export async function getCategoryById(categoryId, userId) {
   return await db.get(
     `
     SELECT
-      id, name, entity_scope as entityScope, group_key as groupKey
+      id, name, usedFor, groupKey
     FROM
-      money_categories
+      moneyCategories
     WHERE
-      id = ? AND user_id = ? AND parent_id IS NULL;
+      id = ? AND userId = ? AND parentId IS NULL;
     `,
     [categoryId, userId]
   );
 }
 
-export async function createCategory(name, entityScope, groupKey, userId) {
+export async function createCategory(name, usedFor, groupKey, userId) {
   const db = await getConnection();
   const result = await db.run(
     `
     INSERT INTO
-      money_categories (name, entity_scope, group_key, user_id, parent_id)
+      moneyCategories (name, usedFor, groupKey, userId, parentId)
     VALUES
       (?, ?, ?, ?, NULL);
     `,
-    [name, entityScope, groupKey, userId]
+    [name, usedFor, groupKey, userId]
   );
   return result.lastID;
 }
 
-export async function updateCategory(categoryId, name, entityScope, groupKey, userId) {
+export async function updateCategory(categoryId, name, usedFor, groupKey, userId) {
   const db = await getConnection();
   const result = await db.run(
     `
     UPDATE
-      money_categories
+      moneyCategories
     SET
-      name = ?, entity_scope = ?, group_key = ?
+      name = ?, usedFor = ?, groupKey = ?
     WHERE
-      id = ? AND user_id = ? AND parent_id IS NULL;
+      id = ? AND userId = ? AND parentId IS NULL;
     `,
-    [name, entityScope, groupKey, categoryId, userId]
+    [name, usedFor, groupKey, categoryId, userId]
   );
   return result.changes;
 }
@@ -147,9 +147,9 @@ export async function deleteCategory(categoryId, userId) {
   const result = await db.run(
     `
     DELETE FROM
-      money_categories
+      moneyCategories
     WHERE
-      id = ? AND user_id = ? AND parent_id IS NULL;
+      id = ? AND userId = ? AND parentId IS NULL;
     `,
     [categoryId, userId]
   );
@@ -161,11 +161,11 @@ export async function updateGroupKey(oldGroupKey, newGroupKey, userId) {
   const result = await db.run(
     `
     UPDATE
-      money_categories
+      moneyCategories
     SET
-      group_key = ?
+      groupKey = ?
     WHERE
-      group_key = ? AND user_id = ?;
+      groupKey = ? AND userId = ?;
     `,
     [newGroupKey, oldGroupKey, userId]
   );
