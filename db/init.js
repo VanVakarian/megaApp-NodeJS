@@ -19,6 +19,68 @@ async function createTablesIfNotExist(isDevMode = false) {
 
   const createTablesQueries = [
     `
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT,
+      hashedPassword TEXT,
+      isAdmin BOOLEAN
+    );
+    `,
+
+    `
+    CREATE TABLE IF NOT EXISTS settings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      usersId INTEGER,
+      darkTheme BOOLEAN,
+      selectedChapterFood BOOLEAN,
+      selectedChapterMoney BOOLEAN,
+      liteVersion BOOLEAN,
+      height INTEGER
+    );
+    `,
+
+    `
+    CREATE TABLE IF NOT EXISTS foodDiary (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      dateISO TEXT,
+      foodCatalogueId INTEGER,
+      foodWeight INTEGER,
+      history TEXT,
+      usersId INTEGER,
+      ver INTEGER,
+      del BOOLEAN
+    );
+    `,
+
+    `
+    CREATE TABLE IF NOT EXISTS foodCatalogue (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT,
+      kcals INTEGER
+    );
+    `,
+
+    `
+    CREATE TABLE IF NOT EXISTS foodSettings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      height INTEGER,
+      useCoeffs BOOLEAN,
+      coefficients TEXT,
+      selectedCatalogueIds TEXT,
+      usersId INTEGER
+    );
+    `,
+
+    `
+    CREATE TABLE IF NOT EXISTS foodBodyWeight (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      dateISO TEXT,
+      weight NUMERIC,
+      usersId INTEGER
+    );
+    `,
+
+    `
     CREATE TABLE IF NOT EXISTS moneyCategories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       userId INTEGER,
@@ -88,68 +150,6 @@ async function createTablesIfNotExist(isDevMode = false) {
       FOREIGN KEY (twinTransactionId) REFERENCES moneyTransaction(id) ON DELETE SET NULL
     );
     `,
-
-    `
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT,
-      hashedPassword TEXT,
-      isAdmin BOOLEAN
-    );
-    `,
-
-    `
-    CREATE TABLE IF NOT EXISTS settings (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      usersId INTEGER,
-      darkTheme BOOLEAN,
-      selectedChapterFood BOOLEAN,
-      selectedChapterMoney BOOLEAN,
-      liteVersion BOOLEAN,
-      height INTEGER
-    );
-    `,
-
-    `
-    CREATE TABLE IF NOT EXISTS foodDiary (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      dateISO TEXT,
-      foodCatalogueId INTEGER,
-      foodWeight INTEGER,
-      history TEXT,
-      usersId INTEGER,
-      ver INTEGER,
-      del BOOLEAN
-    );
-    `,
-
-    `
-    CREATE TABLE IF NOT EXISTS foodCatalogue (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT,
-      kcals INTEGER
-    );
-    `,
-
-    `
-    CREATE TABLE IF NOT EXISTS foodSettings (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      height INTEGER,
-      useCoeffs BOOLEAN,
-      coefficients TEXT,
-      selectedCatalogueIds TEXT,
-      usersId INTEGER
-    );
-    `,
-
-    `
-    CREATE TABLE IF NOT EXISTS foodBodyWeight (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      dateISO TEXT,
-      weight NUMERIC,
-      usersId INTEGER
-    );
-    `,
   ];
 
   try {
@@ -182,7 +182,7 @@ async function addUserIfNotExists(user) {
 
 export async function initDatabase() {
   if (DO_RECHECK_DB) {
-    await createTablesIfNotExist(true);
+    await createTablesIfNotExist(false);
 
     for (const user of INIT_USERS) {
       await addUserIfNotExists(user);

@@ -89,7 +89,7 @@ export async function getAllCategories(userId) {
     FROM
       moneyCategories
     WHERE
-      userId = ? AND parentId IS NULL
+      userId = ?
     ORDER BY
       usedFor ASC, groupKey ASC, name ASC;
     `,
@@ -106,7 +106,7 @@ export async function getCategoryById(categoryId, userId) {
     FROM
       moneyCategories
     WHERE
-      id = ? AND userId = ? AND parentId IS NULL;
+      id = ? AND userId = ?;
     `,
     [categoryId, userId]
   );
@@ -135,7 +135,7 @@ export async function updateCategory(categoryId, name, usedFor, groupKey, userId
     SET
       name = ?, usedFor = ?, groupKey = ?
     WHERE
-      id = ? AND userId = ? AND parentId IS NULL;
+      id = ? AND userId = ?;
     `,
     [name, usedFor, groupKey, categoryId, userId]
   );
@@ -149,7 +149,7 @@ export async function deleteCategory(categoryId, userId) {
     DELETE FROM
       moneyCategories
     WHERE
-      id = ? AND userId = ? AND parentId IS NULL;
+      id = ? AND userId = ?;
     `,
     [categoryId, userId]
   );
@@ -168,6 +168,84 @@ export async function updateGroupKey(oldGroupKey, newGroupKey, userId) {
       groupKey = ? AND userId = ?;
     `,
     [newGroupKey, oldGroupKey, userId]
+  );
+  return result.changes;
+}
+
+// ======================================================================================================== ACCOUNTS ===
+
+export async function getAllAccounts(userId) {
+  const db = await getConnection();
+  return await db.all(
+    `
+    SELECT
+      id, title, currencyId, invest, kind, categoryIds
+    FROM
+      moneyAccount
+    WHERE
+      userId = ?
+    ORDER BY
+      title ASC;
+    `,
+    [userId]
+  );
+}
+
+export async function getAccountById(accountId, userId) {
+  const db = await getConnection();
+  return await db.get(
+    `
+    SELECT
+      id, title, currencyId, invest, kind, categoryIds
+    FROM
+      moneyAccount
+    WHERE
+      id = ? AND userId = ?;
+    `,
+    [accountId, userId]
+  );
+}
+
+export async function createAccount(title, currencyId, invest, kind, categoryIds, userId) {
+  const db = await getConnection();
+  const result = await db.run(
+    `
+    INSERT INTO
+      moneyAccount (title, currencyId, invest, kind, categoryIds, userId)
+    VALUES
+      (?, ?, ?, ?, ?, ?);
+    `,
+    [title, currencyId, invest, kind, categoryIds, userId]
+  );
+  return result.lastID;
+}
+
+export async function updateAccount(accountId, title, currencyId, invest, kind, categoryIds, userId) {
+  const db = await getConnection();
+  const result = await db.run(
+    `
+    UPDATE
+      moneyAccount
+    SET
+      title = ?, currencyId = ?, invest = ?, kind = ?, categoryIds = ?
+    WHERE
+      id = ? AND userId = ?;
+    `,
+    [title, currencyId, invest, kind, categoryIds, accountId, userId]
+  );
+  return result.changes;
+}
+
+export async function deleteAccount(accountId, userId) {
+  const db = await getConnection();
+  const result = await db.run(
+    `
+    DELETE FROM
+      moneyAccount
+    WHERE
+      id = ? AND userId = ?;
+    `,
+    [accountId, userId]
   );
   return result.changes;
 }

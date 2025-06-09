@@ -16,3 +16,17 @@ export const USED_FOR = {
 export function isUsedForValid(usedFor) {
   return Object.values(USED_FOR).includes(usedFor);
 }
+
+export const ACCOUNT_KIND = {
+  CASH: 'cash',
+  CARD: 'card',
+  CHECKING: 'checking',
+  DEPOSIT: 'deposit',
+  BROKERAGE: 'brokerage',
+  CRYPTO: 'crypto',
+  // LOAN: 'loan',
+};
+
+export function isAccountKindValid(kind) {
+  return Object.values(ACCOUNT_KIND).includes(kind);
+}

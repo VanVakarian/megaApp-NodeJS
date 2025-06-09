@@ -1,5 +1,12 @@
 import * as dbMoney from '../../db/db-money.js';
-import { SYMBOL_POSITION, USED_FOR, isSymbolPositionValid, isUsedForValid } from './money-service.js';
+import {
+  ACCOUNT_KIND,
+  isAccountKindValid,
+  isSymbolPositionValid,
+  isUsedForValid,
+  SYMBOL_POSITION,
+  USED_FOR,
+} from './money-service.js';
 
 // ====================================================================================================== CURRENCIES ===
 
@@ -40,13 +47,6 @@ export async function createCurrency(request, reply) {
       });
     }
 
-    if (typeof whitespace !== 'boolean') {
-      return reply.status(400).send({
-        success: false,
-        error: 'whitespace must be boolean',
-      });
-    }
-
     const currencyId = await dbMoney.createCurrency(title, ticker, symbol, symbolPosEnum, whitespace, user.id);
 
     reply.status(201).send({
@@ -79,13 +79,6 @@ export async function updateCurrency(request, reply) {
       return reply.status(400).send({
         success: false,
         error: `symbolPosEnum must be either "${SYMBOL_POSITION.BEFORE}" or "${SYMBOL_POSITION.AFTER}"`,
-      });
-    }
-
-    if (typeof whitespace !== 'boolean') {
-      return reply.status(400).send({
-        success: false,
-        error: 'whitespace must be boolean',
       });
     }
 
@@ -185,13 +178,6 @@ export async function createCategory(request, reply) {
       });
     }
 
-    if (groupKey && typeof groupKey !== 'string') {
-      return reply.status(400).send({
-        success: false,
-        error: 'groupKey must be a string',
-      });
-    }
-
     const categoryId = await dbMoney.createCategory(name, usedFor, groupKey || null, user.id);
 
     reply.status(201).send({
@@ -224,13 +210,6 @@ export async function updateCategory(request, reply) {
       return reply.status(400).send({
         success: false,
         error: `usedFor must be one of: ${Object.values(USED_FOR).join(', ')}`,
-      });
-    }
-
-    if (groupKey && typeof groupKey !== 'string') {
-      return reply.status(400).send({
-        success: false,
-        error: 'groupKey must be a string',
       });
     }
 
@@ -303,13 +282,6 @@ export async function updateGroupKey(request, reply) {
       });
     }
 
-    if (typeof oldGroupKey !== 'string' || typeof newGroupKey !== 'string') {
-      return reply.status(400).send({
-        success: false,
-        error: 'oldGroupKey and newGroupKey must be strings',
-      });
-    }
-
     const changedRows = await dbMoney.updateGroupKey(oldGroupKey, newGroupKey, user.id);
 
     reply.send({
@@ -321,6 +293,151 @@ export async function updateGroupKey(request, reply) {
     reply.status(500).send({
       success: false,
       error: 'Failed to update group key',
+      message: error.message,
+    });
+  }
+}
+
+// ======================================================================================================== ACCOUNTS ===
+
+export async function getAccounts(request, reply) {
+  try {
+    const { user } = request;
+    const accounts = await dbMoney.getAllAccounts(user.id);
+
+    reply.send({
+      success: true,
+      data: accounts,
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to get accounts',
+      message: error.message,
+    });
+  }
+}
+
+export async function createAccount(request, reply) {
+  try {
+    const { user } = request;
+    const { title, currencyId, invest, kind, categoryIds } = request.body;
+
+    if (!title || !currencyId || !kind) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Missing some of required fields: title, currencyId, kind',
+      });
+    }
+
+    if (!isAccountKindValid(kind)) {
+      return reply.status(400).send({
+        success: false,
+        error: `kind must be one of: ${Object.values(ACCOUNT_KIND).join(', ')}`,
+      });
+    }
+
+    const investBoolean = invest === true || invest === 'true';
+    const categoryIdsJson = categoryIds ? JSON.stringify(categoryIds) : null;
+
+    const accountId = await dbMoney.createAccount(title, currencyId, investBoolean, kind, categoryIdsJson, user.id);
+
+    reply.status(201).send({
+      success: true,
+      data: { id: accountId },
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to create account',
+      message: error.message,
+    });
+  }
+}
+
+export async function updateAccount(request, reply) {
+  try {
+    const { user } = request;
+    const { id } = request.params;
+    const { title, currencyId, invest, kind, categoryIds } = request.body;
+
+    if (!title || !currencyId || !kind) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Missing some of required fields: title, currencyId, kind',
+      });
+    }
+
+    if (!isAccountKindValid(kind)) {
+      return reply.status(400).send({
+        success: false,
+        error: `kind must be one of: ${Object.values(ACCOUNT_KIND).join(', ')}`,
+      });
+    }
+
+    const existingAccount = await dbMoney.getAccountById(id, user.id);
+    if (!existingAccount) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Account not found',
+      });
+    }
+
+    const investBoolean = invest === true || invest === 'true';
+    const categoryIdsJson = categoryIds ? JSON.stringify(categoryIds) : null;
+
+    const changedRows = await dbMoney.updateAccount(
+      id,
+      title,
+      currencyId,
+      investBoolean,
+      kind,
+      categoryIdsJson,
+      user.id
+    );
+
+    if (changedRows === 0) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Account not found',
+      });
+    }
+
+    reply.send({
+      success: true,
+      message: 'Account updated successfully',
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to update account',
+      message: error.message,
+    });
+  }
+}
+
+export async function deleteAccount(request, reply) {
+  try {
+    const { user } = request;
+    const { id } = request.params;
+
+    const changedRows = await dbMoney.deleteAccount(id, user.id);
+
+    if (changedRows === 0) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Account not found',
+      });
+    }
+
+    reply.send({
+      success: true,
+      message: 'Account deleted successfully',
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to delete account',
       message: error.message,
     });
   }

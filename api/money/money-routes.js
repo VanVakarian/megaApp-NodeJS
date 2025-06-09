@@ -50,4 +50,26 @@ export async function moneyRoutes(fastify) {
     preValidation: [authController.authMiddleware],
     handler: moneyController.updateGroupKey,
   });
+
+  // ========================================================================================================== ACCOUNTS ===
+
+  fastify.get('/accounts', {
+    preValidation: [authController.authMiddleware],
+    handler: moneyController.getAccounts,
+  });
+
+  fastify.post('/accounts', {
+    preValidation: [authController.authMiddleware],
+    handler: moneyController.createAccount,
+  });
+
+  fastify.put('/accounts/:id', {
+    preValidation: [authController.authMiddleware],
+    handler: moneyController.updateAccount,
+  });
+
+  fastify.delete('/accounts/:id', {
+    preValidation: [authController.authMiddleware],
+    handler: moneyController.deleteAccount,
+  });
 }
