@@ -1,6 +1,8 @@
 import { getConnection } from './db.js';
 
-// ====================================================================================================== CURRENCIES ===
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~                                                 ~~~ CURRENCIES ~~~                                                ~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 export async function getAllCurrencies(userId) {
   const db = await getConnection();
@@ -78,7 +80,9 @@ export async function deleteCurrency(currencyId, userId) {
   return result.changes;
 }
 
-// ====================================================================================================== CATEGORIES ===
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~                                                 ~~~ CATEGORIES ~~~                                                ~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 export async function getAllCategories(userId) {
   const db = await getConnection();
@@ -172,7 +176,9 @@ export async function updateGroupKey(oldGroupKey, newGroupKey, userId) {
   return result.changes;
 }
 
-// ======================================================================================================== ACCOUNTS ===
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~                                                  ~~~ ACCOUNTS ~~~                                                 ~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 export async function getAllAccounts(userId) {
   const db = await getConnection();
@@ -246,6 +252,96 @@ export async function deleteAccount(accountId, userId) {
       id = ? AND userId = ?;
     `,
     [accountId, userId]
+  );
+  return result.changes;
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~                                                ~~~ TRANSACTIONS ~~~                                               ~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+export async function getAllTransactions(userId) {
+  const db = await getConnection();
+  return await db.all(
+    `
+    SELECT
+      id, date, accountId, amount, categoryIds, kind, isGift, notes, details
+    FROM
+      moneyTransaction
+    WHERE
+      userId = ?
+    ORDER BY
+      date DESC;
+    `,
+    [userId]
+  );
+}
+
+export async function getTransactionById(transactionId, userId) {
+  const db = await getConnection();
+  return await db.get(
+    `
+    SELECT
+      id, date, accountId, amount, categoryIds, kind, isGift, notes, details
+    FROM
+      moneyTransaction
+    WHERE
+      id = ? AND userId = ?;
+    `,
+    [transactionId, userId]
+  );
+}
+
+export async function createTransaction(date, accountId, amount, categoryIds, kind, isGift, notes, userId) {
+  const db = await getConnection();
+  const result = await db.run(
+    `
+    INSERT INTO
+      moneyTransaction (date, accountId, amount, categoryIds, kind, isGift, notes, details, userId, twinTransactionId)
+    VALUES
+      (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL);
+    `,
+    [date, accountId, amount, categoryIds, kind, isGift, notes, userId]
+  );
+  return result.lastID;
+}
+
+export async function updateTransaction(
+  transactionId,
+  date,
+  accountId,
+  amount,
+  categoryIds,
+  kind,
+  isGift,
+  notes,
+  userId
+) {
+  const db = await getConnection();
+  const result = await db.run(
+    `
+    UPDATE
+      moneyTransaction
+    SET
+      date = ?, accountId = ?, amount = ?, categoryIds = ?, kind = ?, isGift = ?, notes = ?
+    WHERE
+      id = ? AND userId = ?;
+    `,
+    [date, accountId, amount, categoryIds, kind, isGift, notes, transactionId, userId]
+  );
+  return result.changes;
+}
+
+export async function deleteTransaction(transactionId, userId) {
+  const db = await getConnection();
+  const result = await db.run(
+    `
+    DELETE FROM
+      moneyTransaction
+    WHERE
+      id = ? AND userId = ?;
+    `,
+    [transactionId, userId]
   );
   return result.changes;
 }

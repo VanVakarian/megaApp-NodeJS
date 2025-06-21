@@ -3,12 +3,16 @@ import {
   ACCOUNT_KIND,
   isAccountKindValid,
   isSymbolPositionValid,
+  isTransactionKindValid,
   isUsedForValid,
   SYMBOL_POSITION,
+  TRANSACTION_KIND,
   USED_FOR,
 } from './money-service.js';
 
-// ====================================================================================================== CURRENCIES ===
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~                                                 ~~~ CURRENCIES ~~~                                                ~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 export async function getCurrencies(request, reply) {
   try {
@@ -139,7 +143,9 @@ export async function deleteCurrency(request, reply) {
   }
 }
 
-// ====================================================================================================== CATEGORIES ===
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~                                                 ~~~ CATEGORIES ~~~                                                ~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 export async function getCategories(request, reply) {
   try {
@@ -298,7 +304,9 @@ export async function updateGroupKey(request, reply) {
   }
 }
 
-// ======================================================================================================== ACCOUNTS ===
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~                                                  ~~~ ACCOUNTS ~~~                                                 ~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 export async function getAccounts(request, reply) {
   try {
@@ -438,6 +446,203 @@ export async function deleteAccount(request, reply) {
     reply.status(500).send({
       success: false,
       error: 'Failed to delete account',
+      message: error.message,
+    });
+  }
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~                                                ~~~ TRANSACTIONS ~~~                                               ~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+export async function getTransactions(request, reply) {
+  try {
+    const { user } = request;
+    const transactions = await dbMoney.getAllTransactions(user.id);
+
+    reply.send({
+      success: true,
+      data: transactions,
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to get transactions',
+      message: error.message,
+    });
+  }
+}
+
+export async function createTransaction(request, reply) {
+  try {
+    const { user } = request;
+    const { date, accountId, amount, categoryIds, kind, isGift, notes } = request.body;
+
+    if (!date || !accountId || !amount || !kind) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Missing required fields: date, accountId, amount, kind',
+      });
+    }
+
+    if (!isTransactionKindValid(kind)) {
+      return reply.status(400).send({
+        success: false,
+        error: `kind must be either "${TRANSACTION_KIND.INCOME}" or "${TRANSACTION_KIND.EXPENSE}"`,
+      });
+    }
+
+    if (amount <= 0) {
+      return reply.status(400).send({
+        success: false,
+        error: 'amount must be greater than 0',
+      });
+    }
+
+    // Проверяем существование счета
+    const existingAccount = await dbMoney.getAccountById(accountId, user.id);
+    if (!existingAccount) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Account not found',
+      });
+    }
+
+    const isGiftBoolean = isGift === true || isGift === 'true';
+    const categoryIdsJson = categoryIds ? JSON.stringify(categoryIds) : null;
+
+    // Для расходов делаем сумму отрицательной
+    const finalAmount = kind === TRANSACTION_KIND.EXPENSE ? -Math.abs(amount) : Math.abs(amount);
+
+    const transactionId = await dbMoney.createTransaction(
+      date,
+      accountId,
+      finalAmount,
+      categoryIdsJson,
+      kind,
+      isGiftBoolean,
+      notes || null,
+      user.id
+    );
+
+    reply.status(201).send({
+      success: true,
+      data: { id: transactionId },
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to create transaction',
+      message: error.message,
+    });
+  }
+}
+
+export async function updateTransaction(request, reply) {
+  try {
+    const { user } = request;
+    const { id } = request.params;
+    const { date, accountId, amount, categoryIds, kind, isGift, notes } = request.body;
+
+    if (!date || !accountId || !amount || !kind) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Missing required fields: date, accountId, amount, kind',
+      });
+    }
+
+    if (!isTransactionKindValid(kind)) {
+      return reply.status(400).send({
+        success: false,
+        error: `kind must be either "${TRANSACTION_KIND.INCOME}" or "${TRANSACTION_KIND.EXPENSE}"`,
+      });
+    }
+
+    if (amount <= 0) {
+      return reply.status(400).send({
+        success: false,
+        error: 'amount must be greater than 0',
+      });
+    }
+
+    // Проверяем существование транзакции
+    const existingTransaction = await dbMoney.getTransactionById(id, user.id);
+    if (!existingTransaction) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Transaction not found',
+      });
+    }
+
+    // Проверяем существование счета
+    const existingAccount = await dbMoney.getAccountById(accountId, user.id);
+    if (!existingAccount) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Account not found',
+      });
+    }
+
+    const isGiftBoolean = isGift === true || isGift === 'true';
+    const categoryIdsJson = categoryIds ? JSON.stringify(categoryIds) : null;
+
+    // Для расходов делаем сумму отрицательной
+    const finalAmount = kind === TRANSACTION_KIND.EXPENSE ? -Math.abs(amount) : Math.abs(amount);
+
+    const changedRows = await dbMoney.updateTransaction(
+      id,
+      date,
+      accountId,
+      finalAmount,
+      categoryIdsJson,
+      kind,
+      isGiftBoolean,
+      notes || null,
+      user.id
+    );
+
+    if (changedRows === 0) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Transaction not found',
+      });
+    }
+
+    reply.send({
+      success: true,
+      message: 'Transaction updated successfully',
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to update transaction',
+      message: error.message,
+    });
+  }
+}
+
+export async function deleteTransaction(request, reply) {
+  try {
+    const { user } = request;
+    const { id } = request.params;
+
+    const changedRows = await dbMoney.deleteTransaction(id, user.id);
+
+    if (changedRows === 0) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Transaction not found',
+      });
+    }
+
+    reply.send({
+      success: true,
+      message: 'Transaction deleted successfully',
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to delete transaction',
       message: error.message,
     });
   }

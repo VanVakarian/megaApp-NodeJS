@@ -30,3 +30,12 @@ export const ACCOUNT_KIND = {
 export function isAccountKindValid(kind) {
   return Object.values(ACCOUNT_KIND).includes(kind);
 }
+
+export const TRANSACTION_KIND = {
+  INCOME: 'income',
+  EXPENSE: 'expense',
+};
+
+export function isTransactionKindValid(kind) {
+  return Object.values(TRANSACTION_KIND).includes(kind);
+}
