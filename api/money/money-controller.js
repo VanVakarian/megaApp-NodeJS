@@ -86,8 +86,8 @@ export async function updateCurrency(request, reply) {
       });
     }
 
-    const existingCurrency = await dbMoney.getCurrencyById(id, user.id);
-    if (!existingCurrency) {
+    const isCurrencyExist = await dbMoney.getCurrencyById(id, user.id);
+    if (!isCurrencyExist) {
       return reply.status(404).send({
         success: false,
         error: 'Currency not found',
@@ -219,8 +219,8 @@ export async function updateCategory(request, reply) {
       });
     }
 
-    const existingCategory = await dbMoney.getCategoryById(id, user.id);
-    if (!existingCategory) {
+    const isCategoryExist = await dbMoney.getCategoryById(id, user.id);
+    if (!isCategoryExist) {
       return reply.status(404).send({
         success: false,
         error: 'Category not found',
@@ -329,7 +329,7 @@ export async function getAccounts(request, reply) {
 export async function createAccount(request, reply) {
   try {
     const { user } = request;
-    const { title, currencyId, invest, kind, categoryIds } = request.body;
+    const { title, currencyId, isInvest, kind, categoryIds } = request.body;
 
     if (!title || !currencyId || !kind) {
       return reply.status(400).send({
@@ -345,10 +345,10 @@ export async function createAccount(request, reply) {
       });
     }
 
-    const investBoolean = invest === true || invest === 'true';
+    const isInvestBoolean = isInvest === true || isInvest === 'true';
     const categoryIdsJson = categoryIds ? JSON.stringify(categoryIds) : null;
 
-    const accountId = await dbMoney.createAccount(title, currencyId, investBoolean, kind, categoryIdsJson, user.id);
+    const accountId = await dbMoney.createAccount(title, currencyId, isInvestBoolean, kind, categoryIdsJson, user.id);
 
     reply.status(201).send({
       success: true,
@@ -367,7 +367,7 @@ export async function updateAccount(request, reply) {
   try {
     const { user } = request;
     const { id } = request.params;
-    const { title, currencyId, invest, kind, categoryIds } = request.body;
+    const { title, currencyId, isInvest, kind, categoryIds } = request.body;
 
     if (!title || !currencyId || !kind) {
       return reply.status(400).send({
@@ -383,22 +383,22 @@ export async function updateAccount(request, reply) {
       });
     }
 
-    const existingAccount = await dbMoney.getAccountById(id, user.id);
-    if (!existingAccount) {
+    const isAccountExist = await dbMoney.getAccountById(id, user.id);
+    if (!isAccountExist) {
       return reply.status(404).send({
         success: false,
         error: 'Account not found',
       });
     }
 
-    const investBoolean = invest === true || invest === 'true';
+    const isInvestBoolean = isInvest === true || isInvest === 'true';
     const categoryIdsJson = categoryIds ? JSON.stringify(categoryIds) : null;
 
     const changedRows = await dbMoney.updateAccount(
       id,
       title,
       currencyId,
-      investBoolean,
+      isInvestBoolean,
       kind,
       categoryIdsJson,
       user.id
@@ -476,12 +476,12 @@ export async function getTransactions(request, reply) {
 export async function createTransaction(request, reply) {
   try {
     const { user } = request;
-    const { date, accountId, amount, categoryIds, kind, isGift, notes } = request.body;
+    const { dateISO, accountId, amount, categoryIds, kind, isGift, notes } = request.body;
 
-    if (!date || !accountId || !amount || !kind) {
+    if (!dateISO || !accountId || !amount || !kind) {
       return reply.status(400).send({
         success: false,
-        error: 'Missing required fields: date, accountId, amount, kind',
+        error: 'Missing required fields: dateISO, accountId, amount, kind',
       });
     }
 
@@ -499,9 +499,8 @@ export async function createTransaction(request, reply) {
       });
     }
 
-    // Проверяем существование счета
-    const existingAccount = await dbMoney.getAccountById(accountId, user.id);
-    if (!existingAccount) {
+    const isAccountExist = await dbMoney.getAccountById(accountId, user.id);
+    if (!isAccountExist) {
       return reply.status(400).send({
         success: false,
         error: 'Account not found',
@@ -511,13 +510,12 @@ export async function createTransaction(request, reply) {
     const isGiftBoolean = isGift === true || isGift === 'true';
     const categoryIdsJson = categoryIds ? JSON.stringify(categoryIds) : null;
 
-    // Для расходов делаем сумму отрицательной
-    const finalAmount = kind === TRANSACTION_KIND.EXPENSE ? -Math.abs(amount) : Math.abs(amount);
+    const finalAmountWithCorrectSign = kind === TRANSACTION_KIND.EXPENSE ? -Math.abs(amount) : Math.abs(amount);
 
     const transactionId = await dbMoney.createTransaction(
-      date,
+      dateISO,
       accountId,
-      finalAmount,
+      finalAmountWithCorrectSign,
       categoryIdsJson,
       kind,
       isGiftBoolean,
@@ -542,12 +540,12 @@ export async function updateTransaction(request, reply) {
   try {
     const { user } = request;
     const { id } = request.params;
-    const { date, accountId, amount, categoryIds, kind, isGift, notes } = request.body;
+    const { dateISO, accountId, amount, categoryIds, kind, isGift, notes } = request.body;
 
-    if (!date || !accountId || !amount || !kind) {
+    if (!dateISO || !accountId || !amount || !kind) {
       return reply.status(400).send({
         success: false,
-        error: 'Missing required fields: date, accountId, amount, kind',
+        error: 'Missing required fields: dateISO, accountId, amount, kind',
       });
     }
 
@@ -565,18 +563,16 @@ export async function updateTransaction(request, reply) {
       });
     }
 
-    // Проверяем существование транзакции
-    const existingTransaction = await dbMoney.getTransactionById(id, user.id);
-    if (!existingTransaction) {
+    const isTransactionExist = await dbMoney.getTransactionById(id, user.id);
+    if (!isTransactionExist) {
       return reply.status(404).send({
         success: false,
         error: 'Transaction not found',
       });
     }
 
-    // Проверяем существование счета
-    const existingAccount = await dbMoney.getAccountById(accountId, user.id);
-    if (!existingAccount) {
+    const isAccountExist = await dbMoney.getAccountById(accountId, user.id);
+    if (!isAccountExist) {
       return reply.status(400).send({
         success: false,
         error: 'Account not found',
@@ -586,14 +582,13 @@ export async function updateTransaction(request, reply) {
     const isGiftBoolean = isGift === true || isGift === 'true';
     const categoryIdsJson = categoryIds ? JSON.stringify(categoryIds) : null;
 
-    // Для расходов делаем сумму отрицательной
-    const finalAmount = kind === TRANSACTION_KIND.EXPENSE ? -Math.abs(amount) : Math.abs(amount);
+    const finalAmountWithCorrectSign = kind === TRANSACTION_KIND.EXPENSE ? -Math.abs(amount) : Math.abs(amount);
 
     const changedRows = await dbMoney.updateTransaction(
       id,
-      date,
+      dateISO,
       accountId,
-      finalAmount,
+      finalAmountWithCorrectSign,
       categoryIdsJson,
       kind,
       isGiftBoolean,

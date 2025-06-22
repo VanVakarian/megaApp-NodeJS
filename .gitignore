@@ -10,3 +10,4 @@ nodemon.json
 del
 experiments
 copilot-codeGeneration-instructions.md
+.github

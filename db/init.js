@@ -1,10 +1,10 @@
-import { DO_RECHECK_DB, INIT_USERS } from '../env.js';
+import { DEV_MODE_RECREATE_TABLES, DO_RECHECK_DB, INIT_USERS } from '../env.js';
 import { getConnection } from './db.js';
 
-async function createTablesIfNotExist(isDevMode = false) {
+async function createTablesIfNotExist(doDeleteTables = false) {
   const connection = await getConnection();
 
-  if (isDevMode) {
+  if (doDeleteTables) {
     const tablesToDelete = ['moneyTransaction', 'moneyAsset', 'moneyAccount', 'moneyCurrency', 'moneyCategories'];
 
     try {
@@ -112,7 +112,7 @@ async function createTablesIfNotExist(isDevMode = false) {
       userId INTEGER,
       title TEXT NOT NULL,
       currencyId INTEGER,
-      invest BOOLEAN DEFAULT 0,
+      isInvest BOOLEAN DEFAULT 0,
       kind TEXT,
       categoryIds TEXT,
       FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
@@ -136,7 +136,7 @@ async function createTablesIfNotExist(isDevMode = false) {
     CREATE TABLE IF NOT EXISTS moneyTransaction (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       userId INTEGER,
-      date DATETIME NOT NULL,
+      dateISO TEXT NOT NULL,
       accountId INTEGER,
       amount REAL NOT NULL,
       categoryIds TEXT,
@@ -182,7 +182,7 @@ async function addUserIfNotExists(user) {
 
 export async function initDatabase() {
   if (DO_RECHECK_DB) {
-    await createTablesIfNotExist(false);
+    await createTablesIfNotExist(DEV_MODE_RECREATE_TABLES);
 
     for (const user of INIT_USERS) {
       await addUserIfNotExists(user);
