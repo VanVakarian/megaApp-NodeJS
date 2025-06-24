@@ -1,66 +1,23 @@
-import { DO_RECHECK_DB, INIT_USERS } from '../env.js';
+import { DEV_MODE_RECREATE_TABLES, DO_RECHECK_DB, INIT_USERS } from '../env.js';
 import { getConnection } from './db.js';
 
-async function createTablesIfNotExist() {
+async function createTablesIfNotExist(doDeleteTables = false) {
   const connection = await getConnection();
 
+  if (doDeleteTables) {
+    const tablesToDelete = ['moneyTransaction', 'moneyAsset', 'moneyAccount', 'moneyCurrency', 'moneyCategories'];
+
+    try {
+      for (const table of tablesToDelete) {
+        await connection.exec(`DROP TABLE IF EXISTS ${table}`);
+      }
+      console.log('Money tables deleted successfully in debug mode');
+    } catch (error) {
+      console.error('Error deleting money tables:', error);
+    }
+  }
+
   const createTablesQueries = [
-    // `
-    // CREATE TABLE IF NOT EXISTS money_account (
-    //   id TEXT PRIMARY KEY,
-    //   title TEXT,
-    //   currency_id INTEGER,
-    //   bank_id INTEGER,
-    //   invest BOOLEAN,
-    //   kind TEXT,
-    //   user_id INTEGER
-    // );
-    // `,
-
-    // `
-    // CREATE TABLE IF NOT EXISTS money_bank (
-    //   id TEXT PRIMARY KEY,
-    //   title TEXT,
-    //   user_id INTEGER
-    // );
-    // `,
-
-    // `
-    // CREATE TABLE IF NOT EXISTS money_category (
-    //   id TEXT PRIMARY KEY,
-    //   title TEXT,
-    //   kind TEXT,
-    //   user_id INTEGER
-    // );
-    // `,
-
-    // `
-    // CREATE TABLE IF NOT EXISTS money_currency (
-    //   id TEXT PRIMARY KEY,
-    //   title TEXT,
-    //   ticker TEXT,
-    //   symbol TEXT,
-    //   symbol_pos TEXT,
-    //   whitespace BOOLEAN,
-    //   user_id INTEGER
-    // );
-    // `,
-
-    // `
-    // CREATE TABLE IF NOT EXISTS money_transaction (
-    //   id TEXT PRIMARY KEY,
-    //   date DATE,
-    //   amount REAL,
-    //   account_id INTEGER,
-    //   category_id INTEGER,
-    //   kind TEXT,
-    //   user_id INTEGER,
-    //   twin_transaction_id INTEGER,
-    //   is_gift BOOLEAN,
-    //   notes TEXT
-    // );
-    // `,
-
     `
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -122,6 +79,77 @@ async function createTablesIfNotExist() {
       usersId INTEGER
     );
     `,
+
+    `
+    CREATE TABLE IF NOT EXISTS moneyCategories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER,
+      name TEXT NOT NULL,
+      parentId INTEGER,
+      usedFor TEXT NOT NULL,
+      groupKey TEXT,
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (parentId) REFERENCES moneyCategories(id) ON DELETE SET NULL
+    );
+    `,
+
+    `
+    CREATE TABLE IF NOT EXISTS moneyCurrency (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER,
+      title TEXT NOT NULL,
+      ticker TEXT NOT NULL,
+      symbol TEXT,
+      symbolPosEnum TEXT CHECK(symbolPosEnum IN ('before', 'after')),
+      whitespace BOOLEAN DEFAULT 0,
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+    );
+    `,
+
+    `
+    CREATE TABLE IF NOT EXISTS moneyAccount (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER,
+      title TEXT NOT NULL,
+      currencyId INTEGER,
+      isInvest BOOLEAN DEFAULT 0,
+      kind TEXT,
+      categoryIds TEXT,
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (currencyId) REFERENCES moneyCurrency(id) ON DELETE SET NULL
+    );
+    `,
+
+    `
+    CREATE TABLE IF NOT EXISTS moneyAsset (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER,
+      ticker TEXT NOT NULL,
+      title TEXT NOT NULL,
+      type TEXT,
+      categoryIds TEXT,
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+    );
+    `,
+
+    `
+    CREATE TABLE IF NOT EXISTS moneyTransaction (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER,
+      dateISO TEXT NOT NULL,
+      accountId INTEGER,
+      amount REAL NOT NULL,
+      categoryIds TEXT,
+      kind TEXT,
+      isGift BOOLEAN DEFAULT 0,
+      notes TEXT,
+      details TEXT,
+      twinTransactionId INTEGER,
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (accountId) REFERENCES moneyAccount(id) ON DELETE SET NULL,
+      FOREIGN KEY (twinTransactionId) REFERENCES moneyTransaction(id) ON DELETE SET NULL
+    );
+    `,
   ];
 
   try {
@@ -154,7 +182,7 @@ async function addUserIfNotExists(user) {
 
 export async function initDatabase() {
   if (DO_RECHECK_DB) {
-    await createTablesIfNotExist();
+    await createTablesIfNotExist(DEV_MODE_RECREATE_TABLES);
 
     for (const user of INIT_USERS) {
       await addUserIfNotExists(user);
