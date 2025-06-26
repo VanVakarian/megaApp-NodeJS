@@ -11,3 +11,4 @@ del
 experiments
 copilot-codeGeneration-instructions.md
 .github
+debug-data.js
