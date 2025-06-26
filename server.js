@@ -16,11 +16,14 @@ import { settingsRoutes } from './api/settings/settings-routes.js';
 import { websocketRoutes } from './api/ws/ws-routes.js';
 import { startCoefficientsCalculation } from './coefficients/coeffs-service.js';
 import { initDatabase } from './db/init.js';
-import { APP_IP, APP_PORT, JWT_SECRET } from './env.js';
+import { APP_IP, APP_PORT, DEV_MODE, JWT_SECRET } from './env.js';
 import { loggingHooks } from './logger/logger.js';
 import { swaggerConfig, swaggerUiConfig } from './swagger-config.js';
 
-await initDatabase();
+if (DEV_MODE) {
+  await initDatabase();
+}
+
 await backupDiaryAndWeightsData();
 
 await initCache();
