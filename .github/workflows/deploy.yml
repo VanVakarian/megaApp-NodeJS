@@ -7,24 +7,38 @@ on:
       - release
 
 jobs:
-  deploy:
+  deploy-dev:
+    name: Deploy to DEV
+    if: github.ref_name == 'develop'
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'release' && 'prod' || 'dev' }}
+    environment: dev
 
     steps:
-      - name: Deploy backend via SSH
+      - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USER }}
           key: ${{ secrets.SSH_KEY }}
           script: |
-            if [ "${{ github.ref_name }}" = "release" ]; then
-              cd ~/megaback
-              git pull origin release
-              systemctl restart megaback
-            else
-              cd ~/megatest
-              git pull origin develop
-              systemctl restart megatest
-            fi
+            cd ~/megatest
+            git pull origin develop
+            systemctl restart megatest
+
+  deploy-prod:
+    name: Deploy to PROD
+    if: github.ref_name == 'release'
+    runs-on: ubuntu-latest
+    environment: prod
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd ~/megaback
+            git pull origin release
+            systemctl restart megaback
