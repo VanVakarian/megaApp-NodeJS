@@ -5,7 +5,7 @@ export const INIT_USERS = [
   {
     id: 0,
     username: 'admin',
-    hashedPassword: '$2b$10$IZopuhO.eoXD1P2SmWQB1eMDBbgeCCYqZizkaV8fSQ7ZXZzF1enC2',
+    hashedPassword: '$2b$10$IZopuhO.eoXD1P2SmWQB1eMDBbgeCCYqZizkaV8fSQ7ZXZzF1enC2', // adminadmin
     isAdmin: 1,
   },
 ];
