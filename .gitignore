@@ -10,6 +10,6 @@ nodemon.json
 del
 experiments
 copilot-codeGeneration-instructions.md
-debug-data.js
+db-population-data.js
 GEMINI.md
 copilot-instructions.md

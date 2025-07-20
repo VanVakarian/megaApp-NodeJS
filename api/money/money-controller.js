@@ -510,12 +510,10 @@ export async function createTransaction(request, reply) {
     const isGiftBoolean = isGift === true || isGift === 'true';
     const categoryIdsJson = categoryIds ? JSON.stringify(categoryIds) : null;
 
-    const finalAmountWithCorrectSign = kind === TRANSACTION_KIND.EXPENSE ? -Math.abs(amount) : Math.abs(amount);
-
     const transactionId = await dbMoney.createTransaction(
       dateISO,
       accountId,
-      finalAmountWithCorrectSign,
+      amount,
       categoryIdsJson,
       kind,
       isGiftBoolean,
@@ -582,13 +580,11 @@ export async function updateTransaction(request, reply) {
     const isGiftBoolean = isGift === true || isGift === 'true';
     const categoryIdsJson = categoryIds ? JSON.stringify(categoryIds) : null;
 
-    const finalAmountWithCorrectSign = kind === TRANSACTION_KIND.EXPENSE ? -Math.abs(amount) : Math.abs(amount);
-
     const changedRows = await dbMoney.updateTransaction(
       id,
       dateISO,
       accountId,
-      finalAmountWithCorrectSign,
+      amount,
       categoryIdsJson,
       kind,
       isGiftBoolean,
