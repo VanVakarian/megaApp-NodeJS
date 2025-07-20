@@ -1,18 +1,28 @@
 import fs from 'fs';
 import path from 'path';
+import { open } from 'sqlite';
+import sqlite3 from 'sqlite3';
 import { DB_FILE_NAME } from '../../env.js';
-import { getConnection } from '../db.js';
 import { migration001to002 } from './001-to-002.js';
 import { migration002to001 } from './002-to-001.js';
+
+function extractSuffixFromDbFileName() {
+  const match = DB_FILE_NAME.match(/megaapp-\d{3}-(.+)\.db$/);
+  return match ? match[1] : 'prod';
+}
 
 const availableMigrations = {
   '001to002': {
     name: 'Migration from version 001 to 002',
     queries: migration001to002,
+    sourceVersion: '001',
+    targetVersion: '002',
   },
   '002to001': {
     name: 'Rollback from version 002 to 001',
     queries: migration002to001,
+    sourceVersion: '002',
+    targetVersion: '001',
   },
 };
 
@@ -65,17 +75,50 @@ async function runMigration(migrationKey) {
     throw error;
   }
 
-  const connection = await getConnection();
-
   console.log(`Starting ${migration.name}...`);
+
+  const suffix = extractSuffixFromDbFileName();
+  const sourceFileName = `megaapp-${migration.sourceVersion}-${suffix}.db`;
+  const targetFileName = `megaapp-${migration.targetVersion}-${suffix}.db`;
+
+  if (!fs.existsSync(sourceFileName)) {
+    console.error(`Source database file ${sourceFileName} not found`);
+    process.exit(1);
+  }
+
+  if (fs.existsSync(targetFileName)) {
+    console.log(`Target database file ${targetFileName} already exists, overwriting...`);
+    fs.unlinkSync(targetFileName);
+  }
+
+  console.log(`Copying ${sourceFileName} to ${targetFileName}`);
+  fs.copyFileSync(sourceFileName, targetFileName);
+
+  const connection = await open({
+    filename: targetFileName,
+    driver: sqlite3.Database,
+  });
 
   try {
     for (const query of migration.queries) {
       await connection.exec(query);
     }
+    await connection.close();
     console.log(`${migration.name} completed successfully`);
   } catch (error) {
     console.error(`Error running ${migration.name}:`, error);
+
+    try {
+      await connection.close();
+    } catch (closeError) {
+      console.error('Error closing connection:', closeError);
+    }
+
+    if (fs.existsSync(targetFileName)) {
+      console.log(`Cleaning up failed migration file: ${targetFileName}`);
+      fs.unlinkSync(targetFileName);
+    }
+
     throw error;
   }
 }
