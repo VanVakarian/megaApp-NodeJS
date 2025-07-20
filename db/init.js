@@ -1,6 +1,11 @@
+import { INIT_POPULATION_DATA } from '../db-population-data.js';
+import {
+  DEV_MODE_FORCE_RECREATE_TABLES,
+  DEV_MODE_INIT_USERS,
+  DEV_MODE_POPULATE_DB,
+  DEV_MODE_TABLES_TO_DELETE,
+} from '../env.js';
 import { getConnection } from './db.js';
-import { DEV_MODE_FORCE_RECREATE_TABLES, DEV_MODE_POPULATE_DB, DEV_MODE_TABLES_TO_DELETE } from './debug-const.js';
-import { INIT_POPULATION_DATA, INIT_USERS } from './debug-data.js';
 
 const CREATE_TABLES_QUERIES = [
   `
@@ -144,7 +149,7 @@ export async function initDatabase() {
 
   await createTablesIfNotExist();
 
-  for (const user of INIT_USERS) {
+  for (const user of DEV_MODE_INIT_USERS) {
     await addUserIfNotExists(user);
   }
 
