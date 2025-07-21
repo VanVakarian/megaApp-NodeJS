@@ -1,0 +1,44 @@
+name: Deploy backend
+
+on:
+  push:
+    branches:
+      - develop
+      - release
+
+jobs:
+  deploy-dev:
+    name: Deploy to DEV
+    if: github.ref_name == 'develop'
+    runs-on: ubuntu-latest
+    environment: dev
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd ~/megatest
+            git pull origin develop
+            systemctl restart megatest
+
+  deploy-prod:
+    name: Deploy to PROD
+    if: github.ref_name == 'release'
+    runs-on: ubuntu-latest
+    environment: prod
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd ~/megaback
+            git pull origin release
+            systemctl restart megaback
