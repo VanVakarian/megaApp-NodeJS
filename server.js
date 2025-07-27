@@ -6,7 +6,6 @@ import fastifyWebSocket from '@fastify/websocket';
 import Fastify from 'fastify';
 import cron from 'node-cron';
 import { authRoutes } from './api/auth/auth-routes.js';
-import { backupDiaryAndWeightsData } from './api/debug/debug-controller.js';
 import { debugRoutes } from './api/debug/debug-routes.js';
 import { setupEventHandlers } from './api/food/event-handlers.js';
 import { foodRoutes } from './api/food/food-routes.js';
@@ -18,20 +17,30 @@ import { startCoefficientsCalculation } from './coefficients/coeffs-service.js';
 import { initDatabase } from './db/init.js';
 import { APP_IP, APP_PORT, DEV_MODE, JWT_SECRET } from './env.js';
 import { loggingHooks } from './logger/logger.js';
+import { performBackup } from './s3-backup-service.js';
 import { swaggerConfig, swaggerUiConfig } from './swagger-config.js';
 
 if (DEV_MODE) {
   await initDatabase();
 }
 
-await backupDiaryAndWeightsData();
-
 await initCache();
+await performBackup();
 
 //  Every day at 1 AM GMT
 cron.schedule('00 01 * * *', async () => {
   console.log('Running coefficient calculation for all users...');
   await startCoefficientsCalculation();
+});
+
+//  Every day at 2 AM GMT
+cron.schedule('00 02 * * *', async () => {
+  console.log('Running daily S3 backup...');
+  try {
+    await performBackup();
+  } catch (error) {
+    console.error('Daily S3 backup failed:', error);
+  }
 });
 
 const server = Fastify({ logger: true });
