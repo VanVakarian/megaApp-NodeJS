@@ -3,6 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import {
   DO_BACKUP,
+  DO_LEGACY_JSON_BACKUP,
   FOOD_BATCH_BACKUP_DIR_NAME,
   FOOD_DAY_BACKUP_DIR_NAME,
   WEIGHT_BATCH_BACKUP_DIR_NAME,
@@ -17,8 +18,11 @@ export async function ping(request, reply) {
 }
 
 export async function backupDiaryAndWeightsData(lastDayOnly = false) {
-  console.time('Backup took:');
-  if (!DO_BACKUP) return;
+  console.time('Legacy JSON backup took:');
+  if (!DO_BACKUP || !DO_LEGACY_JSON_BACKUP) {
+    console.log('Legacy JSON backup is disabled');
+    return;
+  }
 
   if (lastDayOnly) {
     await Promise.all([
@@ -72,7 +76,7 @@ export async function backupDiaryAndWeightsData(lastDayOnly = false) {
     console.log(`Backup completed: all data saved to ${lastDate}.json files`);
   }
 
-  console.timeEnd('Backup took:');
+  console.timeEnd('Legacy JSON backup took:');
 }
 
 export async function restore(request, reply) {
