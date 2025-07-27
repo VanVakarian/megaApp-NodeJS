@@ -23,6 +23,7 @@ jobs:
           script: |
             cd ~/megatest
             git pull origin develop
+            npm ci
             systemctl restart megatest
 
   deploy-prod:
@@ -41,4 +42,5 @@ jobs:
           script: |
             cd ~/megaback
             git pull origin release
+            npm ci
             systemctl restart megaback
