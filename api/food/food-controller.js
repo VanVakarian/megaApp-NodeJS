@@ -1,4 +1,3 @@
-import { backupDiaryAndWeightsData } from '../../api/debug/debug-controller.js';
 import * as coefficientsService from '../../coefficients/coeffs-service.js';
 import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
@@ -42,7 +41,6 @@ export async function getFoodDiaryFullUpdateRange(request, reply) {
 
   diaryResult = foodService.extendDiary(diaryResult, 'targetKcals', targetKcals, null);
 
-  await backupDiaryAndWeightsData(true);
   return reply.code(200).send(JSON.stringify(diaryResult));
 }
 
@@ -60,7 +58,6 @@ export async function createDiaryEntry(request, reply) {
 
     if (result) {
       request.server.scheduleStatsRecalculation(userId);
-      await backupDiaryAndWeightsData(true);
       return reply.code(201).send({ result: true, diaryId: result });
     }
     return reply.code(400).send({ result: false, error: 'Diary entry not created' });
@@ -78,7 +75,6 @@ export async function editDiaryEntry(request, reply) {
 
   if (result) {
     request.server.scheduleStatsRecalculation(userId);
-    await backupDiaryAndWeightsData(true);
     return reply.code(200).send({ result: result, diaryId: diaryEntry.id });
   }
   return reply.code(400).send({ result: false, error: 'Diary entry not found' });
@@ -93,7 +89,6 @@ export async function deleteDiaryEntry(request, reply) {
 
     if (result) {
       request.server.scheduleStatsRecalculation(userId);
-      await backupDiaryAndWeightsData(true);
       return reply.code(200).send({ result: true });
     }
     return reply.code(404).send({ result: false, error: 'Entry not found' });
@@ -234,7 +229,6 @@ export async function processWeight(request, reply) {
 
     if (result) {
       request.server.scheduleStatsRecalculation(userId);
-      await backupDiaryAndWeightsData(true);
       return reply.code(201).send({ result: true });
     } else {
       return reply.code(400).send({ result: false, error: 'Weight not saved' });
