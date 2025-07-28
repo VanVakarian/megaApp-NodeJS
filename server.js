@@ -25,7 +25,6 @@ if (DEV_MODE) {
 }
 
 await initCache();
-await performBackup();
 
 cron.schedule(CRON_SCHEDULE.COEFFS, async () => {
   await startCoefficientsCalculation();

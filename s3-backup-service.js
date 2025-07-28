@@ -3,7 +3,7 @@ import { createReadStream } from 'fs';
 import fs from 'fs/promises';
 import path from 'path';
 import { getConnection } from './db/db.js';
-import { DB_APP_NAME, DB_ENV, DB_VERSION, S3_CONFIG } from './env.js';
+import { DB_ENV, DB_NAME, DB_VERSION, S3_CONFIG } from './env.js';
 
 const s3Client = new S3Client({
   region: S3_CONFIG.REGION,
@@ -36,7 +36,7 @@ export async function performBackup() {
 
 async function createDbBackup() {
   const dateISO = new Date().toISOString().split('T')[0];
-  const backupFileName = `${DB_APP_NAME}-${DB_VERSION}-${DB_ENV}-${dateISO}.db`;
+  const backupFileName = `${DB_NAME}-${DB_ENV}-${DB_VERSION}-${dateISO}.db`;
   const backupPath = path.join(S3_CONFIG.TEMP_DIR, backupFileName);
 
   console.log(`Creating database backup: ${backupFileName}`);

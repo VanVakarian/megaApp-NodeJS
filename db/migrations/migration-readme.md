@@ -2,23 +2,24 @@
 
 ## Database File Naming Convention
 
-Database files must follow this pattern: `megaapp-{version}-{suffix}.db`
+Database files must follow this pattern: `{DB_APP_NAME}-{DB_ENV}-{VERSION}.db`
 
-- **version**: 3-digit version number (e.g., `001`, `002`)
-- **suffix**: environment identifier (e.g., `prod`, `test`, `dev`)
+- **DB_APP_NAME**: application name from `env.js` (e.g., `dbname`)
+- **DB_ENV**: environment identifier (e.g., `prod`, `test`, `dev`)
+- **VERSION**: 3-digit version number (e.g., `001`, `002`)
 
 Examples:
-- `megaapp-001-prod.db`
-- `megaapp-002-test.db`
-- `megaapp-003-dev.db`
+- `dbname-prod-001.db`
+- `dbname-test-002.db`
+- `dbname-dev-003.db`
 
-The migration system automatically extracts the suffix from `DB_FILE_NAME` in `env.js` using regex: `/megaapp-\d{3}-(.+)\.db$/`
+The migration system uses `DB_APP_NAME`, `DB_ENV` and `VERSION` directly from `env.js` configuration.
 
 ## Running Migrations
 
 ### Command Format
 ```bash
-node db/migrations/run-migration.js {migration-key}
+node db/migrations/run-migration.js --migration={migration-key}
 ```
 
 ### Available Migrations
@@ -28,16 +29,16 @@ node db/migrations/run-migration.js {migration-key}
 ### Examples
 ```bash
 # Migrate forward
-node db/migrations/run-migration.js 001to002
+node db/migrations/run-migration.js --migration=001to002
 
 # Rollback
-node db/migrations/run-migration.js 002to001
+node db/migrations/run-migration.js --migration=002to001
 ```
 
 ## What Happens During Migration
 
 1. **Backup Creation**: Creates timestamped backup in `backups/` directory
-2. **File Copying**: Copies source database file to target version (e.g., `megaapp-001-prod.db` → `megaapp-002-prod.db`)
+2. **File Copying**: Copies source database file to target version (e.g., `dbname-prod-001.db` → `dbname-prod-002.db`)
 3. **Schema Changes**: Executes SQL queries on the new target file
 4. **Error Handling**: Removes target file if SQL execution fails, leaving source file intact
 
