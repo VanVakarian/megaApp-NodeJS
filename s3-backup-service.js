@@ -3,26 +3,18 @@ import { createReadStream } from 'fs';
 import fs from 'fs/promises';
 import path from 'path';
 import { getConnection } from './db/db.js';
-import {
-  DB_FILE_NAME,
-  DO_S3_BACKUP,
-  S3_BACKUP_ACCESS_KEY_ID,
-  S3_BACKUP_BUCKET_NAME,
-  S3_BACKUP_REGION,
-  S3_BACKUP_SECRET_ACCESS_KEY,
-  S3_BACKUP_TEMP_DIR,
-} from './env.js';
+import { DB_APP_NAME, DB_ENV, DB_VERSION, S3_CONFIG } from './env.js';
 
 const s3Client = new S3Client({
-  region: S3_BACKUP_REGION,
+  region: S3_CONFIG.REGION,
   credentials: {
-    accessKeyId: S3_BACKUP_ACCESS_KEY_ID,
-    secretAccessKey: S3_BACKUP_SECRET_ACCESS_KEY,
+    accessKeyId: S3_CONFIG.ACCESS_KEY_ID,
+    secretAccessKey: S3_CONFIG.SECRET_ACCESS_KEY,
   },
 });
 
 export async function performBackup() {
-  if (!DO_S3_BACKUP) {
+  if (!S3_CONFIG.ENABLED) {
     console.log('S3 backup is disabled');
     return;
   }
@@ -31,22 +23,21 @@ export async function performBackup() {
   console.time('S3 backup completed in');
 
   try {
-    await fs.mkdir(S3_BACKUP_TEMP_DIR, { recursive: true });
-    const backupFile = await createDatabaseBackup();
-    await uploadToS3(backupFile);
-    await cleanupLocalFiles([backupFile]);
+    await fs.mkdir(S3_CONFIG.TEMP_DIR, { recursive: true });
+    const backupFile = await createDbBackup();
+    await uploadDbBackupToS3(backupFile);
+    await cleanupTempFile(backupFile);
 
     console.timeEnd('S3 backup completed in');
   } catch (error) {
-    throw error;
+    console.error('Daily S3 backup failed:', error);
   }
 }
 
-async function createDatabaseBackup() {
-  const currentDate = new Date().toISOString().split('T')[0];
-  const baseName = DB_FILE_NAME.replace('.db', '');
-  const backupFileName = `${baseName}-${currentDate}.db`;
-  const backupPath = path.join(S3_BACKUP_TEMP_DIR, backupFileName);
+async function createDbBackup() {
+  const dateISO = new Date().toISOString().split('T')[0];
+  const backupFileName = `${DB_APP_NAME}-${DB_VERSION}-${DB_ENV}-${dateISO}.db`;
+  const backupPath = path.join(S3_CONFIG.TEMP_DIR, backupFileName);
 
   console.log(`Creating database backup: ${backupFileName}`);
 
@@ -68,17 +59,18 @@ async function createDatabaseBackup() {
   }
 }
 
-async function uploadToS3(filePath) {
+async function uploadDbBackupToS3(filePath) {
   const fileName = path.basename(filePath);
+  const s3Key = `${DB_ENV}-${DB_VERSION}/${fileName}`;
 
-  console.log(`Uploading to S3: ${fileName}`);
+  console.log(`Uploading to S3: ${s3Key}`);
 
   const fileStream = createReadStream(filePath);
   const fileStats = await fs.stat(filePath);
 
   const uploadParams = {
-    Bucket: S3_BACKUP_BUCKET_NAME,
-    Key: fileName,
+    Bucket: S3_CONFIG.BUCKET_NAME,
+    Key: s3Key,
     Body: fileStream,
     ContentType: 'application/x-sqlite3',
     StorageClass: 'STANDARD_IA',
@@ -86,20 +78,18 @@ async function uploadToS3(filePath) {
 
   try {
     await s3Client.send(new PutObjectCommand(uploadParams));
-    console.log(`Successfully uploaded to S3: ${fileName} (${(fileStats.size / 1024 / 1024).toFixed(2)}MB)`);
+    console.log(`Successfully uploaded to S3: ${s3Key} (${(fileStats.size / 1024 / 1024).toFixed(2)}MB)`);
   } catch (error) {
     console.error('Error uploading to S3:', error);
     throw error;
   }
 }
 
-async function cleanupLocalFiles(files) {
-  for (const file of files) {
-    try {
-      await fs.unlink(file);
-      console.log(`Cleaned up local file: ${path.basename(file)}`);
-    } catch (error) {
-      console.error(`Error cleaning up file ${file}:`, error);
-    }
+async function cleanupTempFile(file) {
+  try {
+    await fs.unlink(file);
+    console.log(`Cleaned up local file: ${path.basename(file)}`);
+  } catch (error) {
+    console.error(`Error cleaning up file ${file}:`, error);
   }
 }

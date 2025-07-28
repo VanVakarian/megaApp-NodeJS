@@ -15,7 +15,7 @@ import { settingsRoutes } from './api/settings/settings-routes.js';
 import { websocketRoutes } from './api/ws/ws-routes.js';
 import { startCoefficientsCalculation } from './coefficients/coeffs-service.js';
 import { initDatabase } from './db/init.js';
-import { APP_IP, APP_PORT, DEV_MODE, JWT_SECRET } from './env.js';
+import { APP_IP, APP_PORT, CRON_SCHEDULE, DEV_MODE, JWT_SECRET } from './env.js';
 import { loggingHooks } from './logger/logger.js';
 import { performBackup } from './s3-backup-service.js';
 import { swaggerConfig, swaggerUiConfig } from './swagger-config.js';
@@ -27,20 +27,12 @@ if (DEV_MODE) {
 await initCache();
 await performBackup();
 
-//  Every day at 1 AM GMT
-cron.schedule('00 01 * * *', async () => {
-  console.log('Running coefficient calculation for all users...');
+cron.schedule(CRON_SCHEDULE.COEFFS, async () => {
   await startCoefficientsCalculation();
 });
 
-//  Every day at 2 AM GMT
-cron.schedule('00 02 * * *', async () => {
-  console.log('Running daily S3 backup...');
-  try {
-    await performBackup();
-  } catch (error) {
-    console.error('Daily S3 backup failed:', error);
-  }
+cron.schedule(CRON_SCHEDULE.BACKUP, async () => {
+  await performBackup();
 });
 
 const server = Fastify({ logger: true });

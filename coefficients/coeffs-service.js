@@ -1,6 +1,6 @@
-import { Worker } from 'worker_threads';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { Worker } from 'worker_threads';
 import * as dbFood from '../db/db-food.js';
 import * as dbUsers from '../db/db-users.js';
 import * as dbCoefficients from './coeffs-db.js';
@@ -35,6 +35,7 @@ export async function calculateAndSaveCoefficients(userId) {
 }
 
 export async function startCoefficientsCalculation() {
+  console.log('Running coefficient calculation for all users...');
   const users = await dbUsers.getAllUserIds();
   for (const user of users) {
     try {
