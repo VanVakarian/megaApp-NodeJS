@@ -2,14 +2,9 @@ import fs from 'fs';
 import path from 'path';
 import { open } from 'sqlite';
 import sqlite3 from 'sqlite3';
-import { DB_FILE_NAME } from '../../env.js';
+import { DB_ENV, DB_FILE_NAME, DB_NAME } from '../../env.js';
 import { migration001to002 } from './001-to-002.js';
 import { migration002to001 } from './002-to-001.js';
-
-function extractSuffixFromDbFileName() {
-  const match = DB_FILE_NAME.match(/megaapp-\d{3}-(.+)\.db$/);
-  return match ? match[1] : 'prod';
-}
 
 const availableMigrations = {
   '001to002': {
@@ -77,9 +72,8 @@ async function runMigration(migrationKey) {
 
   console.log(`Starting ${migration.name}...`);
 
-  const suffix = extractSuffixFromDbFileName();
-  const sourceFileName = `megaapp-${migration.sourceVersion}-${suffix}.db`;
-  const targetFileName = `megaapp-${migration.targetVersion}-${suffix}.db`;
+  const sourceFileName = `${DB_NAME}-${DB_ENV}-${migration.sourceVersion}.db`;
+  const targetFileName = `${DB_NAME}-${DB_ENV}-${migration.targetVersion}.db`;
 
   if (!fs.existsSync(sourceFileName)) {
     console.error(`Source database file ${sourceFileName} not found`);
@@ -123,7 +117,19 @@ async function runMigration(migrationKey) {
   }
 }
 
-const migrationKey = process.argv[2];
+function parseCliArguments() {
+  const args = process.argv.slice(2);
+
+  for (const arg of args) {
+    if (arg.startsWith('--migration=')) {
+      return arg.split('=')[1];
+    }
+  }
+
+  return null;
+}
+
+const migrationKey = parseCliArguments();
 
 runMigration(migrationKey)
   .then(() => {
