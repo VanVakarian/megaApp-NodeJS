@@ -1,0 +1,46 @@
+name: Deploy Backend
+
+on:
+  workflow_call:
+    inputs:
+      branch:
+        required: true
+        type: string
+        description: 'Branch to deploy'
+      server-path:
+        required: true
+        type: string
+        description: 'Server path for deployment'
+      service-name:
+        required: true
+        type: string
+        description: 'Service name to restart'
+    secrets:
+      HOST:
+        required: true
+      USER:
+        required: true
+      SSH_KEY:
+        required: true
+
+jobs:
+  deploy:
+    name: Deploy Backend
+    runs-on: ubuntu-latest
+    environment: dev
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+            nvm use 22
+            cd ${{ inputs.server-path }}
+            git pull origin ${{ inputs.branch }}
+            npm ci
+            systemctl restart ${{ inputs.service-name }}
