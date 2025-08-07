@@ -9,7 +9,6 @@ nodemon.json
 *.log
 del
 experiments
-copilot-codeGeneration-instructions.md
 db-population-data.js
 GEMINI.md
-copilot-instructions.md
+*.instructions.md
