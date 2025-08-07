@@ -1,40 +1,48 @@
 import { wsClients } from '../../server.js';
 import * as authService from '../auth/auth-service.js';
 
-// export function debugLogWsClientsAmt() {
-//   const summary = Array.from(wsClients.entries()).map(([id, sockets]) => ({ id, clients: sockets.length }));
-//   console.log('Current wsClients:', summary);
-// }
-
-export async function addSocketToClient(token, socket) {
-  const decoded = await authService.verifyToken(token);
-  if (decoded) {
-    const userId = decoded.id;
-    if (!wsClients.has(userId)) {
-      wsClients.set(userId, []);
-    }
-    wsClients.get(userId).push(socket);
-    return userId;
+export async function validateTokenForWebSocket(token) {
+  try {
+    const decoded = await authService.verifyToken(token);
+    return decoded.id;
+  } catch (error) {
+    return null;
   }
-  return null;
 }
 
-export function removeSocket(userId, socket) {
-  if (userId && wsClients.has(userId)) {
-    const sockets = wsClients.get(userId);
-    const socketIndex = sockets.indexOf(socket);
-    if (socketIndex !== -1) {
-      sockets.splice(socketIndex, 1);
+export async function authenticateAndAddSocket(token, socket, clientId = null) {
+  try {
+    const decoded = await authService.verifyToken(token);
+    const userId = decoded.id;
+
+    if (!wsClients.has(userId)) {
+      wsClients.set(userId, new Set());
     }
-    if (sockets.length === 0) {
+    wsClients.get(userId).add(socket);
+
+    socket.userId = userId;
+    socket.clientId = clientId;
+    return userId;
+  } catch (error) {
+    return null;
+  }
+}
+
+export function removeSocket(socket) {
+  const userId = socket.userId;
+  if (userId && wsClients.has(userId)) {
+    const userSockets = wsClients.get(userId);
+    userSockets.delete(socket);
+    if (userSockets.size === 0) {
       wsClients.delete(userId);
     }
   }
 }
 
-export function isSocketInUserList(userId, socket) {
+export function isSocketInUserList(socket) {
+  const userId = socket.userId;
   if (userId && wsClients.has(userId)) {
-    return wsClients.get(userId).includes(socket);
+    return wsClients.get(userId).has(socket);
   }
   return false;
 }

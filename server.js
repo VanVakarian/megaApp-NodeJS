@@ -13,6 +13,7 @@ import { initCache } from './api/food/stats-cache.js';
 import { moneyRoutes } from './api/money/money-routes.js';
 import { settingsRoutes } from './api/settings/settings-routes.js';
 import { websocketRoutes } from './api/ws/ws-routes.js';
+import { broadcast, closeAllWebSocketConnections, getClientId, startWebSocketHeartbeat } from './api/ws/ws-setup.js';
 import { startCoefficientsCalculation } from './coefficients/coeffs-service.js';
 import { initDatabase } from './db/init.js';
 import { APP_IP, APP_PORT, CRON_SCHEDULE, DEV_MODE, JWT_SECRET } from './env.js';
@@ -35,12 +36,19 @@ cron.schedule(CRON_SCHEDULE.BACKUP, async () => {
 });
 
 const server = Fastify({ logger: true });
+export const wsClients = new Map();
 
 setupEventHandlers(server);
+
+server.decorate('broadcast', broadcast);
+server.decorate('getClientId', getClientId);
+
+startWebSocketHeartbeat();
 
 server.addHook('onRequest', loggingHooks.onRequest);
 server.addHook('onResponse', loggingHooks.onResponse);
 server.addHook('onError', loggingHooks.onError);
+server.addHook('onClose', closeAllWebSocketConnections);
 
 server.register(fastifyCompress);
 server.register(fastifyJwt, { secret: JWT_SECRET });
@@ -55,8 +63,6 @@ server.register(moneyRoutes, { prefix: '/api/money' });
 server.register(debugRoutes, { prefix: '/api/debug' });
 server.register(settingsRoutes, { prefix: '/api/settings' });
 server.register(websocketRoutes, { prefix: '/api/ws' });
-
-export const wsClients = new Map();
 
 server.listen({ port: APP_PORT, host: APP_IP }, (err, address) => {
   if (err) {
