@@ -27,7 +27,7 @@ jobs:
   deploy:
     name: Deploy Backend
     runs-on: ubuntu-latest
-    environment: dev
+    environment: VPS_31
 
     steps:
       - name: Deploy via SSH
