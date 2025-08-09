@@ -58,6 +58,15 @@ export async function createDiaryEntry(request, reply) {
 
     if (result) {
       request.server.scheduleStatsRecalculation(userId);
+      const clientId = request.server.getClientId(request);
+      request.server.broadcast(
+        userId,
+        {
+          type: 'DIARY_ENTRY_CREATED',
+          payload: { id: result, dateISO },
+        },
+        clientId
+      );
       return reply.code(201).send({ result: true, diaryId: result });
     }
     return reply.code(400).send({ result: false, error: 'Diary entry not created' });
@@ -75,6 +84,15 @@ export async function editDiaryEntry(request, reply) {
 
   if (result) {
     request.server.scheduleStatsRecalculation(userId);
+    const clientId = request.server.getClientId(request);
+    request.server.broadcast(
+      userId,
+      {
+        type: 'DIARY_ENTRY_UPDATED',
+        payload: { id: diaryEntry.id, dateISO: diaryEntry.dateISO },
+      },
+      clientId
+    );
     return reply.code(200).send({ result: result, diaryId: diaryEntry.id });
   }
   return reply.code(400).send({ result: false, error: 'Diary entry not found' });
@@ -89,6 +107,15 @@ export async function deleteDiaryEntry(request, reply) {
 
     if (result) {
       request.server.scheduleStatsRecalculation(userId);
+      const clientId = request.server.getClientId(request);
+      request.server.broadcast(
+        userId,
+        {
+          type: 'DIARY_ENTRY_DELETED',
+          payload: { id: parseInt(diaryId) },
+        },
+        clientId
+      );
       return reply.code(200).send({ result: true });
     }
     return reply.code(404).send({ result: false, error: 'Entry not found' });
@@ -229,6 +256,15 @@ export async function processWeight(request, reply) {
 
     if (result) {
       request.server.scheduleStatsRecalculation(userId);
+      const clientId = request.server.getClientId(request);
+      request.server.broadcast(
+        userId,
+        {
+          type: existingWeight ? 'BODY_WEIGHT_UPDATED' : 'BODY_WEIGHT_CREATED',
+          payload: { dateISO, weight },
+        },
+        clientId
+      );
       return reply.code(201).send({ result: true });
     } else {
       return reply.code(400).send({ result: false, error: 'Weight not saved' });
