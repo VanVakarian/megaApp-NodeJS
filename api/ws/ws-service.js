@@ -38,11 +38,3 @@ export function removeSocket(socket) {
     }
   }
 }
-
-export function isSocketInUserList(socket) {
-  const userId = socket.userId;
-  if (userId && wsClients.has(userId)) {
-    return wsClients.get(userId).has(socket);
-  }
-  return false;
-}
