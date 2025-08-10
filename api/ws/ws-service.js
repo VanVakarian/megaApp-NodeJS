@@ -1,5 +1,7 @@
 import { wsClients } from '../../server.js';
 import * as authService from '../auth/auth-service.js';
+import { WS_MESSAGE_TYPES } from '../food/food-controller.js';
+import { getUserDataLastModified } from './sync-state.js';
 
 export async function validateTokenForWebSocket(token) {
   try {
@@ -22,6 +24,15 @@ export async function authenticateAndAddSocket(token, socket, clientId = null) {
 
     socket.userId = userId;
     socket.clientId = clientId;
+
+    const userDataLastModifiedTs = getUserDataLastModified(userId);
+    socket.send(
+      JSON.stringify({
+        type: WS_MESSAGE_TYPES.SYNC_STATUS,
+        payload: { userDataLastModifiedTs },
+      })
+    );
+
     return userId;
   } catch (error) {
     return null;

@@ -1,9 +1,11 @@
 import * as coefficientsService from '../../coefficients/coeffs-service.js';
 import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
+import { updateUserDataLastModified } from '../ws/sync-state.js';
 import * as foodService from './food-service.js';
 
-const WS_MESSAGE_TYPES = {
+export const WS_MESSAGE_TYPES = {
+  SYNC_STATUS: 'SYNC_STATUS',
   DIARY_ENTRY_CREATED: 'DIARY_ENTRY_CREATED',
   DIARY_ENTRY_UPDATED: 'DIARY_ENTRY_UPDATED',
   DIARY_ENTRY_DELETED: 'DIARY_ENTRY_DELETED',
@@ -64,6 +66,7 @@ export async function createDiaryEntry(request, reply) {
     const resId = await dbFood.dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, historyStr, userId);
 
     if (resId) {
+      updateUserDataLastModified(userId);
       request.server.scheduleStatsRecalculation(userId);
       const clientId = request.server.getClientId(request);
       request.server.broadcast(
@@ -96,6 +99,7 @@ export async function editDiaryEntry(request, reply) {
   const result = await dbFood.dbEditDiaryEntry(diaryEntry.foodWeight, historyStr, diaryEntry.id, userId);
 
   if (result) {
+    updateUserDataLastModified(userId);
     request.server.scheduleStatsRecalculation(userId);
     const clientId = request.server.getClientId(request);
     request.server.broadcast(
@@ -123,6 +127,7 @@ export async function deleteDiaryEntry(request, reply) {
     const result = await dbFood.dbDeleteDiaryEntry(diaryId, userId);
 
     if (result) {
+      updateUserDataLastModified(userId);
       request.server.scheduleStatsRecalculation(userId);
       const clientId = request.server.getClientId(request);
       request.server.broadcast(
@@ -203,6 +208,7 @@ async function addToUserCatalogue(userId, foodId) {
     catalogueIds.push(foodId);
     catalogueIds.sort((a, b) => a - b);
     const updateResult = await dbFood.updateUsersFoodCatalogueIdsList(JSON.stringify(catalogueIds), userId);
+    updateUserDataLastModified(userId);
     return updateResult;
   }
   // If the ID is already in the list, consider the operation successful
@@ -220,6 +226,7 @@ export async function dismissUserCatalogueEntry(request, reply) {
       catalogueIds.splice(index, 1);
       const result = await dbFood.updateUsersFoodCatalogueIdsList(JSON.stringify(catalogueIds), userId);
       if (result) {
+        updateUserDataLastModified(userId);
         return reply.code(200).send({ result: true });
       }
     }
@@ -245,6 +252,7 @@ export async function calculateCoefficients(request, reply) {
   try {
     const result = await coefficientsService.calculateAndSaveCoefficients(userId);
     if (result) {
+      updateUserDataLastModified(userId);
       return reply.code(200).send({ result: true, message: 'Coefficients calculated and saved.' });
     }
     return reply.code(500).send({ result: false, message: 'Coefficients calculation failed.' });
@@ -272,6 +280,7 @@ export async function processWeight(request, reply) {
       : await dbFood.dbCreateWeight(dateISO, weight, userId);
 
     if (result) {
+      updateUserDataLastModified(userId);
       request.server.scheduleStatsRecalculation(userId);
       const clientId = request.server.getClientId(request);
       request.server.broadcast(
