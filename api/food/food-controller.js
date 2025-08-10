@@ -3,6 +3,13 @@ import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
 import * as foodService from './food-service.js';
 
+const WS_MESSAGE_TYPES = {
+  DIARY_ENTRY_CREATED: 'DIARY_ENTRY_CREATED',
+  DIARY_ENTRY_UPDATED: 'DIARY_ENTRY_UPDATED',
+  DIARY_ENTRY_DELETED: 'DIARY_ENTRY_DELETED',
+  BODY_WEIGHT_UPDATED: 'BODY_WEIGHT_UPDATED',
+};
+
 // ===================================================================================================== FULL UPDATE ===
 
 export async function getFoodDiaryFullUpdateRange(request, reply) {
@@ -54,20 +61,26 @@ export async function createDiaryEntry(request, reply) {
 
   try {
     const historyStr = JSON.stringify(history);
-    const result = await dbFood.dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, historyStr, userId);
+    const resId = await dbFood.dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, historyStr, userId);
 
-    if (result) {
+    if (resId) {
       request.server.scheduleStatsRecalculation(userId);
       const clientId = request.server.getClientId(request);
       request.server.broadcast(
         userId,
         {
-          type: 'DIARY_ENTRY_CREATED',
-          payload: { id: result, dateISO },
+          type: WS_MESSAGE_TYPES.DIARY_ENTRY_CREATED,
+          payload: {
+            id: resId,
+            dateISO,
+            foodCatalogueId,
+            foodWeight,
+            history,
+          },
         },
         clientId
       );
-      return reply.code(201).send({ result: true, diaryId: result });
+      return reply.code(201).send({ result: true, diaryId: resId });
     }
     return reply.code(400).send({ result: false, error: 'Diary entry not created' });
   } catch (error) {
@@ -88,8 +101,12 @@ export async function editDiaryEntry(request, reply) {
     request.server.broadcast(
       userId,
       {
-        type: 'DIARY_ENTRY_UPDATED',
-        payload: { id: diaryEntry.id, dateISO: diaryEntry.dateISO },
+        type: WS_MESSAGE_TYPES.DIARY_ENTRY_UPDATED,
+        payload: {
+          id: diaryEntry.id,
+          newFoodWeight: diaryEntry.foodWeight,
+          newHistoryEntry: diaryEntry.history[0],
+        },
       },
       clientId
     );
@@ -111,8 +128,8 @@ export async function deleteDiaryEntry(request, reply) {
       request.server.broadcast(
         userId,
         {
-          type: 'DIARY_ENTRY_DELETED',
-          payload: { id: parseInt(diaryId) },
+          type: WS_MESSAGE_TYPES.DIARY_ENTRY_DELETED,
+          payload: { deletedDiaryEntryId: parseInt(diaryId) },
         },
         clientId
       );
@@ -260,8 +277,8 @@ export async function processWeight(request, reply) {
       request.server.broadcast(
         userId,
         {
-          type: existingWeight ? 'BODY_WEIGHT_UPDATED' : 'BODY_WEIGHT_CREATED',
-          payload: { dateISO, weight },
+          type: WS_MESSAGE_TYPES.BODY_WEIGHT_UPDATED,
+          payload: { dateISO, newBodyWeight: weight },
         },
         clientId
       );
