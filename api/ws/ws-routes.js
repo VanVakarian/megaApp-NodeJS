@@ -28,9 +28,7 @@ export async function websocketRoutes(fastify) {
       try {
         const incomingMessage = JSON.parse(message.toString());
 
-        if (incomingMessage.type === 'ping') {
-          socket.send(JSON.stringify({ type: 'pong' }));
-        } else if (incomingMessage.type === 'pong') {
+        if (incomingMessage.type === 'PONG') {
           socket.isAlive = true;
         }
       } catch (error) {

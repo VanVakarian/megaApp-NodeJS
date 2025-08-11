@@ -1,7 +1,16 @@
 import * as coefficientsService from '../../coefficients/coeffs-service.js';
 import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
+import { updateUserDataLastModified } from '../ws/sync-state.js';
 import * as foodService from './food-service.js';
+
+export const WS_MESSAGE_TYPES = {
+  SYNC_STATUS: 'SYNC_STATUS',
+  DIARY_ENTRY_CREATED: 'DIARY_ENTRY_CREATED',
+  DIARY_ENTRY_UPDATED: 'DIARY_ENTRY_UPDATED',
+  DIARY_ENTRY_DELETED: 'DIARY_ENTRY_DELETED',
+  BODY_WEIGHT_UPDATED: 'BODY_WEIGHT_UPDATED',
+};
 
 // ===================================================================================================== FULL UPDATE ===
 
@@ -54,20 +63,27 @@ export async function createDiaryEntry(request, reply) {
 
   try {
     const historyStr = JSON.stringify(history);
-    const result = await dbFood.dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, historyStr, userId);
+    const resId = await dbFood.dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, historyStr, userId);
 
-    if (result) {
+    if (resId) {
+      updateUserDataLastModified(userId);
       request.server.scheduleStatsRecalculation(userId);
       const clientId = request.server.getClientId(request);
       request.server.broadcast(
         userId,
         {
-          type: 'DIARY_ENTRY_CREATED',
-          payload: { id: result, dateISO },
+          type: WS_MESSAGE_TYPES.DIARY_ENTRY_CREATED,
+          payload: {
+            id: resId,
+            dateISO,
+            foodCatalogueId,
+            foodWeight,
+            history,
+          },
         },
         clientId
       );
-      return reply.code(201).send({ result: true, diaryId: result });
+      return reply.code(201).send({ result: true, diaryId: resId });
     }
     return reply.code(400).send({ result: false, error: 'Diary entry not created' });
   } catch (error) {
@@ -83,13 +99,18 @@ export async function editDiaryEntry(request, reply) {
   const result = await dbFood.dbEditDiaryEntry(diaryEntry.foodWeight, historyStr, diaryEntry.id, userId);
 
   if (result) {
+    updateUserDataLastModified(userId);
     request.server.scheduleStatsRecalculation(userId);
     const clientId = request.server.getClientId(request);
     request.server.broadcast(
       userId,
       {
-        type: 'DIARY_ENTRY_UPDATED',
-        payload: { id: diaryEntry.id, dateISO: diaryEntry.dateISO },
+        type: WS_MESSAGE_TYPES.DIARY_ENTRY_UPDATED,
+        payload: {
+          id: diaryEntry.id,
+          newFoodWeight: diaryEntry.foodWeight,
+          newHistoryEntry: diaryEntry.history[0],
+        },
       },
       clientId
     );
@@ -106,13 +127,14 @@ export async function deleteDiaryEntry(request, reply) {
     const result = await dbFood.dbDeleteDiaryEntry(diaryId, userId);
 
     if (result) {
+      updateUserDataLastModified(userId);
       request.server.scheduleStatsRecalculation(userId);
       const clientId = request.server.getClientId(request);
       request.server.broadcast(
         userId,
         {
-          type: 'DIARY_ENTRY_DELETED',
-          payload: { id: parseInt(diaryId) },
+          type: WS_MESSAGE_TYPES.DIARY_ENTRY_DELETED,
+          payload: { deletedDiaryEntryId: parseInt(diaryId) },
         },
         clientId
       );
@@ -186,6 +208,7 @@ async function addToUserCatalogue(userId, foodId) {
     catalogueIds.push(foodId);
     catalogueIds.sort((a, b) => a - b);
     const updateResult = await dbFood.updateUsersFoodCatalogueIdsList(JSON.stringify(catalogueIds), userId);
+    updateUserDataLastModified(userId);
     return updateResult;
   }
   // If the ID is already in the list, consider the operation successful
@@ -203,6 +226,7 @@ export async function dismissUserCatalogueEntry(request, reply) {
       catalogueIds.splice(index, 1);
       const result = await dbFood.updateUsersFoodCatalogueIdsList(JSON.stringify(catalogueIds), userId);
       if (result) {
+        updateUserDataLastModified(userId);
         return reply.code(200).send({ result: true });
       }
     }
@@ -228,6 +252,7 @@ export async function calculateCoefficients(request, reply) {
   try {
     const result = await coefficientsService.calculateAndSaveCoefficients(userId);
     if (result) {
+      updateUserDataLastModified(userId);
       return reply.code(200).send({ result: true, message: 'Coefficients calculated and saved.' });
     }
     return reply.code(500).send({ result: false, message: 'Coefficients calculation failed.' });
@@ -255,13 +280,14 @@ export async function processWeight(request, reply) {
       : await dbFood.dbCreateWeight(dateISO, weight, userId);
 
     if (result) {
+      updateUserDataLastModified(userId);
       request.server.scheduleStatsRecalculation(userId);
       const clientId = request.server.getClientId(request);
       request.server.broadcast(
         userId,
         {
-          type: existingWeight ? 'BODY_WEIGHT_UPDATED' : 'BODY_WEIGHT_CREATED',
-          payload: { dateISO, weight },
+          type: WS_MESSAGE_TYPES.BODY_WEIGHT_UPDATED,
+          payload: { dateISO, newBodyWeight: weight },
         },
         clientId
       );
