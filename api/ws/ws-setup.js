@@ -55,8 +55,8 @@ function terminateDeadSocket(socket, deadSockets) {
  */
 function sendPingToSocket(socket) {
   try {
-    socket.send(JSON.stringify({ type: 'ping' }));
-    // Mark as "waiting for pong" - will be marked alive when pong received
+    socket.send(JSON.stringify({ type: 'PING' }));
+    // Mark as dead - will be marked alive when pong received
     socket.isAlive = false;
     return true;
   } catch (error) {
