@@ -36,7 +36,9 @@ cron.schedule(CRON_SCHEDULE.BACKUP, async () => {
 });
 
 const server = Fastify({ logger: true });
+
 export const wsClients = new Map();
+export const userDataLastModified = new Map();
 
 setupEventHandlers(server);
 
