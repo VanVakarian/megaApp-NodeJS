@@ -1,4 +1,5 @@
 import { execSync } from 'child_process';
+import * as llmService from '../llm/llm-service.js';
 import * as debugService from './debug-service.js';
 
 export async function ping(request, reply) {
@@ -28,4 +29,66 @@ export async function latestCommitInfo(request, reply) {
   }
 
   return { commitHash, commitDateTime };
+}
+
+export async function testLlm(request, reply) {
+  try {
+    if (!llmService.isLLMEnabled()) {
+      return reply.code(503).send({
+        result: false,
+        error: 'LLM service is disabled',
+      });
+    }
+
+    const testDescription = request.query.description || 'домашний творог с медом';
+
+    const result = await llmService.generateGeneralizedProduct(testDescription);
+
+    if (result.success) {
+      return reply.send({
+        result: true,
+        input: testDescription,
+        data: result.data,
+        metadata: result.metadata,
+      });
+    } else {
+      return reply.code(500).send({
+        result: false,
+        error: result.error,
+      });
+    }
+  } catch (error) {
+    console.error('Debug LLM test error:', error);
+    return reply.code(500).send({
+      result: false,
+      error: 'Internal server error',
+    });
+  }
+}
+
+export async function testLlmMultiModel(request, reply) {
+  try {
+    if (!llmService.isLLMEnabled()) {
+      return reply.code(503).send({
+        result: false,
+        error: 'LLM service is disabled',
+      });
+    }
+
+    const testDescription = request.query.description || 'яблоко зеленое кислое';
+
+    const multiResult = await llmService.testMultipleModels(testDescription);
+
+    return reply.send({
+      result: true,
+      input: testDescription,
+      data: multiResult,
+    });
+  } catch (error) {
+    console.error('Debug LLM multi-model test error:', error);
+    return reply.code(500).send({
+      result: false,
+      error: error.message,
+    });
+  }
 }

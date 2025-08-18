@@ -1,5 +1,7 @@
 import fastifyCompress from '@fastify/compress';
+import fastifyCors from '@fastify/cors';
 import fastifyJwt from '@fastify/jwt';
+import fastifyMultipart from '@fastify/multipart';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import fastifyWebSocket from '@fastify/websocket';
@@ -19,7 +21,7 @@ import { initDatabase } from './db/init.js';
 import { APP_IP, APP_PORT, CRON_SCHEDULE, DEV_MODE, JWT_SECRET } from './env.js';
 import { loggingHooks } from './logger/logger.js';
 import { performBackup } from './s3-backup-service.js';
-import { swaggerConfig, swaggerUiConfig } from './swagger-config.js';
+import { swaggerConfig, swaggerCorsConfig, swaggerUiConfig } from './swagger-config.js';
 
 if (DEV_MODE) {
   await initDatabase();
@@ -55,9 +57,11 @@ server.addHook('onClose', closeAllWebSocketConnections);
 server.register(fastifyCompress);
 server.register(fastifyJwt, { secret: JWT_SECRET });
 server.register(fastifyWebSocket, { options: { maxPayload: 1048576 } });
+server.register(fastifyMultipart, { limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB limit
 
 server.register(fastifySwagger, swaggerConfig);
 server.register(fastifySwaggerUi, swaggerUiConfig);
+server.register(fastifyCors, swaggerCorsConfig);
 
 server.register(authRoutes, { prefix: '/api/auth' });
 server.register(foodRoutes, { prefix: '/api/food' });
