@@ -1,10 +1,35 @@
 import { execSync } from 'child_process';
+import * as dbFood from '../../db/db-food.js';
 import * as llmService from '../llm/llm-service.js';
 import * as debugService from './debug-service.js';
 
 export async function ping(request, reply) {
   const message = await debugService.ping();
   return reply.send({ message: message });
+}
+
+export async function testVec(request, reply) {
+  try {
+    const result = await dbFood.testVecConnection();
+
+    if (result.success) {
+      return reply.send({
+        result: true,
+        message: result.message,
+      });
+    } else {
+      return reply.code(500).send({
+        result: false,
+        error: result.error,
+      });
+    }
+  } catch (error) {
+    console.error('Vec test error:', error);
+    return reply.code(500).send({
+      result: false,
+      error: 'Internal server error',
+    });
+  }
 }
 
 export async function latestCommitInfo(request, reply) {

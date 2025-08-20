@@ -1,5 +1,6 @@
 import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
+import * as llmService from '../llm/llm-service.js';
 import * as statsCache from './stats-cache.js';
 
 export function getDateRange(dateIso, fetchDaysRangeOffset) {
@@ -392,4 +393,156 @@ function prepareStats(allDates, weights, avgWeights, dailySumKcals, targetKcalsA
   });
 
   return stats;
+}
+
+// ================================================================================================= SEMANTIC SEARCH ===
+
+export async function searchCatalogueEntries(query, userId, limit = 10) {
+  try {
+    if (!llmService.isLLMEnabled()) {
+      return [];
+    }
+
+    const embeddingResult = await llmService.generateEmbedding(query);
+    if (!embeddingResult.success) {
+      console.error('Failed to generate embedding for search:', embeddingResult.error);
+      return [];
+    }
+
+    const searchResults = await dbFood.searchCatalogueEntriesByEmbedding(embeddingResult.data, userId, limit);
+
+    return searchResults.map((result) => ({
+      ...result,
+      relevanceScore: 1 - result.distance,
+    }));
+  } catch (error) {
+    console.error('Error in semantic search:', error);
+    return [];
+  }
+}
+
+// ============================================================================================ GENERALIZED PRODUCTS ===
+
+export async function createGeneralizedCatalogueEntry(description, userId) {
+  try {
+    if (!llmService.isLLMEnabled()) {
+      return {
+        success: false,
+        error: 'LLM service is disabled',
+      };
+    }
+
+    const llmResult = await llmService.generateGeneralizedProduct(description);
+    if (!llmResult.success) {
+      return {
+        success: false,
+        error: llmResult.error,
+      };
+    }
+
+    const productData = llmResult.data;
+    const generalizedName = productData.generalizedName;
+
+    const existingEntry = await dbFood.getCatalogueEntryByName(generalizedName);
+    let catalogueId;
+    let isNew = false;
+
+    if (existingEntry) {
+      catalogueId = existingEntry.id;
+    } else {
+      catalogueId = await dbFood.createCatalogueEntryWithFullNutrition(generalizedName, {
+        kcals: productData.kcals,
+        protein: productData.protein,
+        fat: productData.fat,
+        carbs: productData.carbs,
+        fiber: productData.fiber,
+        descriptionForEmbedding: productData.descriptionForEmbedding,
+      });
+
+      if (!catalogueId) {
+        return {
+          success: false,
+          error: 'Failed to create catalogue entry',
+        };
+      }
+
+      isNew = true;
+
+      const embeddingResult = await llmService.generateEmbedding(
+        productData.descriptionForEmbedding || generalizedName
+      );
+      if (embeddingResult.success) {
+        await dbFood.updateCatalogueEntryEmbedding(catalogueId, embeddingResult.data);
+      }
+    }
+
+    await dbFood.createUserCatalogueEntryVisibility(userId, catalogueId);
+
+    const fullEntry = existingEntry || (await dbFood.getCatalogueEntryByName(generalizedName));
+
+    return {
+      success: true,
+      data: {
+        catalogueEntry: fullEntry,
+        isNew: isNew,
+        confidence: productData.confidence,
+      },
+    };
+  } catch (error) {
+    console.error('Error creating generalized catalogue entry:', error);
+    return {
+      success: false,
+      error: 'Internal server error',
+    };
+  }
+}
+
+// ================================================================================================== USER CATALOGUE ===
+
+export async function addCatalogueEntryToUserVisibility(userId, catalogueId) {
+  try {
+    const success = await dbFood.createUserCatalogueEntryVisibility(userId, catalogueId);
+    return {
+      success: success,
+      message: success ? 'Product added to personal catalogue' : 'Product already in personal catalogue',
+    };
+  } catch (error) {
+    console.error('Error adding catalogue entry to user visibility:', error);
+    return {
+      success: false,
+      error: 'Internal server error',
+    };
+  }
+}
+
+export async function removeCatalogueEntryFromUserVisibility(userId, catalogueId) {
+  try {
+    const success = await dbFood.removeUserCatalogueEntryVisibility(userId, catalogueId);
+    return {
+      success: success,
+      message: success ? 'Product removed from personal catalogue' : 'Product was not in personal catalogue',
+    };
+  } catch (error) {
+    console.error('Error removing catalogue entry from user visibility:', error);
+    return {
+      success: false,
+      error: 'Internal server error',
+    };
+  }
+}
+
+export async function getUserPersonalCatalogue(userId) {
+  try {
+    const entries = await dbFood.getUserVisibleCatalogueEntries(userId);
+    return {
+      success: true,
+      data: entries,
+    };
+  } catch (error) {
+    console.error('Error getting user personal catalogue:', error);
+    return {
+      success: false,
+      error: 'Internal server error',
+    };
+  }
 }

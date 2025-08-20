@@ -3,6 +3,14 @@ import * as debugController from './debug-controller.js';
 export async function debugRoutes(fastify) {
   fastify.get('/ping', { schema: { tags: ['debug'] }, handler: debugController.ping });
 
+  fastify.get('/test-vec', {
+    schema: {
+      tags: ['debug'],
+      description: 'Test sqlite-vec extension functionality',
+    },
+    handler: debugController.testVec,
+  });
+
   fastify.get('/commit-info', {
     schema: { tags: ['debug'] },
     handler: debugController.latestCommitInfo,

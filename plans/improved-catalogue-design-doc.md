@@ -228,22 +228,24 @@
 - ✅ **Медиа инфраструктура**: multipart, CORS, Swagger UI
 - ✅ **Debug эндпоинты**: тестирование LLM функций
 
-### Этап 2: База данных и Core функциональность (следующий этап)
-- [ ] **Настроить `sqlite-vss`** - установка и тестирование векторного поиска
-- [ ] **Создать миграцию 002→003** для новой схемы базы данных:
-  - [ ] Изменить таблицу `foodCatalogue` с дополнительными полями КБЖУ
-  - [ ] Создать таблицу `foodCatalogueEntryOwnership` для управления видимостью
-  - [ ] Мигрировать данные из `foodSettings.selectedCatalogueIds`
-  - [ ] Создать виртуальную таблицу `vssFoods` для векторного поиска
-- [ ] **Расширить `db-food.js`** новыми функциями:
-  - [ ] `searchCatalogueEntriesByEmbedding()` - векторный поиск
-  - [ ] `createCatalogueEntry()` - создание с полными КБЖУ данными
-  - [ ] `createUserCatalogueEntryVisibility()` - управление видимостью
-  - [ ] `getUserVisibleCatalogueEntries()` - получение персонального каталога
-- [ ] **Расширить `food-service.js`** бизнес-логикой:
-  - [ ] `searchCatalogueEntries()` - семантический поиск с фильтрацией
-  - [ ] `createGeneralizedCatalogueEntry()` - создание через LLM
-  - [ ] `addCatalogueEntryToUserVisibility()` - добавление в личный каталог
+### Этап 2: База данных и Core функциональность ✅ ЗАВЕРШЕН
+- ✅ **Настроить `sqlite-vec`** - установка и тестирование векторного поиска
+- ✅ **Создать миграцию 002→003** для новой схемы базы данных:
+  - ✅ Изменить таблицу `foodCatalogue` с дополнительными полями КБЖУ
+  - ✅ Создать таблицу `foodCatalogueEntryOwnership` для управления видимостью
+  - ✅ Мигрировать данные из `foodSettings.selectedCatalogueIds`
+  - ✅ Создать виртуальную таблицу `vecFoods` для векторного поиска
+- ✅ **Расширить `db-food.js`** новыми функциями:
+  - ✅ `searchCatalogueEntriesByEmbedding()` - векторный поиск
+  - ✅ `createCatalogueEntryWithFullNutrition()` - создание с полными КБЖУ данными
+  - ✅ `createUserCatalogueEntryVisibility()` - управление видимостью
+  - ✅ `getUserVisibleCatalogueEntries()` - получение персонального каталога
+  - ✅ `updateCatalogueEntryEmbedding()` - обновление embedding'ов
+- ✅ **Расширить `food-service.js`** бизнес-логикой:
+  - ✅ `searchCatalogueEntries()` - семантический поиск с фильтрацией
+  - ✅ `createGeneralizedCatalogueEntry()` - создание через LLM
+  - ✅ `addCatalogueEntryToUserVisibility()` - добавление в личный каталог
+  - ✅ Интеграция с готовым LLM сервисом для получения embedding'ов
 
 ### Этап 3: API эндпоинты (после завершения Этапа 2)
 - [ ] **Создать новые роуты в `food-routes.js`**:

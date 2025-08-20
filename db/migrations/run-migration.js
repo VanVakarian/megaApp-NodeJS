@@ -1,10 +1,13 @@
 import fs from 'fs';
 import path from 'path';
 import { open } from 'sqlite';
+import * as sqliteVec from 'sqlite-vec';
 import sqlite3 from 'sqlite3';
 import { DB_ENV, DB_FILE_NAME, DB_NAME } from '../../env.js';
 import { migration001to002 } from './001-to-002.js';
 import { migration002to001 } from './002-to-001.js';
+import { migration002to003 } from './002-to-003.js';
+import { migration003to002 } from './003-to-002.js';
 
 const availableMigrations = {
   '001to002': {
@@ -18,6 +21,18 @@ const availableMigrations = {
     queries: migration002to001,
     sourceVersion: '002',
     targetVersion: '001',
+  },
+  '002to003': {
+    name: 'Migration from version 002 to 003 (Catalogue Revamp)',
+    queries: migration002to003,
+    sourceVersion: '002',
+    targetVersion: '003',
+  },
+  '003to002': {
+    name: 'Rollback from version 003 to 002',
+    queries: migration003to002,
+    sourceVersion: '003',
+    targetVersion: '002',
   },
 };
 
@@ -92,6 +107,8 @@ async function runMigration(migrationKey) {
     filename: targetFileName,
     driver: sqlite3.Database,
   });
+
+  sqliteVec.load(connection);
 
   try {
     for (const query of migration.queries) {
