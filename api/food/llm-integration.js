@@ -1,8 +1,8 @@
-import * as llmService from '../llm/llm-service.js';
+import * as aiService from '../ai/ai-service.js';
 
 export async function generateProductFromDescription(description) {
   try {
-    const result = await llmService.generateGeneralizedProduct(description);
+    const result = await aiService.generateGeneralizedProduct(description);
 
     if (!result.success) {
       throw new Error(`LLM service error: ${result.error}`);
@@ -41,7 +41,7 @@ export async function generateProductFromDescription(description) {
 
 export async function analyzeProductImage(imageBuffer, mimeType) {
   try {
-    const result = await llmService.analyzeImage(imageBuffer, mimeType);
+    const result = await aiService.analyzeImage(imageBuffer, mimeType);
 
     if (!result.success) {
       throw new Error(`LLM service error: ${result.error}`);
@@ -88,7 +88,7 @@ export async function analyzeProductImage(imageBuffer, mimeType) {
 
 export async function analyzeVoiceForProduct(transcript) {
   try {
-    const result = await llmService.analyzeVoiceTranscript(transcript);
+    const result = await aiService.analyzeVoiceTranscript(transcript);
 
     if (!result.success) {
       throw new Error(`LLM service error: ${result.error}`);
@@ -135,10 +135,10 @@ export async function analyzeVoiceForProduct(transcript) {
 
 export async function generateEmbeddingForProduct(text) {
   try {
-    const result = await llmService.generateEmbedding(text);
+    const result = await aiService.generateEmbedding(text);
 
     if (!result.success) {
-      throw new Error(`LLM service error: ${result.error}`);
+      throw new Error(`Embeddings service error: ${result.error}`);
     }
 
     return {
@@ -159,12 +159,12 @@ export async function generateEmbeddingForProduct(text) {
 }
 
 export function isLLMAvailable() {
-  return llmService.isLLMEnabled();
+  return aiService.isAiEnabled();
 }
 
 export async function testLLMConnection() {
   try {
-    const result = await llmService.testConnection();
+    const result = await aiService.testConnection();
     return result;
   } catch (error) {
     console.error('testLLMConnection error:', error);

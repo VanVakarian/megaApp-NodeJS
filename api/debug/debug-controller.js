@@ -1,6 +1,6 @@
 import { execSync } from 'child_process';
 import * as dbFood from '../../db/db-food.js';
-import * as llmService from '../llm/llm-service.js';
+import * as aiService from '../ai/ai-service.js';
 import * as debugService from './debug-service.js';
 
 export async function ping(request, reply) {
@@ -58,7 +58,7 @@ export async function latestCommitInfo(request, reply) {
 
 export async function testLlm(request, reply) {
   try {
-    if (!llmService.isLLMEnabled()) {
+    if (!aiService.isAiEnabled()) {
       return reply.code(503).send({
         result: false,
         error: 'LLM service is disabled',
@@ -67,7 +67,7 @@ export async function testLlm(request, reply) {
 
     const testDescription = request.query.description || 'домашний творог с медом';
 
-    const result = await llmService.generateGeneralizedProduct(testDescription);
+    const result = await aiService.generateGeneralizedProduct(testDescription);
 
     if (result.success) {
       return reply.send({
@@ -93,7 +93,7 @@ export async function testLlm(request, reply) {
 
 export async function testLlmMultiModel(request, reply) {
   try {
-    if (!llmService.isLLMEnabled()) {
+    if (!aiService.isAiEnabled()) {
       return reply.code(503).send({
         result: false,
         error: 'LLM service is disabled',
@@ -102,7 +102,7 @@ export async function testLlmMultiModel(request, reply) {
 
     const testDescription = request.query.description || 'яблоко зеленое кислое';
 
-    const multiResult = await llmService.testMultipleModels(testDescription);
+    const multiResult = await aiService.testMultipleModels(testDescription);
 
     return reply.send({
       result: true,

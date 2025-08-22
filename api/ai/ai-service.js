@@ -1,16 +1,27 @@
 import OpenAI from 'openai';
-import { LLM_CONFIG, LLM_MODELS } from '../../env.js';
+import { AI_PROVIDERS } from '../../env.js';
 
-let llmClient = null;
+const clients = {
+  chat: null,
+  embeddings: null,
+  stt: null,
+};
 
-function initializeClient() {
-  if (!llmClient && LLM_CONFIG.ENABLED) {
-    llmClient = new OpenAI({
-      baseURL: LLM_CONFIG.BASE_URL,
-      apiKey: LLM_CONFIG.API_KEY,
+function getClient(operationType) {
+  const config = AI_PROVIDERS[operationType];
+
+  if (!config?.ENABLED) {
+    throw new Error(`${operationType} provider is disabled`);
+  }
+
+  if (!clients[operationType]) {
+    clients[operationType] = new OpenAI({
+      baseURL: config.BASE_URL,
+      apiKey: config.API_KEY,
     });
   }
-  return llmClient;
+
+  return clients[operationType];
 }
 
 const FOOD_NUTRITION_SCHEMA = {
@@ -136,19 +147,21 @@ function validateNutritionData(data) {
 }
 
 async function callModelsInParallel(messages, responseFormat, useImageAnalysis = false) {
-  const client = initializeClient();
-  if (!client) throw new Error('LLM service is disabled');
+  const client = getClient('CHAT');
+  const config = AI_PROVIDERS.TEXT_GEN;
+
+  if (!client) throw new Error('Chat provider is disabled');
 
   const systemPrompt = useImageAnalysis ? SYSTEM_PROMPT_IMAGE_ANALYSIS : SYSTEM_PROMPT_GENERALIZE;
   const fullMessages = [{ role: 'system', content: systemPrompt }, ...messages];
 
-  const calls = LLM_MODELS.map(async (model) => {
+  const calls = config.MODELS.map(async (model) => {
     try {
       const response = await client.chat.completions.create({
         model,
         messages: fullMessages,
-        temperature: LLM_CONFIG.TEMPERATURE,
-        max_tokens: LLM_CONFIG.MAX_TOKENS,
+        temperature: config.TEMPERATURE,
+        max_tokens: config.MAX_TOKENS,
         response_format: responseFormat,
       });
 
@@ -202,8 +215,10 @@ async function callModelsInParallel(messages, responseFormat, useImageAnalysis =
 
 export async function generateGeneralizedProduct(description) {
   try {
-    if (!LLM_CONFIG.ENABLED) {
-      throw new Error('LLM service is disabled');
+    const config = AI_PROVIDERS.TEXT_GEN;
+
+    if (!config.ENABLED) {
+      throw new Error('Chat provider is disabled');
     }
 
     const messages = [
@@ -228,6 +243,7 @@ export async function generateGeneralizedProduct(description) {
       data: result.data,
       metadata: {
         model: result.model,
+        provider: config.PROVIDER,
         usage: result.usage,
       },
     };
@@ -242,8 +258,10 @@ export async function generateGeneralizedProduct(description) {
 
 export async function analyzeImage(imageData, mimeType) {
   try {
-    if (!LLM_CONFIG.ENABLED) {
-      throw new Error('LLM service is disabled');
+    const config = AI_PROVIDERS.TEXT_GEN;
+
+    if (!config.ENABLED) {
+      throw new Error('Chat provider is disabled');
     }
 
     const base64Image = Buffer.from(imageData).toString('base64');
@@ -291,6 +309,7 @@ export async function analyzeImage(imageData, mimeType) {
       data: result.data,
       metadata: {
         model: result.model,
+        provider: config.PROVIDER,
         usage: result.usage,
       },
     };
@@ -305,8 +324,10 @@ export async function analyzeImage(imageData, mimeType) {
 
 export async function analyzeVoiceTranscript(transcript) {
   try {
-    if (!LLM_CONFIG.ENABLED) {
-      throw new Error('LLM service is disabled');
+    const config = AI_PROVIDERS.TEXT_GEN;
+
+    if (!config.ENABLED) {
+      throw new Error('Chat provider is disabled');
     }
 
     const messages = [
@@ -339,6 +360,7 @@ export async function analyzeVoiceTranscript(transcript) {
       data: result.data,
       metadata: {
         model: result.model,
+        provider: config.PROVIDER,
         usage: result.usage,
       },
     };
@@ -353,31 +375,34 @@ export async function analyzeVoiceTranscript(transcript) {
 
 export async function generateEmbedding(text) {
   try {
-    if (!LLM_CONFIG.ENABLED) {
-      throw new Error('LLM service is disabled');
+    const config = AI_PROVIDERS.EMBEDDINGS;
+
+    if (!config.ENABLED) {
+      throw new Error('Embeddings provider is disabled');
     }
 
-    const client = initializeClient();
+    const client = getClient('EMBEDDINGS');
 
     const response = await client.embeddings.create({
-      model: LLM_CONFIG.EMBEDDING_MODEL,
+      model: config.MODEL,
       input: text,
-      dimensions: LLM_CONFIG.EMBEDDING_DIMENSIONS,
+      dimensions: config.DIMENSIONS,
     });
 
     return {
       success: true,
       data: {
         embedding: response.data[0].embedding,
-        dimensions: LLM_CONFIG.EMBEDDING_DIMENSIONS,
+        dimensions: config.DIMENSIONS,
       },
       metadata: {
-        model: LLM_CONFIG.EMBEDDING_MODEL,
+        model: config.MODEL,
+        provider: config.PROVIDER,
         usage: response.usage,
       },
     };
   } catch (error) {
-    console.error('LLM generateEmbedding error:', error);
+    console.error('Embeddings generateEmbedding error:', error);
     return {
       success: false,
       error: error.message,
@@ -387,17 +412,19 @@ export async function generateEmbedding(text) {
 
 export async function testConnection() {
   try {
-    if (!LLM_CONFIG.ENABLED) {
+    const config = AI_PROVIDERS.TEXT_GEN;
+
+    if (!config.ENABLED) {
       return {
         success: false,
-        error: 'LLM service is disabled',
+        error: 'Chat provider is disabled',
       };
     }
 
-    const client = initializeClient();
+    const client = getClient('CHAT');
 
     const response = await client.chat.completions.create({
-      model: LLM_MODELS[0],
+      model: config.MODELS[0],
       messages: [
         { role: 'system', content: 'Ответь коротко на русском языке.' },
         { role: 'user', content: 'Привет! Это тест соединения.' },
@@ -413,6 +440,7 @@ export async function testConnection() {
         model: response.model,
       },
       metadata: {
+        provider: config.PROVIDER,
         usage: response.usage,
       },
     };
@@ -425,26 +453,31 @@ export async function testConnection() {
   }
 }
 
-export function isLLMEnabled() {
-  return LLM_CONFIG.ENABLED;
+export function isAiEnabled() {
+  return AI_PROVIDERS.TEXT_GEN.ENABLED;
 }
 
-export function getLLMConfig() {
+export function getAiConfig() {
   return {
-    enabled: LLM_CONFIG.ENABLED,
-    models: LLM_MODELS,
-    embeddingModel: LLM_CONFIG.EMBEDDING_MODEL,
-    embeddingDimensions: LLM_CONFIG.EMBEDDING_DIMENSIONS,
+    enabled: AI_PROVIDERS.TEXT_GEN.ENABLED,
+    chatProvider: AI_PROVIDERS.TEXT_GEN.PROVIDER,
+    embeddingProvider: AI_PROVIDERS.EMBEDDINGS.PROVIDER,
+    sttProvider: AI_PROVIDERS.STT.PROVIDER,
+    models: AI_PROVIDERS.TEXT_GEN.MODELS,
+    embeddingModel: AI_PROVIDERS.EMBEDDINGS.MODEL,
+    embeddingDimensions: AI_PROVIDERS.EMBEDDINGS.DIMENSIONS,
   };
 }
 
 export async function testMultipleModels(description) {
   try {
-    if (!LLM_CONFIG.ENABLED) {
-      throw new Error('LLM service is disabled');
+    const config = AI_PROVIDERS.TEXT_GEN;
+
+    if (!config.ENABLED) {
+      throw new Error('Chat provider is disabled');
     }
 
-    const client = initializeClient();
+    const client = getClient('CHAT');
 
     const systemPrompt = `Ты - эксперт по питанию. Проанализируй описание продукта и создай максимально обобщенное название с данными КБЖУ.
 
@@ -469,14 +502,14 @@ export async function testMultipleModels(description) {
       },
     };
 
-    const calls = LLM_MODELS.map(async (model) => {
+    const calls = config.MODELS.map(async (model) => {
       const startTime = Date.now();
       try {
         const response = await client.chat.completions.create({
           model,
           messages,
-          temperature: LLM_CONFIG.TEMPERATURE,
-          max_tokens: LLM_CONFIG.MAX_TOKENS,
+          temperature: config.TEMPERATURE,
+          max_tokens: config.MAX_TOKENS,
           response_format: responseFormat,
         });
 
@@ -542,9 +575,9 @@ export async function testMultipleModels(description) {
     return {
       success: true,
       summary: {
-        totalModels: LLM_MODELS.length,
+        totalModels: config.MODELS.length,
         successfulModels: successCount,
-        failedModels: LLM_MODELS.length - successCount,
+        failedModels: config.MODELS.length - successCount,
         averageResponseTime: Math.round(avgResponseTime),
       },
       results: processedResults,

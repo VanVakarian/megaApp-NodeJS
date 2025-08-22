@@ -1,6 +1,6 @@
 import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
-import * as llmService from '../llm/llm-service.js';
+import * as aiService from '../ai/ai-service.js';
 import * as statsCache from './stats-cache.js';
 
 export function getDateRange(dateIso, fetchDaysRangeOffset) {
@@ -399,11 +399,11 @@ function prepareStats(allDates, weights, avgWeights, dailySumKcals, targetKcalsA
 
 export async function searchCatalogueEntries(query, userId, limit = 10) {
   try {
-    if (!llmService.isLLMEnabled()) {
+    if (!aiService.isAiEnabled()) {
       return [];
     }
 
-    const embeddingResult = await llmService.generateEmbedding(query);
+    const embeddingResult = await aiService.generateEmbedding(query);
     if (!embeddingResult.success) {
       console.error('Failed to generate embedding for search:', embeddingResult.error);
       return [];
@@ -425,14 +425,14 @@ export async function searchCatalogueEntries(query, userId, limit = 10) {
 
 export async function createGeneralizedCatalogueEntry(description, userId) {
   try {
-    if (!llmService.isLLMEnabled()) {
+    if (!aiService.isAiEnabled()) {
       return {
         success: false,
         error: 'LLM service is disabled',
       };
     }
 
-    const llmResult = await llmService.generateGeneralizedProduct(description);
+    const llmResult = await aiService.generateGeneralizedProduct(description);
     if (!llmResult.success) {
       return {
         success: false,
@@ -468,9 +468,7 @@ export async function createGeneralizedCatalogueEntry(description, userId) {
 
       isNew = true;
 
-      const embeddingResult = await llmService.generateEmbedding(
-        productData.descriptionForEmbedding || generalizedName
-      );
+      const embeddingResult = await aiService.generateEmbedding(productData.descriptionForEmbedding || generalizedName);
       if (embeddingResult.success) {
         await dbFood.updateCatalogueEntryEmbedding(catalogueId, embeddingResult.data);
       }
