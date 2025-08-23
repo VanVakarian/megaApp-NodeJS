@@ -1,141 +1,5 @@
 import { getConnection } from './db.js';
 
-// ===================================================================================================== VEC TESTING ===
-
-export async function testVecConnection() {
-  const connection = await getConnection();
-  try {
-    const result = await connection.get('SELECT vec_version() as version');
-    return { success: true, message: `sqlite-vec is working correctly, version: ${result.version}` };
-  } catch (error) {
-    console.error('Vec test failed:', error);
-    return { success: false, error: error.message };
-  }
-}
-
-// ============================================================================================= VECTOR SEARCH (VEC) ===
-
-export async function searchCatalogueEntriesByEmbedding(embeddingArray, userId, limit = 10) {
-  const connection = await getConnection();
-  try {
-    const embeddingFloat32 = new Float32Array(embeddingArray);
-
-    const query = `
-      SELECT
-        fc.id, fc.name, fc.kcals, fc.protein, fc.fat, fc.carbs, fc.fiber, vf.distance
-      FROM
-        vecFoods vf
-      JOIN
-        foodCatalogue fc ON vf.rowid = fc.id
-      JOIN
-        foodCatalogueEntryOwnership feo ON fc.id = feo.foodCatalogueId
-      WHERE
-        feo.userId = ?
-        AND vf.embedding MATCH ?
-      ORDER BY
-        vf.distance ASC
-      LIMIT
-        ?;
-    `;
-
-    const result = await connection.all(query, [userId, embeddingFloat32, limit]);
-    return result;
-  } catch (error) {
-    console.error('Vector search error:', error);
-    return [];
-  }
-}
-
-export async function updateCatalogueEntryEmbedding(catalogueId, embeddingArray) {
-  const connection = await getConnection();
-  try {
-    const embeddingFloat32 = new Float32Array(embeddingArray);
-
-    const updateQuery = `
-      UPDATE
-        foodCatalogue
-      SET
-        embedding = ?
-      WHERE
-        id = ?;
-    `;
-    await connection.run(updateQuery, [embeddingFloat32, catalogueId]);
-
-    const insertQuery = `
-      INSERT OR REPLACE INTO
-        vecFoods(rowid, embedding)
-      VALUES
-        (?, ?);
-    `;
-    await connection.run(insertQuery, [catalogueId, embeddingFloat32]);
-
-    return true;
-  } catch (error) {
-    console.error('Error updating embedding:', error);
-    return false;
-  }
-}
-
-// ============================================================================================ CATALOGUE VISIBILITY ===
-
-export async function createUserCatalogueEntryVisibility(userId, catalogueId) {
-  const connection = await getConnection();
-  try {
-    const query = `
-      INSERT OR IGNORE INTO
-        foodCatalogueEntryOwnership (userId, foodCatalogueId)
-      VALUES
-        (?, ?);
-    `;
-    const result = await connection.run(query, [userId, catalogueId]);
-    return result.changes > 0;
-  } catch (error) {
-    console.error('Error creating catalogue visibility:', error);
-    return false;
-  }
-}
-
-export async function removeUserCatalogueEntryVisibility(userId, catalogueId) {
-  const connection = await getConnection();
-  try {
-    const query = `
-      DELETE FROM
-        foodCatalogueEntryOwnership
-      WHERE
-        userId = ?
-        AND foodCatalogueId = ?;
-    `;
-    const result = await connection.run(query, [userId, catalogueId]);
-    return result.changes > 0;
-  } catch (error) {
-    console.error('Error removing catalogue visibility:', error);
-    return false;
-  }
-}
-
-export async function getUserVisibleCatalogueEntries(userId) {
-  const connection = await getConnection();
-  try {
-    const query = `
-      SELECT
-        fc.id, fc.name, fc.kcals, fc.protein, fc.fat, fc.carbs, fc.fiber
-      FROM
-        foodCatalogue fc
-      JOIN
-        foodCatalogueEntryOwnership feo ON fc.id = feo.foodCatalogueId
-      WHERE
-        feo.userId = ?
-      ORDER BY
-        fc.name ASC;
-    `;
-    const result = await connection.all(query, [userId]);
-    return result;
-  } catch (error) {
-    console.error('Error getting user visible catalogue entries:', error);
-    return [];
-  }
-}
-
 // =========================================================================================================== DIARY ===
 
 export async function dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, history, userId) {
@@ -436,43 +300,80 @@ export async function getAllFoodCatalogueEntries() {
   }
 }
 
-// ================================================================================================== USER CATALOGUE ===
+// ============================================================================================ CATALOGUE VISIBILITY ===
 
-export async function getUsersFoodCatalogueIds(userId) {
+/**
+ * Creates visibility link between user and catalogue entry for personal catalogue management
+ * @param {number} userId - User ID
+ * @param {number} catalogueId - Catalogue entry ID to make visible
+ * @returns {Promise<boolean>} True if entry was added, false if already exists
+ */
+export async function createUserCatalogueEntryVisibility(userId, catalogueId) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      INSERT OR IGNORE INTO
+        foodCatalogueEntryOwnership (userId, foodCatalogueId)
+      VALUES
+        (?, ?);
+    `;
+    const result = await connection.run(query, [userId, catalogueId]);
+    return result.changes > 0;
+  } catch (error) {
+    console.error('Error creating catalogue visibility:', error);
+    return false;
+  }
+}
+
+/**
+ * Removes visibility link between user and catalogue entry
+ * @param {number} userId - User ID
+ * @param {number} catalogueId - Catalogue entry ID to hide
+ * @returns {Promise<boolean>} True if entry was removed, false if didn't exist
+ */
+export async function removeUserCatalogueEntryVisibility(userId, catalogueId) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      DELETE FROM
+        foodCatalogueEntryOwnership
+      WHERE
+        userId = ?
+        AND foodCatalogueId = ?;
+    `;
+    const result = await connection.run(query, [userId, catalogueId]);
+    return result.changes > 0;
+  } catch (error) {
+    console.error('Error removing catalogue visibility:', error);
+    return false;
+  }
+}
+
+/**
+ * Retrieves all catalogue entries visible to specific user
+ * @param {number} userId - User ID for visibility filtering
+ * @returns {Promise<Array>} Array of catalogue entries accessible to the user
+ */
+export async function getUserVisibleCatalogueEntries(userId) {
   const connection = await getConnection();
   try {
     const query = `
       SELECT
-        selectedCatalogueIds
+        fc.id, fc.name, fc.kcals, fc.protein, fc.fat, fc.carbs, fc.fiber
       FROM
-        foodSettings
+        foodCatalogue fc
+      JOIN
+        foodCatalogueEntryOwnership feo ON fc.id = feo.foodCatalogueId
       WHERE
-        usersId = ?;
+        feo.userId = ?
+      ORDER BY
+        fc.name ASC;
     `;
     const result = await connection.all(query, [userId]);
     return result;
   } catch (error) {
-    console.error(error);
-    return null;
-  }
-}
-
-export async function updateUsersFoodCatalogueIdsList(selectedCatalogueIds, userId) {
-  const connection = await getConnection();
-  try {
-    const query = `
-      UPDATE
-        foodSettings
-      SET
-        selectedCatalogueIds = ?
-      WHERE
-        usersId = ?;
-    `;
-    await connection.run(query, [selectedCatalogueIds, userId]);
-    return true;
-  } catch (error) {
-    console.error(error);
-    return false;
+    console.error('Error getting user visible catalogue entries:', error);
+    return [];
   }
 }
 
@@ -655,5 +556,113 @@ async function createUserCoefficients(userId, coefficients) {
   } catch (error) {
     console.error(error);
     throw new Error('Failed to create coefficients');
+  }
+}
+
+// ======================================================================================== JAVASCRIPT VECTOR SEARCH ===
+
+/**
+ * Calculates cosine distance between two vectors for similarity comparison
+ * @param {Array|Float32Array} vecA - First vector
+ * @param {Array|Float32Array} vecB - Second vector
+ * @returns {number} Cosine distance (0 = identical, 1 = completely different)
+ */
+function cosineDistance(vecA, vecB) {
+  if (!vecA || !vecB || vecA.length !== vecB.length) {
+    return 1;
+  }
+
+  let dot = 0,
+    normA = 0,
+    normB = 0;
+  for (let i = 0; i < vecA.length; i++) {
+    dot += vecA[i] * vecB[i];
+    normA += vecA[i] ** 2;
+    normB += vecB[i] ** 2;
+  }
+
+  const normProduct = Math.sqrt(normA) * Math.sqrt(normB);
+  if (normProduct === 0) return 1;
+
+  return 1 - dot / normProduct;
+}
+
+/**
+ * Performs vector similarity search across user's visible catalogue entries using JavaScript
+ * @param {Array|Float32Array} embeddingArray - Query vector for similarity search
+ * @param {number} userId - User ID for visibility filtering
+ * @param {number} limit - Maximum number of results to return
+ * @returns {Promise<Array>} Sorted array of catalogue entries with distance scores
+ */
+export async function searchCatalogueEntriesByEmbedding(embeddingArray, userId, limit = 10) {
+  const connection = await getConnection();
+  try {
+    const queryVector = new Float32Array(embeddingArray);
+
+    const query = `
+      SELECT
+        fc.id, fc.name, fc.kcals, fc.protein, fc.fat, fc.carbs, fc.fiber, fc.embedding
+      FROM
+        foodCatalogue fc
+      JOIN
+        foodCatalogueEntryOwnership feo ON fc.id = feo.foodCatalogueId
+      WHERE
+        feo.userId = ?
+        AND fc.embedding IS NOT NULL
+      ORDER BY
+        fc.name ASC;
+    `;
+
+    const rows = await connection.all(query, [userId]);
+
+    const results = rows
+      .map((row) => {
+        const embedding = row.embedding ? new Float32Array(row.embedding.buffer) : null;
+        const distance = embedding ? cosineDistance(queryVector, embedding) : 1;
+        return {
+          id: row.id,
+          name: row.name,
+          kcals: row.kcals,
+          protein: row.protein,
+          fat: row.fat,
+          carbs: row.carbs,
+          fiber: row.fiber,
+          distance: distance,
+        };
+      })
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, limit);
+
+    return results;
+  } catch (error) {
+    console.error('Vector search error:', error);
+    return [];
+  }
+}
+
+/**
+ * Updates catalogue entry with new vector embedding for semantic search
+ * @param {number} catalogueId - Catalogue entry ID to update
+ * @param {Array|Float32Array} embeddingArray - Vector embedding data
+ * @returns {Promise<boolean>} Success status of the update operation
+ */
+export async function updateCatalogueEntryEmbedding(catalogueId, embeddingArray) {
+  const connection = await getConnection();
+  try {
+    const buffer = Buffer.from(new Float32Array(embeddingArray).buffer);
+
+    const updateQuery = `
+      UPDATE
+        foodCatalogue
+      SET
+        embedding = ?
+      WHERE
+        id = ?;
+    `;
+    const result = await connection.run(updateQuery, [buffer, catalogueId]);
+    return result.changes > 0;
+  } catch (error) {
+    console.error('Error updating embedding:', error);
+    return false;
   }
 }

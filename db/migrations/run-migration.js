@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 import { open } from 'sqlite';
-import * as sqliteVec from 'sqlite-vec';
 import sqlite3 from 'sqlite3';
 import { DB_ENV, DB_FILE_NAME, DB_NAME } from '../../env.js';
 import { migration001to002 } from './001-to-002.js';
@@ -107,8 +106,6 @@ async function runMigration(migrationKey) {
     filename: targetFileName,
     driver: sqlite3.Database,
   });
-
-  sqliteVec.load(connection);
 
   try {
     for (const query of migration.queries) {

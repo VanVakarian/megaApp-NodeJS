@@ -397,6 +397,13 @@ function prepareStats(allDates, weights, avgWeights, dailySumKcals, targetKcalsA
 
 // ================================================================================================= SEMANTIC SEARCH ===
 
+/**
+ * Performs semantic search across user's visible catalogue entries using vector embeddings
+ * @param {string} query - Search query text
+ * @param {number} userId - User ID for visibility filtering
+ * @param {number} limit - Maximum number of results to return
+ * @returns {Promise<Array>} Array of matching catalogue entries with relevance scores
+ */
 export async function searchCatalogueEntries(query, userId, limit = 10) {
   try {
     if (!aiService.isAiEnabled()) {
@@ -423,6 +430,12 @@ export async function searchCatalogueEntries(query, userId, limit = 10) {
 
 // ============================================================================================ GENERALIZED PRODUCTS ===
 
+/**
+ * Creates a generalized catalogue entry using LLM analysis of user description
+ * @param {string} description - User's free-form product description
+ * @param {number} userId - User ID for ownership assignment
+ * @returns {Promise<Object>} Result object with success status and created entry data
+ */
 export async function createGeneralizedCatalogueEntry(description, userId) {
   try {
     if (!aiService.isAiEnabled()) {
@@ -497,6 +510,12 @@ export async function createGeneralizedCatalogueEntry(description, userId) {
 
 // ================================================================================================== USER CATALOGUE ===
 
+/**
+ * Adds a catalogue entry to user's personal visibility list
+ * @param {number} userId - User ID
+ * @param {number} catalogueId - Catalogue entry ID to add
+ * @returns {Promise<Object>} Result object with success status and message
+ */
 export async function addCatalogueEntryToUserVisibility(userId, catalogueId) {
   try {
     const success = await dbFood.createUserCatalogueEntryVisibility(userId, catalogueId);
@@ -513,6 +532,12 @@ export async function addCatalogueEntryToUserVisibility(userId, catalogueId) {
   }
 }
 
+/**
+ * Removes a catalogue entry from user's personal visibility list
+ * @param {number} userId - User ID
+ * @param {number} catalogueId - Catalogue entry ID to remove
+ * @returns {Promise<Object>} Result object with success status and message
+ */
 export async function removeCatalogueEntryFromUserVisibility(userId, catalogueId) {
   try {
     const success = await dbFood.removeUserCatalogueEntryVisibility(userId, catalogueId);
@@ -529,6 +554,11 @@ export async function removeCatalogueEntryFromUserVisibility(userId, catalogueId
   }
 }
 
+/**
+ * Retrieves user's personal catalogue with all visible entries
+ * @param {number} userId - User ID
+ * @returns {Promise<Object>} Result object with success status and user's catalogue data
+ */
 export async function getUserPersonalCatalogue(userId) {
   try {
     const entries = await dbFood.getUserVisibleCatalogueEntries(userId);
@@ -538,6 +568,109 @@ export async function getUserPersonalCatalogue(userId) {
     };
   } catch (error) {
     console.error('Error getting user personal catalogue:', error);
+    return {
+      success: false,
+      error: 'Internal server error',
+    };
+  }
+}
+
+// ============================================================================================= MULTIMODAL ANALYSIS ===
+
+/**
+ * Analyzes uploaded image to detect food products using AI vision
+ * @param {Buffer} imageBuffer - Image file buffer
+ * @param {string} mimeType - Image MIME type
+ * @param {number} userId - User ID for search filtering
+ * @returns {Promise<Object>} Analysis result with detected product and search suggestions
+ */
+export async function analyzeImageForCatalogueEntry(imageBuffer, mimeType, userId) {
+  try {
+    if (!aiService.isAiEnabled()) {
+      return {
+        success: false,
+        error: 'LLM service is disabled',
+      };
+    }
+
+    const analysisResult = await aiService.analyzeImage(imageBuffer, mimeType);
+    if (!analysisResult.success) {
+      return {
+        success: false,
+        error: analysisResult.error,
+      };
+    }
+
+    const productData = analysisResult.data;
+    if (!productData.generalizedName) {
+      return {
+        success: true,
+        data: null,
+      };
+    }
+
+    const searchResults = await searchCatalogueEntries(productData.generalizedName, userId, 5);
+
+    return {
+      success: true,
+      data: {
+        detectedProduct: productData,
+        searchResults: searchResults,
+        confidence: productData.confidence,
+      },
+    };
+  } catch (error) {
+    console.error('Error analyzing image for catalogue entry:', error);
+    return {
+      success: false,
+      error: 'Internal server error',
+    };
+  }
+}
+
+/**
+ * Analyzes voice transcript to detect food products using AI language processing
+ * @param {string} transcript - Voice recognition transcript
+ * @param {number} userId - User ID for search filtering
+ * @returns {Promise<Object>} Analysis result with detected product and search suggestions
+ */
+export async function analyzeVoiceForCatalogueEntry(transcript, userId) {
+  try {
+    if (!aiService.isAiEnabled()) {
+      return {
+        success: false,
+        error: 'LLM service is disabled',
+      };
+    }
+
+    const analysisResult = await aiService.analyzeVoiceTranscript(transcript);
+    if (!analysisResult.success) {
+      return {
+        success: false,
+        error: analysisResult.error,
+      };
+    }
+
+    const productData = analysisResult.data;
+    if (!productData.generalizedName) {
+      return {
+        success: true,
+        data: null,
+      };
+    }
+
+    const searchResults = await searchCatalogueEntries(productData.generalizedName, userId, 5);
+
+    return {
+      success: true,
+      data: {
+        detectedProduct: productData,
+        searchResults: searchResults,
+        confidence: productData.confidence,
+      },
+    };
+  } catch (error) {
+    console.error('Error analyzing voice for catalogue entry:', error);
     return {
       success: false,
       error: 'Internal server error',

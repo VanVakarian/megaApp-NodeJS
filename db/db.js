@@ -1,5 +1,4 @@
 import { open } from 'sqlite';
-import * as sqliteVec from 'sqlite-vec';
 import sqlite3 from 'sqlite3';
 import { DB_FILE_NAME } from '../env.js';
 
@@ -15,7 +14,6 @@ export const getConnection = async () => {
     driver: sqlite3.Database,
   });
 
-  sqliteVec.load(db);
   connectionCache = db;
 
   return db;

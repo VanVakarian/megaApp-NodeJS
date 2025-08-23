@@ -2,14 +2,14 @@ import * as authController from '../auth/auth-controller.js';
 import * as foodController from './food-controller.js';
 
 export async function foodRoutes(fastify) {
-  //                                                           FULL UPDATE ROUTE
+  // ============================================================================================= FULL UPDATE ROUTE ===
   fastify.get('/diary-full-update', {
     schema: { tags: ['food'] },
     preValidation: [authController.authMiddleware],
     handler: foodController.getFoodDiaryFullUpdateRange,
   });
 
-  //                                                                DIARY ROUTES
+  // ================================================================================================== DIARY ROUTES ===
   fastify.post('/diary/', {
     schema: {
       tags: ['food'],
@@ -49,7 +49,7 @@ export async function foodRoutes(fastify) {
     handler: foodController.deleteDiaryEntry,
   });
 
-  //                                                       MAIN CATALOGUE ROUTES
+  // ========================================================================================= MAIN CATALOGUE ROUTES ===
   fastify.get('/catalogue', {
     schema: { tags: ['food'] },
     preValidation: [authController.authMiddleware],
@@ -89,7 +89,7 @@ export async function foodRoutes(fastify) {
     handler: foodController.editCatalogueEntry,
   });
 
-  //                                                       USER CATALOGUE ROUTES
+  // ========================================================================================= USER CATALOGUE ROUTES ===
   fastify.get('/user-catalogue', {
     schema: { tags: ['food'] },
     preValidation: [authController.authMiddleware],
@@ -126,7 +126,88 @@ export async function foodRoutes(fastify) {
     handler: foodController.dismissUserCatalogueEntry,
   });
 
-  //                                                         COEFFICIENTS ROUTES
+  // =========================================================================================== NEW SEMANTIC SEARCH ===
+  fastify.get('/search', {
+    schema: {
+      tags: ['food'],
+      querystring: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', minLength: 1 },
+          limit: { type: 'number', minimum: 1, maximum: 50, default: 10 },
+        },
+        required: ['query'],
+      },
+    },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.searchCatalogueEntries,
+  });
+
+  fastify.post('/create-generalized', {
+    schema: {
+      tags: ['food'],
+      body: {
+        type: 'object',
+        properties: {
+          description: { type: 'string', minLength: 1 },
+        },
+        required: ['description'],
+      },
+    },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.createGeneralizedCatalogueEntry,
+  });
+
+  // ============================================================================================ NEW USER CATALOGUE ===
+  fastify.get('/my-foods', {
+    schema: { tags: ['food'] },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.getMyFoods,
+  });
+
+  fastify.post('/add-to-my-foods', {
+    schema: {
+      tags: ['food'],
+      body: {
+        type: 'object',
+        properties: {
+          catalogueId: { type: 'number' },
+        },
+        required: ['catalogueId'],
+      },
+    },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.addToMyFoods,
+  });
+
+  // =========================================================================================== MULTIMODAL ANALYSIS ===
+  fastify.post('/analyze-image', {
+    schema: {
+      tags: ['food'],
+      consumes: ['multipart/form-data'],
+      description: 'Analyze image to detect food products',
+    },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.analyzeImage,
+  });
+
+  fastify.post('/analyze-voice', {
+    schema: {
+      tags: ['food'],
+      body: {
+        type: 'object',
+        properties: {
+          transcript: { type: 'string', minLength: 1 },
+        },
+        required: ['transcript'],
+      },
+      description: 'Analyze voice transcript to detect food products',
+    },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.analyzeVoice,
+  });
+
+  // =========================================================================================== COEFFICIENTS ROUTES ===
   fastify.get('/coefficients', {
     schema: { tags: ['food'] },
     preValidation: [authController.authMiddleware],
@@ -138,7 +219,7 @@ export async function foodRoutes(fastify) {
     handler: foodController.calculateCoefficients,
   });
 
-  //                                                               WEIGHT ROUTES
+  // ================================================================================================= WEIGHT ROUTES ===
   fastify.post('/body-weight', {
     schema: {
       tags: ['food'],
@@ -155,7 +236,7 @@ export async function foodRoutes(fastify) {
     handler: foodController.processWeight,
   });
 
-  //                                                                STATS ROUTES
+  // ================================================================================================== STATS ROUTES ===
   fastify.get('/stats', {
     schema: { tags: ['food'] },
     preValidation: [authController.authMiddleware],

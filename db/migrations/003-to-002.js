@@ -1,7 +1,4 @@
 export const migration003to002 = [
-  // Удаляем виртуальную таблицу VEC
-  `DROP TABLE IF EXISTS vecFoods;`,
-
   // Добавляем поле selectedCatalogueIds обратно
   `ALTER TABLE foodSettings ADD COLUMN selectedCatalogueIds TEXT;`,
 

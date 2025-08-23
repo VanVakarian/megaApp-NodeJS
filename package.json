@@ -26,7 +26,6 @@
     "openai": "^4.67.3",
     "pg": "^8.11.5",
     "sqlite": "^5.1.1",
-    "sqlite-vec": "^0.1.7-alpha.2",
     "sqlite3": "^5.1.7"
   },
   "devDependencies": {

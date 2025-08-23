@@ -256,12 +256,6 @@ const dbVersion003 = [
   `,
 
   `
-  CREATE VIRTUAL TABLE IF NOT EXISTS vecFoods USING vec0(
-    embedding float[768]
-  );
-  `,
-
-  `
   CREATE TABLE IF NOT EXISTS foodSettings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     height INTEGER,

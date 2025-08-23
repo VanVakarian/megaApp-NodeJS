@@ -159,12 +159,187 @@ export async function createCatalogueEntry(request, reply) {
   const userId = request.user.id;
   const newFoodId = await dbFood.addFoodCatalogueEntry(foodName, foodKcals);
   if (newFoodId) {
-    const result = await addToUserCatalogue(userId, newFoodId);
-    if (result) {
+    const result = await foodService.addCatalogueEntryToUserVisibility(userId, newFoodId);
+    if (result.success) {
+      updateUserDataLastModified(userId);
       return reply.code(200).send({ result: true, id: newFoodId });
     }
   }
   return reply.code(400).send({ result: false, error: 'Catalogue entry not created' });
+}
+
+// ============================================================================================= NEW SEMANTIC SEARCH ===
+
+/**
+ * Handles semantic search requests for catalogue entries
+ * @param {Object} request - Fastify request object with query parameters
+ * @param {Object} reply - Fastify reply object
+ * @returns {Promise<Object>} Search results with matching catalogue entries
+ */
+export async function searchCatalogueEntries(request, reply) {
+  const { query, limit = 10 } = request.query;
+  const userId = request.user.id;
+
+  if (!query || query.trim() === '') {
+    return reply.code(400).send({ result: false, error: 'Query parameter is required' });
+  }
+
+  try {
+    const searchResults = await foodService.searchCatalogueEntries(query.trim(), userId, parseInt(limit));
+    return reply.code(200).send({
+      result: true,
+      data: searchResults,
+    });
+  } catch (error) {
+    console.error('Error in search controller:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
+}
+
+/**
+ * Creates generalized catalogue entry from user description using LLM analysis
+ * @param {Object} request - Fastify request object with description in body
+ * @param {Object} reply - Fastify reply object
+ * @returns {Promise<Object>} Created catalogue entry data
+ */
+export async function createGeneralizedCatalogueEntry(request, reply) {
+  const { description } = request.body;
+  const userId = request.user.id;
+
+  if (!description || description.trim() === '') {
+    return reply.code(400).send({ result: false, error: 'Description is required' });
+  }
+
+  try {
+    const result = await foodService.createGeneralizedCatalogueEntry(description.trim(), userId);
+
+    if (result.success) {
+      updateUserDataLastModified(userId);
+      return reply.code(201).send({
+        result: true,
+        data: result.data,
+      });
+    }
+
+    return reply.code(400).send({ result: false, error: result.error });
+  } catch (error) {
+    console.error('Error in createGeneralizedCatalogueEntry:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
+}
+
+// ============================================================================================== NEW USER CATALOGUE ===
+
+/**
+ * Retrieves user's personal food catalogue with all visible entries
+ * @param {Object} request - Fastify request object with authenticated user
+ * @param {Object} reply - Fastify reply object
+ * @returns {Promise<Object>} User's personal catalogue data
+ */
+export async function getMyFoods(request, reply) {
+  const userId = request.user.id;
+  try {
+    const result = await foodService.getUserPersonalCatalogue(userId);
+    if (result.success) {
+      return reply.code(200).send({ result: true, data: result.data });
+    }
+    return reply.code(500).send({ result: false, error: result.error });
+  } catch (error) {
+    console.error('Error getting my foods:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
+}
+
+/**
+ * Adds a catalogue entry to user's personal visible food list
+ * @param {Object} request - Fastify request object with catalogueId in body
+ * @param {Object} reply - Fastify reply object
+ * @returns {Promise<Object>} Success confirmation
+ */
+export async function addToMyFoods(request, reply) {
+  const { catalogueId } = request.body;
+  const userId = request.user.id;
+
+  if (!catalogueId) {
+    return reply.code(400).send({ result: false, error: 'Catalogue ID is required' });
+  }
+
+  try {
+    const result = await foodService.addCatalogueEntryToUserVisibility(userId, parseInt(catalogueId));
+    if (result.success) {
+      updateUserDataLastModified(userId);
+      return reply.code(200).send({ result: true, message: result.message });
+    }
+    return reply.code(400).send({ result: false, error: result.error });
+  } catch (error) {
+    console.error('Error in addToMyFoods:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
+}
+
+// ============================================================================================= MULTIMODAL ANALYSIS ===
+
+/**
+ * Analyzes uploaded food image using AI vision to detect products
+ * @param {Object} request - Fastify request object with multipart image file
+ * @param {Object} reply - Fastify reply object
+ * @returns {Promise<Object>} Detected food product data and search suggestions
+ */
+export async function analyzeImage(request, reply) {
+  const userId = request.user.id;
+
+  try {
+    const data = await request.file();
+    if (!data) {
+      return reply.code(400).send({ result: false, error: 'No image file provided' });
+    }
+
+    const buffer = await data.buffer();
+    const mimeType = data.mimetype;
+
+    if (!mimeType.startsWith('image/')) {
+      return reply.code(400).send({ result: false, error: 'File must be an image' });
+    }
+
+    const result = await foodService.analyzeImageForCatalogueEntry(buffer, mimeType, userId);
+
+    if (result.success) {
+      return reply.code(200).send({ result: true, data: result.data });
+    }
+
+    return reply.code(500).send({ result: false, error: result.error });
+  } catch (error) {
+    console.error('Error analyzing image:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
+}
+
+/**
+ * Analyzes voice transcript using AI to detect mentioned food products
+ * @param {Object} request - Fastify request object with transcript in body
+ * @param {Object} reply - Fastify reply object
+ * @returns {Promise<Object>} Detected food product data and search suggestions
+ */
+export async function analyzeVoice(request, reply) {
+  const { transcript } = request.body;
+  const userId = request.user.id;
+
+  if (!transcript || transcript.trim() === '') {
+    return reply.code(400).send({ result: false, error: 'Transcript is required' });
+  }
+
+  try {
+    const result = await foodService.analyzeVoiceForCatalogueEntry(transcript.trim(), userId);
+
+    if (result.success) {
+      return reply.code(200).send({ result: true, data: result.data });
+    }
+
+    return reply.code(500).send({ result: false, error: result.error });
+  } catch (error) {
+    console.error('Error analyzing voice:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
 }
 
 export async function editCatalogueEntry(request, reply) {
@@ -180,9 +355,16 @@ export async function editCatalogueEntry(request, reply) {
 
 export async function getMyCatalogue(request, reply) {
   const userId = request.user.id;
-  const catalogueIdsRaw = await dbFood.getUsersFoodCatalogueIds(userId);
-  const catalogueIdsParsed = catalogueIdsRaw[0] ? JSON.parse(catalogueIdsRaw[0].selectedCatalogueIds) : [];
-  return reply.code(200).send(JSON.stringify(catalogueIdsParsed));
+  try {
+    const result = await foodService.getUserPersonalCatalogue(userId);
+    if (result.success) {
+      return reply.code(200).send({ result: true, data: result.data });
+    }
+    return reply.code(500).send({ result: false, error: result.error });
+  } catch (error) {
+    console.error('Error getting personal catalogue:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
 }
 
 export async function pickUserCatalogueEntry(request, reply) {
@@ -190,48 +372,33 @@ export async function pickUserCatalogueEntry(request, reply) {
   const userId = request.user.id;
 
   try {
-    const result = await addToUserCatalogue(userId, parseInt(foodId));
-    if (result) {
-      return reply.code(200).send({ result: true });
+    const result = await foodService.addCatalogueEntryToUserVisibility(userId, parseInt(foodId));
+    if (result.success) {
+      updateUserDataLastModified(userId);
+      return reply.code(200).send({ result: true, message: result.message });
     }
-    return reply.code(400).send({ result: false, error: 'Catalogue entry not found' });
+    return reply.code(400).send({ result: false, error: result.error });
   } catch (error) {
     console.error('Error in pickUserCatalogueEntry:', error);
     return reply.code(500).send({ result: false, error: 'Internal server error' });
   }
 }
 
-async function addToUserCatalogue(userId, foodId) {
-  const catalogueIdsRaw = await dbFood.getUsersFoodCatalogueIds(userId);
-  const catalogueIds = catalogueIdsRaw[0] ? JSON.parse(catalogueIdsRaw[0].selectedCatalogueIds) : [];
-  if (!catalogueIds.includes(foodId)) {
-    catalogueIds.push(foodId);
-    catalogueIds.sort((a, b) => a - b);
-    const updateResult = await dbFood.updateUsersFoodCatalogueIdsList(JSON.stringify(catalogueIds), userId);
-    updateUserDataLastModified(userId);
-    return updateResult;
-  }
-  // If the ID is already in the list, consider the operation successful
-  return true;
-}
-
 export async function dismissUserCatalogueEntry(request, reply) {
   const { foodId } = request.body;
   const userId = request.user.id;
-  const catalogueIdsRaw = await dbFood.getUsersFoodCatalogueIds(userId);
-  if (catalogueIdsRaw && catalogueIdsRaw[0]) {
-    const catalogueIds = JSON.parse(catalogueIdsRaw[0].selectedCatalogueIds);
-    const index = catalogueIds.indexOf(parseInt(foodId));
-    if (index > -1) {
-      catalogueIds.splice(index, 1);
-      const result = await dbFood.updateUsersFoodCatalogueIdsList(JSON.stringify(catalogueIds), userId);
-      if (result) {
-        updateUserDataLastModified(userId);
-        return reply.code(200).send({ result: true });
-      }
+
+  try {
+    const result = await foodService.removeCatalogueEntryFromUserVisibility(userId, parseInt(foodId));
+    if (result.success) {
+      updateUserDataLastModified(userId);
+      return reply.code(200).send({ result: true, message: result.message });
     }
+    return reply.code(400).send({ result: false, error: result.error });
+  } catch (error) {
+    console.error('Error in dismissUserCatalogueEntry:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
   }
-  return reply.code(400).send({ result: false, error: 'Catalogue entry not found' });
 }
 
 // ==================================================================================================== COEFFICIENTS ===

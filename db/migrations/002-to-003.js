@@ -21,13 +21,6 @@ export const migration002to003 = [
   );
   `,
 
-  // Создаем виртуальную таблицу для векторного поиска
-  `
-  CREATE VIRTUAL TABLE IF NOT EXISTS vecFoods USING vec0(
-    embedding float[768]
-  );
-  `,
-
   // Мигрируем данные из selectedCatalogueIds в foodCatalogueEntryOwnership
   `
   INSERT INTO foodCatalogueEntryOwnership (userId, foodCatalogueId)
