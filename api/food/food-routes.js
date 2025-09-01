@@ -96,36 +96,6 @@ export async function foodRoutes(fastify) {
     handler: foodController.getMyCatalogue,
   });
 
-  fastify.put('/user-catalogue/pick/', {
-    schema: {
-      tags: ['food'],
-      body: {
-        type: 'object',
-        properties: {
-          foodId: { type: 'number' },
-        },
-        required: ['foodId'],
-      },
-    },
-    preValidation: [authController.authMiddleware],
-    handler: foodController.pickUserCatalogueEntry,
-  });
-
-  fastify.put('/user-catalogue/dismiss/', {
-    schema: {
-      tags: ['food'],
-      body: {
-        type: 'object',
-        properties: {
-          foodId: { type: 'number' },
-        },
-        required: ['foodId'],
-      },
-    },
-    preValidation: [authController.authMiddleware],
-    handler: foodController.dismissUserCatalogueEntry,
-  });
-
   // =========================================================================================== NEW SEMANTIC SEARCH ===
   fastify.get('/search', {
     schema: {
@@ -178,6 +148,21 @@ export async function foodRoutes(fastify) {
     },
     preValidation: [authController.authMiddleware],
     handler: foodController.addToMyFoods,
+  });
+
+  fastify.post('/remove-from-my-foods', {
+    schema: {
+      tags: ['food'],
+      body: {
+        type: 'object',
+        properties: {
+          catalogueId: { type: 'number' },
+        },
+        required: ['catalogueId'],
+      },
+    },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.removeFromMyFoods,
   });
 
   // =========================================================================================== MULTIMODAL ANALYSIS ===

@@ -416,7 +416,7 @@ export async function searchCatalogueEntries(query, userId, limit = 10) {
       return [];
     }
 
-    const searchResults = await dbFood.searchCatalogueEntriesByEmbedding(embeddingResult.data, userId, limit);
+    const searchResults = await dbFood.searchCatalogueEntriesByEmbedding(embeddingResult.data.embedding, userId, limit);
 
     return searchResults.map((result) => ({
       ...result,
@@ -483,7 +483,7 @@ export async function createGeneralizedCatalogueEntry(description, userId) {
 
       const embeddingResult = await aiService.generateEmbedding(productData.descriptionForEmbedding || generalizedName);
       if (embeddingResult.success) {
-        await dbFood.updateCatalogueEntryEmbedding(catalogueId, embeddingResult.data);
+        await dbFood.updateCatalogueEntryEmbedding(catalogueId, embeddingResult.data.embedding);
       }
     }
 
@@ -593,31 +593,33 @@ export async function analyzeImageForCatalogueEntry(imageBuffer, mimeType, userI
       };
     }
 
-    const analysisResult = await aiService.analyzeImage(imageBuffer, mimeType);
-    if (!analysisResult.success) {
+    const recognitionResult = await aiService.simpleImageRecognition(imageBuffer, mimeType);
+    if (!recognitionResult.success) {
       return {
         success: false,
-        error: analysisResult.error,
+        error: recognitionResult.error,
       };
     }
 
-    const productData = analysisResult.data;
-    if (!productData.generalizedName) {
+    if (!recognitionResult.data || !recognitionResult.data.productName) {
       return {
         success: true,
         data: null,
+        reason: recognitionResult.reason || 'No food product detected in image',
       };
     }
 
-    const searchResults = await searchCatalogueEntries(productData.generalizedName, userId, 5);
+    const productName = recognitionResult.data.productName;
+    const searchResults = await searchCatalogueEntries(productName, userId, 10);
 
     return {
       success: true,
       data: {
-        detectedProduct: productData,
+        detectedProductName: productName,
         searchResults: searchResults,
-        confidence: productData.confidence,
+        searchQuery: productName,
       },
+      metadata: recognitionResult.metadata,
     };
   } catch (error) {
     console.error('Error analyzing image for catalogue entry:', error);

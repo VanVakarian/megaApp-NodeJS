@@ -1,10 +1,11 @@
 import OpenAI from 'openai';
-import { AI_PROVIDERS } from '../../env.js';
+import { AI_PROMPTS, AI_PROVIDERS } from '../../env.js';
 
 const clients = {
-  chat: null,
-  embeddings: null,
-  stt: null,
+  TEXT_GEN: null,
+  IMAGE_RECOGNITION: null,
+  EMBEDDINGS: null,
+  STT: null,
 };
 
 function getClient(operationType) {
@@ -30,7 +31,7 @@ const FOOD_NUTRITION_SCHEMA = {
     generalizedName: {
       type: 'string',
       description:
-        'Максимально обобщенное название продукта на русском языке (например, "Яблоко" вместо "Яблоко Голден")',
+        'Каноническое название продукта на русском языке с минимально необходимым обобщением (без брендов, без лишних слов, максимально отражающее суть продукта)',
     },
     kcals: {
       type: 'number',
@@ -38,65 +39,34 @@ const FOOD_NUTRITION_SCHEMA = {
     },
     protein: {
       type: 'number',
-      description: 'Содержание белков в граммах на 100г продукта',
+      description: 'Содержание белков в граммах на 100 г продукта',
     },
     fat: {
       type: 'number',
-      description: 'Содержание жиров в граммах на 100г продукта',
+      description: 'Содержание жиров в граммах на 100 г продукта',
     },
     carbs: {
       type: 'number',
-      description: 'Содержание углеводов в граммах на 100г продукта',
+      description: 'Содержание углеводов в граммах на 100 г продукта',
     },
     fiber: {
       type: 'number',
-      description: 'Содержание клетчатки в граммах на 100г продукта (может быть 0)',
+      description: 'Содержание клетчатки в граммах на 100 г продукта',
     },
     confidence: {
       type: 'number',
       minimum: 0,
       maximum: 1,
-      description: 'Уверенность модели в правильности данных от 0 до 1',
+      description: 'Уверенность модели в правильности данных (от 0 до 1)',
     },
     descriptionForEmbedding: {
       type: 'string',
-      description: 'Краткое описание продукта для векторного поиска',
+      description: 'Краткое описание продукта для векторного поиска (без брендов, без маркетинга)',
     },
   },
   required: ['generalizedName', 'kcals', 'protein', 'fat', 'carbs', 'fiber', 'confidence', 'descriptionForEmbedding'],
   additionalProperties: false,
 };
-
-const SYSTEM_PROMPT_GENERALIZE = `
-  Ты - эксперт по питанию. Твоя задача - анализировать описания продуктов и создавать максимально обобщенные названия с точными данными КБЖУ.
-
-  ВАЖНЫЕ ПРИНЦИПЫ:
-  1. ОБОБЩЕНИЕ: Всегда используй родовые понятия вместо конкретных брендов или сортов
-    - "Яблоко Голден" → "Яблоко"
-    - "Творог Простоквашино 5%" → "Творог"
-    - "Хлеб Дарницкий" → "Хлеб ржаной"
-
-  2. РУССКИЙ ЯЗЫК: Все названия на русском языке
-
-  3. УСРЕДНЕНИЕ КБЖУ: Если продукт может сильно варьироваться (например, творог 0-18% жирности), используй средние значения
-
-  4. ТОЧНОСТЬ: Данные КБЖУ должны быть реалистичными и проверенными
-
-  Верни JSON строго по схеме.
-`;
-
-const SYSTEM_PROMPT_IMAGE_ANALYSIS = `
-  Ты - эксперт по анализу изображений продуктов питания. Твоя задача - определить, что за продукт изображен на фото, и дать максимально обобщенное название.
-
-  ВАЖНЫЕ ПРИНЦИПЫ:
-  1. ОБОБЩЕНИЕ: Не указывай бренды, конкретные сорта или марки
-  2. РУССКИЙ ЯЗЫК: Все названия на русском языке
-  3. КОНСЕРВАТИВНОСТЬ: Если не уверен, лучше назови более общую категорию
-
-  Если на изображении НЕ ВИДНО продуктов питания или изображение неясное, верни null в поле generalizedName.
-
-  Верни JSON строго по схеме.
-`;
 
 function validateNutritionData(data) {
   if (!data || typeof data !== 'object') {
@@ -146,13 +116,13 @@ function validateNutritionData(data) {
   return true;
 }
 
-async function callModelsInParallel(messages, responseFormat, useImageAnalysis = false) {
-  const client = getClient('CHAT');
+async function callModelsInParallel(messages, responseFormat) {
+  const client = getClient('TEXT_GEN');
   const config = AI_PROVIDERS.TEXT_GEN;
 
   if (!client) throw new Error('Chat provider is disabled');
 
-  const systemPrompt = useImageAnalysis ? SYSTEM_PROMPT_IMAGE_ANALYSIS : SYSTEM_PROMPT_GENERALIZE;
+  const systemPrompt = AI_PROMPTS.SYSTEM_GENERALIZE;
   const fullMessages = [{ role: 'system', content: systemPrompt }, ...messages];
 
   const calls = config.MODELS.map(async (model) => {
@@ -213,6 +183,130 @@ async function callModelsInParallel(messages, responseFormat, useImageAnalysis =
   throw new Error(`All LLM models failed or returned invalid data: ${errors}`);
 }
 
+async function callVisionModelsInParallel(messages, responseFormat) {
+  const client = getClient('IMAGE_RECOGNITION');
+  const config = AI_PROVIDERS.IMAGE_RECOGNITION;
+
+  if (!client) throw new Error('Image recognition provider is disabled');
+
+  const systemPrompt = AI_PROMPTS.SYSTEM_IMAGE_ANALYSIS;
+  const fullMessages = [{ role: 'system', content: systemPrompt }, ...messages];
+
+  const calls = config.MODELS.map(async (model) => {
+    try {
+      const response = await client.chat.completions.create({
+        model,
+        messages: fullMessages,
+        temperature: config.TEMPERATURE,
+        max_tokens: config.MAX_TOKENS,
+        response_format: responseFormat,
+      });
+
+      return {
+        model,
+        success: true,
+        data: response.choices?.[0]?.message?.content,
+        usage: response.usage,
+      };
+    } catch (error) {
+      return {
+        model,
+        success: false,
+        error: error.message,
+      };
+    }
+  });
+
+  const results = await Promise.allSettled(calls);
+
+  for (const result of results) {
+    if (result.status === 'fulfilled' && result.value.success) {
+      try {
+        const parsedData = JSON.parse(result.value.data);
+
+        if (!validateNutritionData(parsedData)) {
+          console.warn(`Invalid nutrition data from model ${result.value.model}:`, parsedData);
+          continue;
+        }
+
+        return {
+          success: true,
+          data: parsedData,
+          model: result.value.model,
+          usage: result.value.usage,
+        };
+      } catch (parseError) {
+        console.warn(`JSON parse error from model ${result.value.model}:`, parseError.message);
+        continue;
+      }
+    }
+  }
+
+  const errors = results
+    .filter((r) => r.status === 'rejected' || !r.value.success)
+    .map((r) => `${r.value.model}: ${r.value.error}`)
+    .join('; ');
+
+  throw new Error(`All vision models failed or returned invalid data: ${errors}`);
+}
+
+async function callSimpleVisionModels(messages) {
+  const client = getClient('IMAGE_RECOGNITION');
+  const config = AI_PROVIDERS.IMAGE_RECOGNITION;
+
+  if (!client) throw new Error('Image recognition provider is disabled');
+
+  const calls = config.MODELS.map(async (model) => {
+    try {
+      const response = await client.chat.completions.create({
+        model,
+        messages,
+        temperature: config.TEMPERATURE,
+        max_tokens: config.MAX_TOKENS,
+      });
+
+      const content = response.choices[0].message.content.trim();
+
+      return {
+        success: true,
+        model: model,
+        data: content === 'null' ? null : content,
+        usage: response.usage,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        model: model,
+        error: error.message,
+      };
+    }
+  });
+
+  const results = await Promise.allSettled(calls);
+
+  for (const result of results) {
+    if (result.status === 'fulfilled' && result.value.success && result.value.data) {
+      return {
+        success: true,
+        data: {
+          productName: result.value.data,
+        },
+        metadata: {
+          model: result.value.model,
+          provider: config.PROVIDER,
+          usage: result.value.usage,
+        },
+      };
+    }
+  }
+
+  return {
+    success: true,
+    data: null,
+    reason: 'No food product detected in image',
+  };
+}
+
 export async function generateGeneralizedProduct(description) {
   try {
     const config = AI_PROVIDERS.TEXT_GEN;
@@ -224,7 +318,7 @@ export async function generateGeneralizedProduct(description) {
     const messages = [
       {
         role: 'user',
-        content: `Проанализируй описание продукта и создай обобщенное название с данными КБЖУ: "${description}"`,
+        content: AI_PROMPTS.USER_GENERALIZE_PRODUCT.replace('{description}', description),
       },
     ];
 
@@ -256,12 +350,59 @@ export async function generateGeneralizedProduct(description) {
   }
 }
 
-export async function analyzeImage(imageData, mimeType) {
+export async function simpleImageRecognition(imageData, mimeType) {
   try {
-    const config = AI_PROVIDERS.TEXT_GEN;
+    const config = AI_PROVIDERS.IMAGE_RECOGNITION;
 
     if (!config.ENABLED) {
-      throw new Error('Chat provider is disabled');
+      return {
+        success: false,
+        error: 'Image recognition provider is disabled',
+      };
+    }
+
+    const base64Image = Buffer.from(imageData).toString('base64');
+    const imageUrl = `data:${mimeType};base64,${base64Image}`;
+
+    const messages = [
+      {
+        role: 'system',
+        content: AI_PROMPTS.SYSTEM_IMAGE_RECOGNITION_MVP,
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: AI_PROMPTS.USER_IMAGE_RECOGNITION_MVP,
+          },
+          {
+            type: 'image_url',
+            image_url: {
+              url: imageUrl,
+              detail: 'low',
+            },
+          },
+        ],
+      },
+    ];
+
+    return await callSimpleVisionModels(messages);
+  } catch (error) {
+    console.error('LLM simpleImageRecognition error:', error);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+}
+
+export async function analyzeImage(imageData, mimeType) {
+  try {
+    const config = AI_PROVIDERS.IMAGE_RECOGNITION;
+
+    if (!config.ENABLED) {
+      throw new Error('Vision provider is disabled');
     }
 
     const base64Image = Buffer.from(imageData).toString('base64');
@@ -273,7 +414,7 @@ export async function analyzeImage(imageData, mimeType) {
         content: [
           {
             type: 'text',
-            text: 'Проанализируй это изображение и определи, какой продукт питания на нем изображен. Дай максимально обобщенное название и данные КБЖУ.',
+            text: AI_PROMPTS.USER_ANALYZE_IMAGE,
           },
           {
             type: 'image_url',
@@ -294,7 +435,7 @@ export async function analyzeImage(imageData, mimeType) {
       },
     };
 
-    const result = await callModelsInParallel(messages, responseFormat, true);
+    const result = await callVisionModelsInParallel(messages, responseFormat);
 
     if (!result.data.generalizedName || result.data.confidence < 0.5) {
       return {
@@ -333,7 +474,7 @@ export async function analyzeVoiceTranscript(transcript) {
     const messages = [
       {
         role: 'user',
-        content: `Проанализируй голосовой транскрипт и определи, какой продукт питания упоминается. Дай максимально обобщенное название и данные КБЖУ. Транскрипт: "${transcript}"`,
+        content: AI_PROMPTS.USER_ANALYZE_VOICE.replace('{transcript}', transcript),
       },
     ];
 
@@ -410,49 +551,6 @@ export async function generateEmbedding(text) {
   }
 }
 
-export async function testConnection() {
-  try {
-    const config = AI_PROVIDERS.TEXT_GEN;
-
-    if (!config.ENABLED) {
-      return {
-        success: false,
-        error: 'Chat provider is disabled',
-      };
-    }
-
-    const client = getClient('CHAT');
-
-    const response = await client.chat.completions.create({
-      model: config.MODELS[0],
-      messages: [
-        { role: 'system', content: 'Ответь коротко на русском языке.' },
-        { role: 'user', content: 'Привет! Это тест соединения.' },
-      ],
-      temperature: 0.1,
-      max_tokens: 50,
-    });
-
-    return {
-      success: true,
-      data: {
-        response: response.choices[0].message.content,
-        model: response.model,
-      },
-      metadata: {
-        provider: config.PROVIDER,
-        usage: response.usage,
-      },
-    };
-  } catch (error) {
-    console.error('LLM testConnection error:', error);
-    return {
-      success: false,
-      error: error.message,
-    };
-  }
-}
-
 export function isAiEnabled() {
   return AI_PROVIDERS.TEXT_GEN.ENABLED;
 }
@@ -469,7 +567,7 @@ export function getAiConfig() {
   };
 }
 
-export async function testMultipleModels(description) {
+export async function runMultipleModels(description) {
   try {
     const config = AI_PROVIDERS.TEXT_GEN;
 
@@ -477,21 +575,11 @@ export async function testMultipleModels(description) {
       throw new Error('Chat provider is disabled');
     }
 
-    const client = getClient('CHAT');
-
-    const systemPrompt = `Ты - эксперт по питанию. Проанализируй описание продукта и создай максимально обобщенное название с данными КБЖУ.
-
-      ВАЖНЫЕ ПРИНЦИПЫ:
-      1. ОБОБЩЕНИЕ: Всегда используй родовые понятия вместо конкретных брендов
-      2. РУССКИЙ ЯЗЫК: Все названия на русском языке
-      3. КРАТКОСТЬ: Ответ должен быть коротким и по делу
-
-      Верни JSON строго по схеме.
-    `;
+    const client = getClient('TEXT_GEN');
 
     const messages = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: `Проанализируй продукт: "${description}"` },
+      { role: 'system', content: AI_PROMPTS.SYSTEM_PROMPT_NUTRITIONAL_VALUES },
+      { role: 'user', content: AI_PROMPTS.USER_PROMPT_NUTRITIONAL_VALUES.replace('{description}', description) },
     ];
 
     const responseFormat = {

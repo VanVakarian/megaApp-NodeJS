@@ -1,3 +1,5 @@
+import fs from 'fs/promises';
+import path from 'path';
 import * as coefficientsService from '../../coefficients/coeffs-service.js';
 import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
@@ -10,6 +12,10 @@ export const WS_MESSAGE_TYPES = {
   DIARY_ENTRY_UPDATED: 'DIARY_ENTRY_UPDATED',
   DIARY_ENTRY_DELETED: 'DIARY_ENTRY_DELETED',
   BODY_WEIGHT_UPDATED: 'BODY_WEIGHT_UPDATED',
+  START_VOICE_RECORDING: 'START_VOICE_RECORDING',
+  STOP_VOICE_RECORDING: 'STOP_VOICE_RECORDING',
+  AUDIO_CHUNK: 'AUDIO_CHUNK',
+  VOICE_SEARCH_RESULTS: 'VOICE_SEARCH_RESULTS',
 };
 
 // ===================================================================================================== FULL UPDATE ===
@@ -277,6 +283,33 @@ export async function addToMyFoods(request, reply) {
   }
 }
 
+/**
+ * Removes a catalogue entry from user's personal visible food list
+ * @param {Object} request - Fastify request object with catalogueId in body
+ * @param {Object} reply - Fastify reply object
+ * @returns {Promise<Object>} Success confirmation
+ */
+export async function removeFromMyFoods(request, reply) {
+  const { catalogueId } = request.body;
+  const userId = request.user.id;
+
+  if (!catalogueId) {
+    return reply.code(400).send({ result: false, error: 'Catalogue ID is required' });
+  }
+
+  try {
+    const result = await foodService.removeCatalogueEntryFromUserVisibility(userId, parseInt(catalogueId));
+    if (result.success) {
+      updateUserDataLastModified(userId);
+      return reply.code(200).send({ result: true, message: result.message });
+    }
+    return reply.code(400).send({ result: false, error: result.error });
+  } catch (error) {
+    console.error('Error in removeFromMyFoods:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
+}
+
 // ============================================================================================= MULTIMODAL ANALYSIS ===
 
 /**
@@ -290,16 +323,27 @@ export async function analyzeImage(request, reply) {
 
   try {
     const data = await request.file();
+
     if (!data) {
       return reply.code(400).send({ result: false, error: 'No image file provided' });
     }
 
-    const buffer = await data.buffer();
+    const buffer = await data.toBuffer();
     const mimeType = data.mimetype;
 
     if (!mimeType.startsWith('image/')) {
       return reply.code(400).send({ result: false, error: 'File must be an image' });
     }
+
+    // For debugging purposes: save uploaded image to backups folder
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const fileExtension = mimeType.split('/')[1] || 'jpg';
+    const fileName = `image-${userId}-${timestamp}.${fileExtension}`;
+    const backupsDir = path.resolve(process.cwd(), 'backups');
+    const filePath = path.join(backupsDir, fileName);
+    await fs.writeFile(filePath, buffer);
+    console.log(`Image saved to: ${filePath}`);
+    return;
 
     const result = await foodService.analyzeImageForCatalogueEntry(buffer, mimeType, userId);
 
@@ -363,40 +407,6 @@ export async function getMyCatalogue(request, reply) {
     return reply.code(500).send({ result: false, error: result.error });
   } catch (error) {
     console.error('Error getting personal catalogue:', error);
-    return reply.code(500).send({ result: false, error: 'Internal server error' });
-  }
-}
-
-export async function pickUserCatalogueEntry(request, reply) {
-  const { foodId } = request.body;
-  const userId = request.user.id;
-
-  try {
-    const result = await foodService.addCatalogueEntryToUserVisibility(userId, parseInt(foodId));
-    if (result.success) {
-      updateUserDataLastModified(userId);
-      return reply.code(200).send({ result: true, message: result.message });
-    }
-    return reply.code(400).send({ result: false, error: result.error });
-  } catch (error) {
-    console.error('Error in pickUserCatalogueEntry:', error);
-    return reply.code(500).send({ result: false, error: 'Internal server error' });
-  }
-}
-
-export async function dismissUserCatalogueEntry(request, reply) {
-  const { foodId } = request.body;
-  const userId = request.user.id;
-
-  try {
-    const result = await foodService.removeCatalogueEntryFromUserVisibility(userId, parseInt(foodId));
-    if (result.success) {
-      updateUserDataLastModified(userId);
-      return reply.code(200).send({ result: true, message: result.message });
-    }
-    return reply.code(400).send({ result: false, error: result.error });
-  } catch (error) {
-    console.error('Error in dismissUserCatalogueEntry:', error);
     return reply.code(500).send({ result: false, error: 'Internal server error' });
   }
 }

@@ -264,6 +264,25 @@ export async function updateFoodCatalogueEntry(foodId, foodName, foodKcals) {
   }
 }
 
+export async function updateFoodCatalogueNutrition(foodId, kcals, protein, fat, carbs, fiber, description) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      UPDATE
+        foodCatalogue
+      SET
+        kcals = ?, protein = ?, fat = ?, carbs = ?, fiber = ?, descriptionForEmbedding = ?
+      WHERE
+        id = ?;
+    `;
+    await connection.run(query, [kcals, protein, fat, carbs, fiber, description, foodId]);
+    return true;
+  } catch (error) {
+    console.error(error);
+    return false;
+  }
+}
+
 export async function deleteFoodCatalogueEntry(id) {
   const connection = await getConnection();
   try {
