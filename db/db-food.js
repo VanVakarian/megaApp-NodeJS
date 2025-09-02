@@ -305,7 +305,7 @@ export async function getAllFoodCatalogueEntries() {
   try {
     const query = `
       SELECT
-        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding
+        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding, embedding
       FROM
         foodCatalogue
       ORDER BY

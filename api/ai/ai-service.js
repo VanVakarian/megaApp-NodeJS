@@ -5,6 +5,8 @@ const clients = {
   TEXT_GEN: null,
   IMAGE_RECOGNITION: null,
   EMBEDDINGS: null,
+  EMBEDDINGS_NAGA: null,
+  EMBEDDINGS_OPENAI: null,
   STT: null,
 };
 
@@ -516,13 +518,13 @@ export async function analyzeVoiceTranscript(transcript) {
 
 export async function generateEmbedding(text) {
   try {
-    const config = AI_PROVIDERS.EMBEDDINGS;
+    const config = AI_PROVIDERS.EMBEDDINGS_OPENAI;
 
     if (!config.ENABLED) {
       throw new Error('Embeddings provider is disabled');
     }
 
-    const client = getClient('EMBEDDINGS');
+    const client = getClient('EMBEDDINGS_OPENAI');
 
     const response = await client.embeddings.create({
       model: config.MODEL,
@@ -551,6 +553,43 @@ export async function generateEmbedding(text) {
   }
 }
 
+export async function generateEmbeddingOpenAI(text) {
+  try {
+    const config = AI_PROVIDERS.EMBEDDINGS_OPENAI;
+
+    if (!config.ENABLED) {
+      throw new Error('OpenAI embeddings provider is disabled');
+    }
+
+    const client = getClient('EMBEDDINGS_OPENAI');
+
+    const response = await client.embeddings.create({
+      model: config.MODEL,
+      input: text,
+      dimensions: config.DIMENSIONS,
+    });
+
+    return {
+      success: true,
+      data: {
+        embedding: response.data[0].embedding,
+        dimensions: config.DIMENSIONS,
+      },
+      metadata: {
+        model: config.MODEL,
+        provider: config.PROVIDER,
+        usage: response.usage,
+      },
+    };
+  } catch (error) {
+    console.error('OpenAI embeddings generateEmbeddingOpenAI error:', error);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+}
+
 export function isAiEnabled() {
   return AI_PROVIDERS.TEXT_GEN.ENABLED;
 }
@@ -559,11 +598,17 @@ export function getAiConfig() {
   return {
     enabled: AI_PROVIDERS.TEXT_GEN.ENABLED,
     chatProvider: AI_PROVIDERS.TEXT_GEN.PROVIDER,
-    embeddingProvider: AI_PROVIDERS.EMBEDDINGS.PROVIDER,
+    embeddingProvider: AI_PROVIDERS.EMBEDDINGS_OPENAI.PROVIDER, // Primary embedding provider
+    embeddingProviderNaga: AI_PROVIDERS.EMBEDDINGS_NAGA.PROVIDER,
+    embeddingProviderOpenAI: AI_PROVIDERS.EMBEDDINGS_OPENAI.PROVIDER,
     sttProvider: AI_PROVIDERS.STT.PROVIDER,
     models: AI_PROVIDERS.TEXT_GEN.MODELS,
-    embeddingModel: AI_PROVIDERS.EMBEDDINGS.MODEL,
-    embeddingDimensions: AI_PROVIDERS.EMBEDDINGS.DIMENSIONS,
+    embeddingModel: AI_PROVIDERS.EMBEDDINGS_OPENAI.MODEL, // Primary embedding model
+    embeddingModelNaga: AI_PROVIDERS.EMBEDDINGS_NAGA.MODEL,
+    embeddingModelOpenAI: AI_PROVIDERS.EMBEDDINGS_OPENAI.MODEL,
+    embeddingDimensions: AI_PROVIDERS.EMBEDDINGS_OPENAI.DIMENSIONS, // Primary embedding dimensions
+    embeddingDimensionsNaga: AI_PROVIDERS.EMBEDDINGS_NAGA.DIMENSIONS,
+    embeddingDimensionsOpenAI: AI_PROVIDERS.EMBEDDINGS_OPENAI.DIMENSIONS,
   };
 }
 

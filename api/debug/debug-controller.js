@@ -411,22 +411,26 @@ export async function listCatalogueEntries(request, reply) {
       entriesWithDescription: allEntries.filter(
         (entry) => entry.descriptionForEmbedding !== null && entry.descriptionForEmbedding.trim().length > 0
       ).length,
+      entriesWithEmbedding: allEntries.filter((entry) => entry.embedding !== null).length,
     };
 
     console.log(`📊 Catalogue Statistics:`);
     console.log(`  - Total entries: ${stats.totalEntries}`);
     console.log(`  - With nutrition data: ${stats.entriesWithNutrition}`);
     console.log(`  - With descriptions: ${stats.entriesWithDescription}`);
-    console.log(`  - Need enrichment: ${stats.totalEntries - stats.entriesWithNutrition}`);
+    console.log(`  - With embeddings: ${stats.entriesWithEmbedding}`);
+    console.log(`  - Need nutrition enrichment: ${stats.totalEntries - stats.entriesWithNutrition}`);
+    console.log(`  - Need embedding enrichment: ${stats.totalEntries - stats.entriesWithEmbedding}`);
 
     console.log(`\n📋 First 10 entries:`);
     allEntries.slice(0, 10).forEach((entry) => {
       const hasNutrition = entry.protein > 0 || entry.fat > 0 || entry.carbs > 0;
       const hasDescription = entry.descriptionForEmbedding && entry.descriptionForEmbedding.trim().length > 0;
+      const hasEmbedding = entry.embedding !== null;
       console.log(
         `  ${entry.id}. "${entry.name}" (${entry.kcals}kcal) ${hasNutrition ? '✅' : '❌'} ${
           hasDescription ? '📝' : '📄'
-        }`
+        } ${hasEmbedding ? '🔍' : '🔍❌'}`
       );
     });
 
@@ -439,6 +443,7 @@ export async function listCatalogueEntries(request, reply) {
         kcals: entry.kcals,
         hasNutrition: entry.protein > 0 || entry.fat > 0 || entry.carbs > 0,
         hasDescription: !!(entry.descriptionForEmbedding && entry.descriptionForEmbedding.trim().length > 0),
+        hasEmbedding: entry.embedding !== null,
         protein: entry.protein,
         fat: entry.fat,
         carbs: entry.carbs,
@@ -457,77 +462,337 @@ export async function listCatalogueEntries(request, reply) {
 
 export async function checkRateLimits(request, reply) {
   try {
-    const apiKey = AI_PROVIDERS.TEXT_GEN.API_KEY;
-    if (!apiKey) {
-      return reply.code(503).send({
-        result: false,
-        error: 'API key not configured',
-      });
-    }
-
-    console.log('🔍 Checking OpenRouter API rate limits and usage...');
-
-    const response = await fetch('https://openrouter.ai/api/v1/key', {
+    const response = await fetch('https://openrouter.ai/api/v1/auth/key', {
       method: 'GET',
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${AI_PROVIDERS.TEXT_GEN.API_KEY}`,
       },
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`❌ OpenRouter API error: ${response.status} - ${errorText}`);
-      return reply.code(response.status).send({
-        result: false,
-        error: `OpenRouter API error: ${response.status} - ${errorText}`,
-      });
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
 
     const data = await response.json();
 
-    console.log('📊 OpenRouter API Key Info:');
-    console.log(`  - Label: ${data.data?.label || 'N/A'}`);
-    console.log(`  - Usage: ${data.data?.usage || 0} credits`);
-    console.log(`  - Limit: ${data.data?.limit === null ? 'Unlimited' : data.data?.limit || 'N/A'} credits`);
-    console.log(`  - Free tier: ${data.data?.is_free_tier ? 'Yes' : 'No'}`);
-
-    if (data.data?.limit !== null && data.data?.limit > 0) {
-      const usagePercent = ((data.data.usage / data.data.limit) * 100).toFixed(1);
-      console.log(`  - Usage percentage: ${usagePercent}%`);
-
-      if (usagePercent > 80) {
-        console.log('⚠️  Warning: High usage detected (>80%)');
-      } else if (usagePercent > 50) {
-        console.log('⚡ Moderate usage (>50%)');
-      } else {
-        console.log('✅ Low usage (<50%)');
-      }
-    }
-
     return reply.send({
       result: true,
-      data: data.data,
-      summary: {
-        label: data.data?.label || 'N/A',
-        usage: data.data?.usage || 0,
-        limit: data.data?.limit,
-        usagePercent:
-          data.data?.limit !== null && data.data?.limit > 0
-            ? ((data.data.usage / data.data.limit) * 100).toFixed(1)
-            : null,
-        isFreeUser: data.data?.is_free_tier || false,
-        status:
-          data.data?.limit !== null && data.data?.limit > 0
-            ? data.data.usage / data.data.limit > 0.8
-              ? 'high_usage'
-              : data.data.usage / data.data.limit > 0.5
-              ? 'moderate_usage'
-              : 'low_usage'
-            : 'unlimited',
-      },
+      data: data,
     });
   } catch (error) {
     console.error('Error checking rate limits:', error);
+    return reply.code(500).send({
+      result: false,
+      error: error.message,
+    });
+  }
+}
+
+// ============================================================================================ EMBEDDING ENRICHMENT ===
+
+export async function enrichCatalogueEmbeddings(request, reply) {
+  try {
+    if (!aiService.isAiEnabled()) {
+      return reply.code(503).send({
+        result: false,
+        error: 'AI service is disabled',
+      });
+    }
+
+    const count = Math.min(request.query.count || 1, 50);
+
+    if (request.params.id) {
+      const catalogueId = parseInt(request.params.id);
+      if (!catalogueId || isNaN(catalogueId)) {
+        return reply.code(400).send({
+          result: false,
+          error: 'Invalid catalogue ID',
+        });
+      }
+
+      const result = await enrichSingleCatalogueEmbedding(catalogueId);
+      return reply.send(result);
+    }
+
+    if (!request.params.id) {
+      const results = [];
+      let processed = 0;
+
+      console.log(`🎯 Starting batch embedding enrichment: ${count} entries`);
+
+      for (let i = 0; i < count; i++) {
+        const allEntries = await dbFood.getAllFoodCatalogueEntries();
+        const entryWithoutEmbedding = allEntries.find((entry) => !entry.embedding);
+
+        if (!entryWithoutEmbedding) {
+          console.log(
+            `✅ Batch embedding enrichment completed: ${processed}/${count} entries processed (no more entries need embeddings)`
+          );
+          break;
+        }
+
+        console.log(
+          `📊 Embedding progress: ${i + 1}/${count} - Processing entry ${entryWithoutEmbedding.id}: "${
+            entryWithoutEmbedding.name
+          }"`
+        );
+
+        const result = await enrichSingleCatalogueEmbedding(entryWithoutEmbedding.id);
+        results.push(result);
+        processed++;
+
+        if (!result.result) {
+          console.log(`❌ Batch embedding enrichment stopped at entry ${i + 1} due to error: ${result.error}`);
+          break;
+        }
+
+        if (i < count - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+      }
+
+      console.log(`🏁 Batch embedding enrichment finished: ${processed}/${count} entries successfully processed\n\n\n`);
+
+      return reply.send({
+        result: true,
+        batchProcessing: true,
+        processedCount: processed,
+        requestedCount: count,
+        results: results,
+      });
+    }
+  } catch (error) {
+    console.error('Debug enrichCatalogueEmbeddings error:', error);
+    return reply.code(500).send({
+      result: false,
+      error: error.message,
+    });
+  }
+}
+
+async function enrichSingleCatalogueEmbedding(catalogueId) {
+  try {
+    const allEntries = await dbFood.getAllFoodCatalogueEntries();
+    const entry = allEntries.find((e) => e.id === catalogueId);
+
+    if (!entry) {
+      return {
+        result: false,
+        error: 'Catalogue entry not found',
+      };
+    }
+
+    console.log(`🔄 Generating embedding for catalogue entry ${catalogueId}: "${entry.name}"`);
+
+    const textForEmbedding = prepareTextForEmbedding(entry);
+    console.log(`📝 Text for embedding: "${textForEmbedding}"`);
+
+    const embeddingResult = await aiService.generateEmbedding(textForEmbedding);
+
+    if (!embeddingResult.success) {
+      console.log(`❌ Failed to generate embedding: ${embeddingResult.error}`);
+      return {
+        result: false,
+        error: embeddingResult.error,
+        catalogueEntry: {
+          id: entry.id,
+          name: entry.name,
+          textUsed: textForEmbedding,
+        },
+      };
+    }
+
+    console.log(
+      `✅ Successfully generated embedding: ${embeddingResult.data.dimensions} dimensions, model: ${embeddingResult.metadata.model}, provider: ${embeddingResult.metadata.provider}`
+    );
+
+    const updateResult = await dbFood.updateCatalogueEntryEmbedding(entry.id, embeddingResult.data.embedding);
+
+    if (updateResult) {
+      console.log(`✅ Successfully updated catalogue entry ${entry.id} with embedding in database`);
+    } else {
+      console.log(`❌ Failed to update catalogue entry ${entry.id} with embedding in database`);
+      return {
+        result: false,
+        error: 'Failed to update database with embedding',
+        catalogueEntry: {
+          id: entry.id,
+          name: entry.name,
+          textUsed: textForEmbedding,
+        },
+        embeddingResult,
+      };
+    }
+
+    const saveResult = saveEmbeddingResult(
+      {
+        id: entry.id,
+        name: entry.name,
+        textUsed: textForEmbedding,
+      },
+      embeddingResult
+    );
+
+    return {
+      result: true,
+      catalogueEntry: {
+        id: entry.id,
+        name: entry.name,
+        textUsed: textForEmbedding,
+      },
+      embeddingResult: {
+        dimensions: embeddingResult.data.dimensions,
+        model: embeddingResult.metadata.model,
+        provider: embeddingResult.metadata.provider,
+        usage: embeddingResult.metadata.usage,
+      },
+      dbUpdateSuccess: updateResult,
+      saveResult: saveResult,
+    };
+  } catch (error) {
+    console.error('Error enriching single catalogue embedding:', error);
+    return {
+      result: false,
+      error: error.message,
+    };
+  }
+}
+
+function prepareTextForEmbedding(catalogueEntry) {
+  let text = catalogueEntry.name;
+
+  if (catalogueEntry.descriptionForEmbedding && catalogueEntry.descriptionForEmbedding.trim().length > 0) {
+    text += ` ${catalogueEntry.descriptionForEmbedding}`;
+  }
+
+  return text.trim();
+}
+
+function saveEmbeddingResult(catalogueEntry, embeddingResult) {
+  try {
+    const timestamp = new Date().toISOString();
+    const filename = `embedding-results-${new Date().toISOString().slice(0, 10)}.json`;
+    const backupsDir = join(process.cwd(), 'backups');
+    const filePath = join(backupsDir, filename);
+
+    if (!existsSync(backupsDir)) {
+      mkdirSync(backupsDir, { recursive: true });
+      console.log(`📁 Created backups directory: ${backupsDir}`);
+    }
+
+    const resultEntry = {
+      timestamp,
+      catalogueEntry,
+      embeddingResult: {
+        dimensions: embeddingResult.data.dimensions,
+        model: embeddingResult.metadata.model,
+        provider: embeddingResult.metadata.provider,
+        usage: embeddingResult.metadata.usage,
+      },
+    };
+
+    let existingData = [];
+    if (existsSync(filePath)) {
+      try {
+        const fileContent = readFileSync(filePath, 'utf8');
+        existingData = JSON.parse(fileContent);
+        if (!Array.isArray(existingData)) {
+          console.warn(`File ${filename} contains invalid data, starting fresh`);
+          existingData = [];
+        }
+      } catch (parseError) {
+        console.warn(`Failed to parse existing file ${filename}, starting fresh:`, parseError.message);
+        existingData = [];
+      }
+    }
+
+    existingData.push(resultEntry);
+
+    writeFileSync(filePath, JSON.stringify(existingData, null, 2), 'utf8');
+
+    console.log(`💾 Embedding result saved to: backups/${filename}`);
+    console.log(`📊 Total entries in file: ${existingData.length}`);
+
+    return { success: true, filename, totalEntries: existingData.length, filePath: `backups/${filename}` };
+  } catch (error) {
+    console.error('Failed to save embedding result:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+export async function searchByEmbedding(request, reply) {
+  try {
+    if (!aiService.isAiEnabled()) {
+      return reply.code(503).send({
+        result: false,
+        error: 'AI service is disabled',
+      });
+    }
+
+    const query = request.query.query;
+    if (!query || query.trim().length === 0) {
+      return reply.code(400).send({
+        result: false,
+        error: 'Query parameter is required',
+      });
+    }
+
+    const userId = 1;
+    const limit = 20;
+
+    console.log(`🔍 Searching by embedding for query: "${query}"`);
+
+    const queryEmbeddingResult = await aiService.generateEmbedding(query);
+
+    if (!queryEmbeddingResult.success) {
+      console.log(`❌ Failed to generate embedding for search: ${queryEmbeddingResult.error}`);
+      return reply.code(500).send({
+        result: false,
+        error: `Failed to generate embedding: ${queryEmbeddingResult.error}`,
+      });
+    }
+
+    console.log(`✅ Generated embedding: ${queryEmbeddingResult.data.dimensions} dimensions`);
+
+    const searchResults = await dbFood.searchCatalogueEntriesByEmbedding(
+      queryEmbeddingResult.data.embedding,
+      userId,
+      limit
+    );
+
+    console.log(`\n🎯 Search Results for "${query}":`);
+    console.log(`Found ${searchResults.length} results`);
+    console.log(`\n📋 Top ${Math.min(searchResults.length, 20)} results:`);
+
+    searchResults.forEach((result, index) => {
+      const similarity = ((1 - result.distance) * 100).toFixed(1);
+      console.log(`  ${index + 1}. "${result.name}" (${result.kcals}kcal) - Similarity: ${similarity}%, Distance: ${result.distance.toFixed(4)}`); // prettier-ignore
+    });
+
+    return reply.send({
+      result: true,
+      query: query,
+      totalResults: searchResults.length,
+      embeddingInfo: {
+        dimensions: queryEmbeddingResult.data.dimensions,
+        model: queryEmbeddingResult.metadata.model,
+        provider: queryEmbeddingResult.metadata.provider,
+      },
+      results: searchResults.map((result, index) => ({
+        rank: index + 1,
+        id: result.id,
+        name: result.name,
+        kcals: result.kcals,
+        protein: result.protein,
+        fat: result.fat,
+        carbs: result.carbs,
+        fiber: result.fiber,
+        distance: result.distance,
+        similarity: ((1 - result.distance) * 100).toFixed(1),
+      })),
+    });
+  } catch (error) {
+    console.error('Debug searchByEmbedding error:', error);
     return reply.code(500).send({
       result: false,
       error: error.message,
