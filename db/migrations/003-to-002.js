@@ -18,6 +18,9 @@ export const migration003to002 = [
   // Удаляем таблицу ownership
   `DROP TABLE IF EXISTS foodCatalogueEntryOwnership;`,
 
+  // Удаляем таблицу кэша embedding'ов
+  `DROP TABLE IF EXISTS foodSearchQueryEmbeddingStore;`,
+
   // Удаляем новые поля из foodCatalogue
   `ALTER TABLE foodCatalogue DROP COLUMN protein;`,
   `ALTER TABLE foodCatalogue DROP COLUMN fat;`,

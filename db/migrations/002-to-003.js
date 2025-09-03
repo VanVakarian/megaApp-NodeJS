@@ -36,4 +36,15 @@ export const migration002to003 = [
 
   // Удаляем старое поле selectedCatalogueIds
   `ALTER TABLE foodSettings DROP COLUMN selectedCatalogueIds;`,
+
+  // Создаем таблицу для кэширования embedding'ов
+  `
+  CREATE TABLE IF NOT EXISTS foodSearchQueryEmbeddingStore (
+    query TEXT PRIMARY KEY,
+    embedding BLOB NOT NULL,
+    hitCount INTEGER DEFAULT 1,
+    lastUsedAt INTEGER NOT NULL,
+    createdAt INTEGER NOT NULL
+  );
+  `,
 ];

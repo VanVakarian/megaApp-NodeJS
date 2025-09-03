@@ -16,6 +16,8 @@ export const WS_MESSAGE_TYPES = {
   STOP_VOICE_RECORDING: 'STOP_VOICE_RECORDING',
   AUDIO_CHUNK: 'AUDIO_CHUNK',
   VOICE_SEARCH_RESULTS: 'VOICE_SEARCH_RESULTS',
+  SEARCH_QUERY: 'SEARCH_QUERY',
+  SEARCH_RESULTS: 'SEARCH_RESULTS',
 };
 
 // ===================================================================================================== FULL UPDATE ===
@@ -183,7 +185,7 @@ export async function createCatalogueEntry(request, reply) {
  * @returns {Promise<Object>} Search results with matching catalogue entries
  */
 export async function searchCatalogueEntries(request, reply) {
-  const { query, limit = 10 } = request.query;
+  const { query } = request.query;
   const userId = request.user.id;
 
   if (!query || query.trim() === '') {
@@ -191,7 +193,7 @@ export async function searchCatalogueEntries(request, reply) {
   }
 
   try {
-    const searchResults = await foodService.searchCatalogueEntries(query.trim(), userId, parseInt(limit));
+    const searchResults = await foodService.searchCatalogueEntries(query.trim(), userId);
     return reply.code(200).send({
       result: true,
       data: searchResults,
@@ -489,5 +491,46 @@ export async function getStats(request, reply) {
   } catch (error) {
     console.error(error);
     return reply.code(500).send({ error: 'Failed to get stats' });
+  }
+}
+
+// ======================================================================================================= WS SEARCH ===
+
+/**
+ * Handles real-time search query from WebSocket client
+ * @param {WebSocket} socket - WebSocket connection
+ * @param {Object} message - Incoming message with query
+ */
+export async function handleSearchQuery(socket, message) {
+  try {
+    const payload = message.payload;
+    if (!payload) {
+      return;
+    }
+
+    const { query } = payload;
+    if (!query || typeof query !== 'string') {
+      return;
+    }
+
+    const userId = socket.userId;
+    if (!userId) {
+      return;
+    }
+
+    const catalogueIds = await foodService.searchCatalogueEntriesRealtime(query.trim(), userId);
+
+    socket.send(
+      JSON.stringify({
+        type: WS_MESSAGE_TYPES.SEARCH_RESULTS,
+        payload: {
+          query: query.trim(),
+          catalogueIds: catalogueIds,
+          timestamp: Date.now(),
+        },
+      })
+    );
+  } catch (error) {
+    console.error('Error handling search query:', error);
   }
 }

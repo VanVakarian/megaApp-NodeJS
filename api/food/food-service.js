@@ -401,10 +401,9 @@ function prepareStats(allDates, weights, avgWeights, dailySumKcals, targetKcalsA
  * Performs semantic search across user's visible catalogue entries using vector embeddings
  * @param {string} query - Search query text
  * @param {number} userId - User ID for visibility filtering
- * @param {number} limit - Maximum number of results to return
  * @returns {Promise<Array>} Array of matching catalogue entries with relevance scores
  */
-export async function searchCatalogueEntries(query, userId, limit = 10) {
+export async function searchCatalogueEntries(query, userId) {
   try {
     if (!aiService.isAiEnabled()) {
       return [];
@@ -416,7 +415,7 @@ export async function searchCatalogueEntries(query, userId, limit = 10) {
       return [];
     }
 
-    const searchResults = await dbFood.searchCatalogueEntriesByEmbedding(embeddingResult.data.embedding, userId, limit);
+    const searchResults = await dbFood.searchCatalogueEntriesByEmbedding(embeddingResult.data.embedding, userId);
 
     return searchResults.map((result) => ({
       ...result,
@@ -610,7 +609,7 @@ export async function analyzeImageForCatalogueEntry(imageBuffer, mimeType, userI
     }
 
     const productName = recognitionResult.data.productName;
-    const searchResults = await searchCatalogueEntries(productName, userId, 10);
+    const searchResults = await searchCatalogueEntries(productName, userId);
 
     return {
       success: true,
@@ -661,7 +660,7 @@ export async function analyzeVoiceForCatalogueEntry(transcript, userId) {
       };
     }
 
-    const searchResults = await searchCatalogueEntries(productData.generalizedName, userId, 5);
+    const searchResults = await searchCatalogueEntries(productData.generalizedName, userId);
 
     return {
       success: true,
@@ -677,5 +676,48 @@ export async function analyzeVoiceForCatalogueEntry(transcript, userId) {
       success: false,
       error: 'Internal server error',
     };
+  }
+}
+
+// ========================================================================================== REALTIME WEBSOCKET SEARCH ===
+
+/**
+ * Performs real-time semantic search for WebSocket with query embedding caching
+ * @param {string} query - Search query text
+ * @param {number} userId - User ID for visibility filtering
+ * @returns {Promise<Array>} Array of matching catalogue entry IDs
+ */
+export async function searchCatalogueEntriesRealtime(query, userId) {
+  try {
+    if (!aiService.isAiEnabled()) {
+      return [];
+    }
+
+    if (!query || query.trim() === '') {
+      return [];
+    }
+
+    const trimmedQuery = query.trim().toLowerCase();
+    let queryEmbedding = null;
+
+    queryEmbedding = await dbFood.getQueryEmbedding(trimmedQuery);
+
+    if (!queryEmbedding) {
+      const embeddingResult = await aiService.generateEmbedding(trimmedQuery);
+      if (!embeddingResult.success) {
+        console.error('Failed to generate embedding for realtime search:', embeddingResult.error);
+        return [];
+      }
+
+      queryEmbedding = embeddingResult.data.embedding;
+      await dbFood.saveQueryEmbedding(trimmedQuery, queryEmbedding);
+    }
+
+    const searchResults = await dbFood.searchCatalogueEntriesByEmbedding(queryEmbedding, userId);
+
+    return searchResults.map((result) => result.id);
+  } catch (error) {
+    console.error('Error in realtime semantic search:', error);
+    return [];
   }
 }

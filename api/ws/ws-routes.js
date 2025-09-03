@@ -1,5 +1,6 @@
 import { WS_MESSAGE_TYPES } from '../food/food-controller.js';
 import * as wsService from './ws-service.js';
+import { processMessage, setupMessageHandlers } from './ws-setup.js';
 
 export async function websocketRoutes(fastify) {
   fastify.addHook('preValidation', async (request, reply) => {
@@ -24,6 +25,8 @@ export async function websocketRoutes(fastify) {
     wsService.authenticateAndAddSocket(token, socket, clientId);
 
     socket.isAlive = true;
+
+    const messageHandlers = setupMessageHandlers();
 
     socket.on('message', async (message) => {
       try {
@@ -63,7 +66,7 @@ export async function websocketRoutes(fastify) {
             break;
 
           default:
-            fastify.log.warn(`Unknown WebSocket message type: ${incomingMessage.type}`);
+            await processMessage(messageHandlers, socket, incomingMessage, fastify);
             break;
         }
       } catch (error) {

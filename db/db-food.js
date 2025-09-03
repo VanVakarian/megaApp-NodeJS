@@ -1,3 +1,4 @@
+import { FOOD_SEARCH_RESULTS_LIMIT } from '../env.js';
 import { getConnection } from './db.js';
 
 // =========================================================================================================== DIARY ===
@@ -613,7 +614,7 @@ function cosineDistance(vecA, vecB) {
  * @param {number} limit - Maximum number of results to return
  * @returns {Promise<Array>} Sorted array of catalogue entries with distance scores
  */
-export async function searchCatalogueEntriesByEmbedding(embeddingArray, userId, limit = 10) {
+export async function searchCatalogueEntriesByEmbedding(embeddingArray, userId) {
   const connection = await getConnection();
   try {
     const queryVector = new Float32Array(embeddingArray);
@@ -650,7 +651,7 @@ export async function searchCatalogueEntriesByEmbedding(embeddingArray, userId, 
         };
       })
       .sort((a, b) => a.distance - b.distance)
-      .slice(0, limit);
+      .slice(0, FOOD_SEARCH_RESULTS_LIMIT);
 
     return results;
   } catch (error) {
@@ -682,6 +683,91 @@ export async function updateCatalogueEntryEmbedding(catalogueId, embeddingArray)
     return result.changes > 0;
   } catch (error) {
     console.error('Error updating embedding:', error);
+    return false;
+  }
+}
+
+// ===================================================================================== SEARCH QUERY EMBEDDING CACHE ===
+
+/**
+ * Retrieves cached embedding for search query and updates usage statistics
+ * @param {string} query - Search query text
+ * @returns {Promise<Float32Array|null>} Cached embedding vector or null if not found
+ */
+export async function getQueryEmbedding(query) {
+  const connection = await getConnection();
+  try {
+    const selectQuery = `
+      SELECT
+        embedding
+      FROM
+        foodSearchQueryEmbeddingStore
+      WHERE
+        query = ?;
+    `;
+    const result = await connection.get(selectQuery, [query]);
+
+    if (result && result.embedding) {
+      await updateQueryUsage(query);
+      return new Float32Array(result.embedding.buffer);
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error getting query embedding:', error);
+    return null;
+  }
+}
+
+/**
+ * Saves new search query embedding to cache
+ * @param {string} query - Search query text
+ * @param {Array|Float32Array} embeddingArray - Vector embedding data
+ * @returns {Promise<boolean>} Success status of the save operation
+ */
+export async function saveQueryEmbedding(query, embeddingArray) {
+  const connection = await getConnection();
+  try {
+    const buffer = Buffer.from(new Float32Array(embeddingArray).buffer);
+    const timestamp = Date.now();
+
+    const insertQuery = `
+      INSERT OR REPLACE INTO
+        foodSearchQueryEmbeddingStore (query, embedding, hitCount, lastUsedAt, createdAt)
+      VALUES
+        (?, ?, 1, ?, ?);
+    `;
+    const result = await connection.run(insertQuery, [query, buffer, timestamp, timestamp]);
+    return result.changes > 0;
+  } catch (error) {
+    console.error('Error saving query embedding:', error);
+    return false;
+  }
+}
+
+/**
+ * Updates usage statistics for cached search query
+ * @param {string} query - Search query text
+ * @returns {Promise<boolean>} Success status of the update operation
+ */
+export async function updateQueryUsage(query) {
+  const connection = await getConnection();
+  try {
+    const timestamp = Date.now();
+
+    const updateQuery = `
+      UPDATE
+        foodSearchQueryEmbeddingStore
+      SET
+        hitCount = hitCount + 1,
+        lastUsedAt = ?
+      WHERE
+        query = ?;
+    `;
+    const result = await connection.run(updateQuery, [timestamp, query]);
+    return result.changes > 0;
+  } catch (error) {
+    console.error('Error updating query usage:', error);
     return false;
   }
 }

@@ -344,4 +344,20 @@ const dbVersion003 = [
     FOREIGN KEY (twinTransactionId) REFERENCES moneyTransaction(id) ON DELETE SET NULL
   );
   `,
+
+  `
+  CREATE TABLE IF NOT EXISTS foodSearchQueryEmbeddingStore (
+    query TEXT PRIMARY KEY,
+    embedding BLOB NOT NULL,
+    hitCount INTEGER DEFAULT 1,
+    lastUsedAt INTEGER NOT NULL,
+    createdAt INTEGER NOT NULL
+  );
+  `,
 ];
+
+export const dbSchemas = {
+  '001': dbVersion001,
+  '002': dbVersion002,
+  '003': dbVersion003,
+};

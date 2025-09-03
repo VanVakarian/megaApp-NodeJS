@@ -1,5 +1,6 @@
 import * as authController from '../auth/auth-controller.js';
 import * as foodController from './food-controller.js';
+import { WS_MESSAGE_TYPES } from './food-controller.js';
 
 export async function foodRoutes(fastify) {
   // ============================================================================================= FULL UPDATE ROUTE ===
@@ -104,7 +105,6 @@ export async function foodRoutes(fastify) {
         type: 'object',
         properties: {
           query: { type: 'string', minLength: 1 },
-          limit: { type: 'number', minimum: 1, maximum: 50, default: 10 },
         },
         required: ['query'],
       },
@@ -228,3 +228,13 @@ export async function foodRoutes(fastify) {
     handler: foodController.getStats,
   });
 }
+
+// ============================================================================================== WEBSOCKET HANDLERS ===
+
+/**
+ * WebSocket message handlers for food-related functionality
+ * These handlers are registered with the central WebSocket system
+ */
+export const foodWebSocketHandlers = {
+  [WS_MESSAGE_TYPES.SEARCH_QUERY]: foodController.handleSearchQuery,
+};
