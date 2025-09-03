@@ -320,83 +320,6 @@ export async function getAllFoodCatalogueEntries() {
   }
 }
 
-// ============================================================================================ CATALOGUE VISIBILITY ===
-
-/**
- * Creates visibility link between user and catalogue entry for personal catalogue management
- * @param {number} userId - User ID
- * @param {number} catalogueId - Catalogue entry ID to make visible
- * @returns {Promise<boolean>} True if entry was added, false if already exists
- */
-export async function createUserCatalogueEntryVisibility(userId, catalogueId) {
-  const connection = await getConnection();
-  try {
-    const query = `
-      INSERT OR IGNORE INTO
-        foodCatalogueEntryOwnership (userId, foodCatalogueId)
-      VALUES
-        (?, ?);
-    `;
-    const result = await connection.run(query, [userId, catalogueId]);
-    return result.changes > 0;
-  } catch (error) {
-    console.error('Error creating catalogue visibility:', error);
-    return false;
-  }
-}
-
-/**
- * Removes visibility link between user and catalogue entry
- * @param {number} userId - User ID
- * @param {number} catalogueId - Catalogue entry ID to hide
- * @returns {Promise<boolean>} True if entry was removed, false if didn't exist
- */
-export async function removeUserCatalogueEntryVisibility(userId, catalogueId) {
-  const connection = await getConnection();
-  try {
-    const query = `
-      DELETE FROM
-        foodCatalogueEntryOwnership
-      WHERE
-        userId = ?
-        AND foodCatalogueId = ?;
-    `;
-    const result = await connection.run(query, [userId, catalogueId]);
-    return result.changes > 0;
-  } catch (error) {
-    console.error('Error removing catalogue visibility:', error);
-    return false;
-  }
-}
-
-/**
- * Retrieves all catalogue entries visible to specific user
- * @param {number} userId - User ID for visibility filtering
- * @returns {Promise<Array>} Array of catalogue entries accessible to the user
- */
-export async function getUserVisibleCatalogueEntries(userId) {
-  const connection = await getConnection();
-  try {
-    const query = `
-      SELECT
-        fc.id, fc.name, fc.kcals, fc.protein, fc.fat, fc.carbs, fc.fiber
-      FROM
-        foodCatalogue fc
-      JOIN
-        foodCatalogueEntryOwnership feo ON fc.id = feo.foodCatalogueId
-      WHERE
-        feo.userId = ?
-      ORDER BY
-        fc.name ASC;
-    `;
-    const result = await connection.all(query, [userId]);
-    return result;
-  } catch (error) {
-    console.error('Error getting user visible catalogue entries:', error);
-    return [];
-  }
-}
-
 // ===================================================================================================== BODY WEIGHT ===
 
 export async function getWeightByDate(dateISO, userId) {
@@ -608,13 +531,12 @@ function cosineDistance(vecA, vecB) {
 }
 
 /**
- * Performs vector similarity search across user's visible catalogue entries using JavaScript
+ * Performs vector similarity search across all catalogue entries using JavaScript
  * @param {Array|Float32Array} embeddingArray - Query vector for similarity search
- * @param {number} userId - User ID for visibility filtering
  * @param {number} limit - Maximum number of results to return
  * @returns {Promise<Array>} Sorted array of catalogue entries with distance scores
  */
-export async function searchCatalogueEntriesByEmbedding(embeddingArray, userId) {
+export async function searchCatalogueEntriesByEmbedding(embeddingArray) {
   const connection = await getConnection();
   try {
     const queryVector = new Float32Array(embeddingArray);
@@ -624,16 +546,13 @@ export async function searchCatalogueEntriesByEmbedding(embeddingArray, userId) 
         fc.id, fc.name, fc.kcals, fc.protein, fc.fat, fc.carbs, fc.fiber, fc.embedding
       FROM
         foodCatalogue fc
-      JOIN
-        foodCatalogueEntryOwnership feo ON fc.id = feo.foodCatalogueId
       WHERE
-        feo.userId = ?
-        AND fc.embedding IS NOT NULL
+        fc.embedding IS NOT NULL
       ORDER BY
         fc.name ASC;
     `;
 
-    const rows = await connection.all(query, [userId]);
+    const rows = await connection.all(query);
 
     const results = rows
       .map((row) => {
@@ -701,7 +620,7 @@ export async function getQueryEmbedding(query) {
       SELECT
         embedding
       FROM
-        foodSearchQueryEmbeddingStore
+        foodSearchQueryEmbeddings
       WHERE
         query = ?;
     `;
@@ -733,7 +652,7 @@ export async function saveQueryEmbedding(query, embeddingArray) {
 
     const insertQuery = `
       INSERT OR REPLACE INTO
-        foodSearchQueryEmbeddingStore (query, embedding, hitCount, lastUsedAt, createdAt)
+        foodSearchQueryEmbeddings (query, embedding, hitCount, lastUsedAt, createdAt)
       VALUES
         (?, ?, 1, ?, ?);
     `;
@@ -757,7 +676,7 @@ export async function updateQueryUsage(query) {
 
     const updateQuery = `
       UPDATE
-        foodSearchQueryEmbeddingStore
+        foodSearchQueryEmbeddings
       SET
         hitCount = hitCount + 1,
         lastUsedAt = ?

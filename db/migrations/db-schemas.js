@@ -246,16 +246,6 @@ const dbVersion003 = [
   `,
 
   `
-  CREATE TABLE IF NOT EXISTS foodCatalogueEntryOwnership (
-    userId INTEGER NOT NULL,
-    foodCatalogueId INTEGER NOT NULL,
-    PRIMARY KEY (userId, foodCatalogueId),
-    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (foodCatalogueId) REFERENCES foodCatalogue(id) ON DELETE CASCADE
-  );
-  `,
-
-  `
   CREATE TABLE IF NOT EXISTS foodSettings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     height INTEGER,
@@ -271,6 +261,16 @@ const dbVersion003 = [
     dateISO TEXT,
     weight NUMERIC,
     usersId INTEGER
+  );
+  `,
+
+  `
+  CREATE TABLE IF NOT EXISTS foodSearchQueryEmbeddings (
+    query TEXT PRIMARY KEY,
+    embedding BLOB NOT NULL,
+    hitCount INTEGER DEFAULT 1,
+    lastUsedAt INTEGER NOT NULL,
+    createdAt INTEGER NOT NULL
   );
   `,
 
@@ -342,16 +342,6 @@ const dbVersion003 = [
     FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (accountId) REFERENCES moneyAccount(id) ON DELETE SET NULL,
     FOREIGN KEY (twinTransactionId) REFERENCES moneyTransaction(id) ON DELETE SET NULL
-  );
-  `,
-
-  `
-  CREATE TABLE IF NOT EXISTS foodSearchQueryEmbeddingStore (
-    query TEXT PRIMARY KEY,
-    embedding BLOB NOT NULL,
-    hitCount INTEGER DEFAULT 1,
-    lastUsedAt INTEGER NOT NULL,
-    createdAt INTEGER NOT NULL
   );
   `,
 ];

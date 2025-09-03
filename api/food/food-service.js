@@ -398,12 +398,11 @@ function prepareStats(allDates, weights, avgWeights, dailySumKcals, targetKcalsA
 // ================================================================================================= SEMANTIC SEARCH ===
 
 /**
- * Performs semantic search across user's visible catalogue entries using vector embeddings
+ * Performs semantic search across all catalogue entries using vector embeddings
  * @param {string} query - Search query text
- * @param {number} userId - User ID for visibility filtering
  * @returns {Promise<Array>} Array of matching catalogue entries with relevance scores
  */
-export async function searchCatalogueEntries(query, userId) {
+export async function searchCatalogueEntries(query) {
   try {
     if (!aiService.isAiEnabled()) {
       return [];
@@ -415,7 +414,7 @@ export async function searchCatalogueEntries(query, userId) {
       return [];
     }
 
-    const searchResults = await dbFood.searchCatalogueEntriesByEmbedding(embeddingResult.data.embedding, userId);
+    const searchResults = await dbFood.searchCatalogueEntriesByEmbedding(embeddingResult.data.embedding);
 
     return searchResults.map((result) => ({
       ...result,
@@ -432,10 +431,9 @@ export async function searchCatalogueEntries(query, userId) {
 /**
  * Creates a generalized catalogue entry using LLM analysis of user description
  * @param {string} description - User's free-form product description
- * @param {number} userId - User ID for ownership assignment
  * @returns {Promise<Object>} Result object with success status and created entry data
  */
-export async function createGeneralizedCatalogueEntry(description, userId) {
+export async function createGeneralizedCatalogueEntry(description) {
   try {
     if (!aiService.isAiEnabled()) {
       return {
@@ -486,8 +484,6 @@ export async function createGeneralizedCatalogueEntry(description, userId) {
       }
     }
 
-    await dbFood.createUserCatalogueEntryVisibility(userId, catalogueId);
-
     const fullEntry = existingEntry || (await dbFood.getCatalogueEntryByName(generalizedName));
 
     return {
@@ -507,83 +503,15 @@ export async function createGeneralizedCatalogueEntry(description, userId) {
   }
 }
 
-// ================================================================================================== USER CATALOGUE ===
-
-/**
- * Adds a catalogue entry to user's personal visibility list
- * @param {number} userId - User ID
- * @param {number} catalogueId - Catalogue entry ID to add
- * @returns {Promise<Object>} Result object with success status and message
- */
-export async function addCatalogueEntryToUserVisibility(userId, catalogueId) {
-  try {
-    const success = await dbFood.createUserCatalogueEntryVisibility(userId, catalogueId);
-    return {
-      success: success,
-      message: success ? 'Product added to personal catalogue' : 'Product already in personal catalogue',
-    };
-  } catch (error) {
-    console.error('Error adding catalogue entry to user visibility:', error);
-    return {
-      success: false,
-      error: 'Internal server error',
-    };
-  }
-}
-
-/**
- * Removes a catalogue entry from user's personal visibility list
- * @param {number} userId - User ID
- * @param {number} catalogueId - Catalogue entry ID to remove
- * @returns {Promise<Object>} Result object with success status and message
- */
-export async function removeCatalogueEntryFromUserVisibility(userId, catalogueId) {
-  try {
-    const success = await dbFood.removeUserCatalogueEntryVisibility(userId, catalogueId);
-    return {
-      success: success,
-      message: success ? 'Product removed from personal catalogue' : 'Product was not in personal catalogue',
-    };
-  } catch (error) {
-    console.error('Error removing catalogue entry from user visibility:', error);
-    return {
-      success: false,
-      error: 'Internal server error',
-    };
-  }
-}
-
-/**
- * Retrieves user's personal catalogue with all visible entries
- * @param {number} userId - User ID
- * @returns {Promise<Object>} Result object with success status and user's catalogue data
- */
-export async function getUserPersonalCatalogue(userId) {
-  try {
-    const entries = await dbFood.getUserVisibleCatalogueEntries(userId);
-    return {
-      success: true,
-      data: entries,
-    };
-  } catch (error) {
-    console.error('Error getting user personal catalogue:', error);
-    return {
-      success: false,
-      error: 'Internal server error',
-    };
-  }
-}
-
 // ============================================================================================= MULTIMODAL ANALYSIS ===
 
 /**
  * Analyzes uploaded image to detect food products using AI vision
  * @param {Buffer} imageBuffer - Image file buffer
  * @param {string} mimeType - Image MIME type
- * @param {number} userId - User ID for search filtering
  * @returns {Promise<Object>} Analysis result with detected product and search suggestions
  */
-export async function analyzeImageForCatalogueEntry(imageBuffer, mimeType, userId) {
+export async function analyzeImageForCatalogueEntry(imageBuffer, mimeType) {
   try {
     if (!aiService.isAiEnabled()) {
       return {
@@ -609,7 +537,7 @@ export async function analyzeImageForCatalogueEntry(imageBuffer, mimeType, userI
     }
 
     const productName = recognitionResult.data.productName;
-    const searchResults = await searchCatalogueEntries(productName, userId);
+    const searchResults = await searchCatalogueEntries(productName);
 
     return {
       success: true,
@@ -632,10 +560,9 @@ export async function analyzeImageForCatalogueEntry(imageBuffer, mimeType, userI
 /**
  * Analyzes voice transcript to detect food products using AI language processing
  * @param {string} transcript - Voice recognition transcript
- * @param {number} userId - User ID for search filtering
  * @returns {Promise<Object>} Analysis result with detected product and search suggestions
  */
-export async function analyzeVoiceForCatalogueEntry(transcript, userId) {
+export async function analyzeVoiceForCatalogueEntry(transcript) {
   try {
     if (!aiService.isAiEnabled()) {
       return {
@@ -660,7 +587,7 @@ export async function analyzeVoiceForCatalogueEntry(transcript, userId) {
       };
     }
 
-    const searchResults = await searchCatalogueEntries(productData.generalizedName, userId);
+    const searchResults = await searchCatalogueEntries(productData.generalizedName);
 
     return {
       success: true,
@@ -684,10 +611,9 @@ export async function analyzeVoiceForCatalogueEntry(transcript, userId) {
 /**
  * Performs real-time semantic search for WebSocket with query embedding caching
  * @param {string} query - Search query text
- * @param {number} userId - User ID for visibility filtering
  * @returns {Promise<Array>} Array of matching catalogue entry IDs
  */
-export async function searchCatalogueEntriesRealtime(query, userId) {
+export async function searchCatalogueEntriesRealtime(query) {
   try {
     if (!aiService.isAiEnabled()) {
       return [];
@@ -713,7 +639,7 @@ export async function searchCatalogueEntriesRealtime(query, userId) {
       await dbFood.saveQueryEmbedding(trimmedQuery, queryEmbedding);
     }
 
-    const searchResults = await dbFood.searchCatalogueEntriesByEmbedding(queryEmbedding, userId);
+    const searchResults = await dbFood.searchCatalogueEntriesByEmbedding(queryEmbedding);
 
     return searchResults.map((result) => result.id);
   } catch (error) {

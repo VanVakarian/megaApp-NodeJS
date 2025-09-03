@@ -90,13 +90,6 @@ export async function foodRoutes(fastify) {
     handler: foodController.editCatalogueEntry,
   });
 
-  // ========================================================================================= USER CATALOGUE ROUTES ===
-  fastify.get('/user-catalogue', {
-    schema: { tags: ['food'] },
-    preValidation: [authController.authMiddleware],
-    handler: foodController.getMyCatalogue,
-  });
-
   // =========================================================================================== NEW SEMANTIC SEARCH ===
   fastify.get('/search', {
     schema: {
@@ -126,43 +119,6 @@ export async function foodRoutes(fastify) {
     },
     preValidation: [authController.authMiddleware],
     handler: foodController.createGeneralizedCatalogueEntry,
-  });
-
-  // ============================================================================================ NEW USER CATALOGUE ===
-  fastify.get('/my-foods', {
-    schema: { tags: ['food'] },
-    preValidation: [authController.authMiddleware],
-    handler: foodController.getMyFoods,
-  });
-
-  fastify.post('/add-to-my-foods', {
-    schema: {
-      tags: ['food'],
-      body: {
-        type: 'object',
-        properties: {
-          catalogueId: { type: 'number' },
-        },
-        required: ['catalogueId'],
-      },
-    },
-    preValidation: [authController.authMiddleware],
-    handler: foodController.addToMyFoods,
-  });
-
-  fastify.post('/remove-from-my-foods', {
-    schema: {
-      tags: ['food'],
-      body: {
-        type: 'object',
-        properties: {
-          catalogueId: { type: 'number' },
-        },
-        required: ['catalogueId'],
-      },
-    },
-    preValidation: [authController.authMiddleware],
-    handler: foodController.removeFromMyFoods,
   });
 
   // =========================================================================================== MULTIMODAL ANALYSIS ===

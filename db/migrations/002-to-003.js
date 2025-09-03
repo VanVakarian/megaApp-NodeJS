@@ -10,36 +10,12 @@ export const migration002to003 = [
   // Добавляем уникальное ограничение на поле name
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_foodCatalogue_name ON foodCatalogue(name);`,
 
-  // Создаем таблицу для управления видимостью продуктов
-  `
-  CREATE TABLE IF NOT EXISTS foodCatalogueEntryOwnership (
-    userId INTEGER NOT NULL,
-    foodCatalogueId INTEGER NOT NULL,
-    PRIMARY KEY (userId, foodCatalogueId),
-    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (foodCatalogueId) REFERENCES foodCatalogue(id) ON DELETE CASCADE
-  );
-  `,
-
-  // Мигрируем данные из selectedCatalogueIds в foodCatalogueEntryOwnership
-  `
-  INSERT INTO foodCatalogueEntryOwnership (userId, foodCatalogueId)
-  SELECT
-    fs.usersId,
-    CAST(json_each.value AS INTEGER) as catalogueId
-  FROM foodSettings fs, json_each(fs.selectedCatalogueIds)
-  WHERE fs.selectedCatalogueIds IS NOT NULL
-    AND fs.selectedCatalogueIds != ''
-    AND fs.selectedCatalogueIds != 'null'
-    AND json_valid(fs.selectedCatalogueIds);
-  `,
-
-  // Удаляем старое поле selectedCatalogueIds
+  // Удаляем устаревшее поле selectedCatalogueIds из foodSettings
   `ALTER TABLE foodSettings DROP COLUMN selectedCatalogueIds;`,
 
   // Создаем таблицу для кэширования embedding'ов
   `
-  CREATE TABLE IF NOT EXISTS foodSearchQueryEmbeddingStore (
+  CREATE TABLE IF NOT EXISTS foodSearchQueryEmbeddings (
     query TEXT PRIMARY KEY,
     embedding BLOB NOT NULL,
     hitCount INTEGER DEFAULT 1,

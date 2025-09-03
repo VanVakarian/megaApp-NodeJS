@@ -1,25 +1,9 @@
 export const migration003to002 = [
-  // Добавляем поле selectedCatalogueIds обратно
+  // Добавляем поле selectedCatalogueIds обратно (оставляем пустым, так как таблица ownership не существует в версии 003)
   `ALTER TABLE foodSettings ADD COLUMN selectedCatalogueIds TEXT;`,
 
-  // Восстанавливаем данные в selectedCatalogueIds из таблицы ownership
-  `
-  UPDATE foodSettings SET selectedCatalogueIds = (
-    SELECT json_group_array(foodCatalogueId)
-    FROM foodCatalogueEntryOwnership
-    WHERE userId = foodSettings.usersId
-  )
-  WHERE EXISTS (
-    SELECT 1 FROM foodCatalogueEntryOwnership
-    WHERE userId = foodSettings.usersId
-  );
-  `,
-
-  // Удаляем таблицу ownership
-  `DROP TABLE IF EXISTS foodCatalogueEntryOwnership;`,
-
   // Удаляем таблицу кэша embedding'ов
-  `DROP TABLE IF EXISTS foodSearchQueryEmbeddingStore;`,
+  `DROP TABLE IF EXISTS foodSearchQueryEmbeddings;`,
 
   // Удаляем новые поля из foodCatalogue
   `ALTER TABLE foodCatalogue DROP COLUMN protein;`,
