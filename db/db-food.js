@@ -246,6 +246,25 @@ export async function getCatalogueEntryByName(foodName) {
   }
 }
 
+export async function getCatalogueEntryByNameForAPI(foodName) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      SELECT
+        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding as description
+      FROM
+        foodCatalogue
+      WHERE
+        name = ?;
+    `;
+    const result = await connection.get(query, [foodName]);
+    return result || null;
+  } catch (error) {
+    console.error('Error getting catalogue entry by name:', error);
+    return null;
+  }
+}
+
 export async function updateFoodCatalogueEntry(foodId, foodName, foodKcals) {
   const connection = await getConnection();
   try {
@@ -277,6 +296,49 @@ export async function updateFoodCatalogueNutrition(foodId, kcals, protein, fat, 
         id = ?;
     `;
     await connection.run(query, [kcals, protein, fat, carbs, fiber, description, foodId]);
+    return true;
+  } catch (error) {
+    console.error(error);
+    return false;
+  }
+}
+
+export async function updateCatalogueEntryNameAndDescription(foodId, name, description) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      UPDATE
+        foodCatalogue
+      SET
+        name = ?, descriptionForEmbedding = ?, embedding = 'enriched'
+      WHERE
+        id = ?;
+    `;
+    await connection.run(query, [name, description, foodId]);
+    return { success: true };
+  } catch (error) {
+    console.error(error);
+
+    if (error.code === 'SQLITE_CONSTRAINT' && error.message.includes('UNIQUE constraint failed: foodCatalogue.name')) {
+      return { success: false, error: 'DUPLICATE_NAME', sqliteError: error.message };
+    }
+
+    return { success: false, error: 'DATABASE_ERROR', sqliteError: error.message };
+  }
+}
+
+export async function markCatalogueEntryAsConflicted(foodId, reason) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      UPDATE
+        foodCatalogue
+      SET
+        embedding = ?
+      WHERE
+        id = ?;
+    `;
+    await connection.run(query, [`conflicted:${reason}`, foodId]);
     return true;
   } catch (error) {
     console.error(error);
@@ -316,6 +378,64 @@ export async function getAllFoodCatalogueEntries() {
     return result;
   } catch (error) {
     console.error(error);
+    return null;
+  }
+}
+
+export async function getAllFoodCatalogueEntriesForAPI() {
+  const connection = await getConnection();
+  try {
+    const query = `
+      SELECT
+        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding as description
+      FROM
+        foodCatalogue
+      ORDER BY
+        name ASC;
+    `;
+    const result = await connection.all(query);
+    return result;
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
+}
+
+export async function clearAllFoodCatalogueEntries() {
+  const connection = await getConnection();
+  try {
+    const query = `DELETE FROM foodCatalogue;`;
+    const result = await connection.run(query);
+    return result.changes;
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
+}
+
+export async function importFoodCatalogueEntries(entries) {
+  const connection = await getConnection();
+  try {
+    const insertQuery = `
+      INSERT INTO foodCatalogue
+        (name, descriptionForEmbedding)
+      VALUES
+        (?, ?);
+    `;
+
+    let insertedCount = 0;
+    for (const entry of entries) {
+      try {
+        await connection.run(insertQuery, [entry.name, entry.descriptionForEmbedding || null]);
+        insertedCount++;
+      } catch (entryError) {
+        console.error(`Failed to insert entry "${entry.name}":`, entryError);
+      }
+    }
+
+    return insertedCount;
+  } catch (error) {
+    console.error('Error importing catalogue entries:', error);
     return null;
   }
 }

@@ -409,28 +409,23 @@ export async function getStats(request, reply) {
  */
 export async function handleSearchQuery(socket, message) {
   try {
-    const payload = message.payload;
-    if (!payload) {
-      return;
-    }
-
-    const { query } = payload;
+    const { query } = message;
     if (!query || typeof query !== 'string') {
       return;
     }
 
     const catalogueIds = await foodService.searchCatalogueEntriesRealtime(query.trim());
 
-    socket.send(
-      JSON.stringify({
-        type: WS_MESSAGE_TYPES.SEARCH_RESULTS,
-        payload: {
-          query: query.trim(),
-          catalogueIds: catalogueIds,
-          timestamp: Date.now(),
-        },
-      })
-    );
+    const response = {
+      type: WS_MESSAGE_TYPES.SEARCH_RESULTS,
+      payload: {
+        query: query.trim(),
+        catalogueIds: catalogueIds,
+        timestamp: Date.now(),
+      },
+    };
+
+    socket.send(JSON.stringify(response));
   } catch (error) {
     console.error('Error handling search query:', error);
   }

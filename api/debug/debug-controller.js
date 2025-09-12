@@ -2,7 +2,12 @@ import { execSync } from 'child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import * as dbFood from '../../db/db-food.js';
-import { AI_PROVIDERS } from '../../env.js';
+import {
+  AI_FOOD_GENERATION_PROMPTS,
+  AI_FOOD_GENERATION_SYSTEM_PROMPT,
+  AI_FOOD_TEST_MODELS,
+  AI_PROVIDERS,
+} from '../../env.js';
 import * as aiService from '../ai/ai-service.js';
 import * as debugService from './debug-service.js';
 
@@ -79,11 +84,11 @@ function saveEnrichmentResult(catalogueEntry, llmResults, weightedAverage) {
         const fileContent = readFileSync(filePath, 'utf8');
         existingData = JSON.parse(fileContent);
         if (!Array.isArray(existingData)) {
-          console.warn(`File ${filename} contains invalid data, starting fresh`);
+          console.warn(`📁 File ${filename} contains invalid data, starting fresh`);
           existingData = [];
         }
       } catch (parseError) {
-        console.warn(`Failed to parse existing file ${filename}, starting fresh:`, parseError.message);
+        console.warn(`📁 Failed to parse existing file ${filename}, starting fresh:`, parseError.message);
         existingData = [];
       }
     }
@@ -97,7 +102,7 @@ function saveEnrichmentResult(catalogueEntry, llmResults, weightedAverage) {
 
     return { success: true, filename, totalEntries: existingData.length, filePath: `backups/${filename}` };
   } catch (error) {
-    console.error('Failed to save enrichment result:', error);
+    console.error('❌ Failed to save enrichment result:', error);
     return { success: false, error: error.message };
   }
 }
@@ -125,7 +130,7 @@ export async function latestCommitInfo(request, reply) {
       second: '2-digit',
     });
   } catch (error) {
-    console.error('Failed to get git info:', error);
+    console.error('❌ Failed to get git info:', error);
   }
 
   return { commitHash, commitDateTime };
@@ -158,7 +163,7 @@ export async function testLlm(request, reply) {
       });
     }
   } catch (error) {
-    console.error('Debug LLM test error:', error);
+    console.error('❌ Debug LLM test error:', error);
     return reply.code(500).send({
       result: false,
       error: 'Internal server error',
@@ -237,7 +242,7 @@ export async function enrichCatalogueEntries(request, reply) {
       });
     }
   } catch (error) {
-    console.error('Debug enrichCatalogueEntry error:', error);
+    console.error('❌ Debug enrichCatalogueEntry error:', error);
     return reply.code(500).send({
       result: false,
       error: error.message,
@@ -388,7 +393,7 @@ async function enrichSingleCatalogueEntry(catalogueId, threshold = 75) {
       saveInfo: saveResult,
     };
   } catch (error) {
-    console.error('Debug enrichSingleCatalogueEntry error:', error);
+    console.error('❌ Debug enrichSingleCatalogueEntry error:', error);
     return {
       result: false,
       error: error.message,
@@ -452,7 +457,7 @@ export async function listCatalogueEntries(request, reply) {
       })),
     });
   } catch (error) {
-    console.error('Debug listCatalogueEntries error:', error);
+    console.error('❌ Debug listCatalogueEntries error:', error);
     return reply.code(500).send({
       result: false,
       error: error.message,
@@ -480,7 +485,7 @@ export async function checkRateLimits(request, reply) {
       data: data,
     });
   } catch (error) {
-    console.error('Error checking rate limits:', error);
+    console.error('❌ Error checking rate limits:', error);
     return reply.code(500).send({
       result: false,
       error: error.message,
@@ -562,7 +567,7 @@ export async function enrichCatalogueEmbeddings(request, reply) {
       });
     }
   } catch (error) {
-    console.error('Debug enrichCatalogueEmbeddings error:', error);
+    console.error('❌ Debug enrichCatalogueEmbeddings error:', error);
     return reply.code(500).send({
       result: false,
       error: error.message,
@@ -650,7 +655,7 @@ async function enrichSingleCatalogueEmbedding(catalogueId) {
       saveResult: saveResult,
     };
   } catch (error) {
-    console.error('Error enriching single catalogue embedding:', error);
+    console.error('❌ Error enriching single catalogue embedding:', error);
     return {
       result: false,
       error: error.message,
@@ -697,11 +702,11 @@ function saveEmbeddingResult(catalogueEntry, embeddingResult) {
         const fileContent = readFileSync(filePath, 'utf8');
         existingData = JSON.parse(fileContent);
         if (!Array.isArray(existingData)) {
-          console.warn(`File ${filename} contains invalid data, starting fresh`);
+          console.warn(`📁 File ${filename} contains invalid data, starting fresh`);
           existingData = [];
         }
       } catch (parseError) {
-        console.warn(`Failed to parse existing file ${filename}, starting fresh:`, parseError.message);
+        console.warn(`📁 Failed to parse existing file ${filename}, starting fresh:`, parseError.message);
         existingData = [];
       }
     }
@@ -715,7 +720,7 @@ function saveEmbeddingResult(catalogueEntry, embeddingResult) {
 
     return { success: true, filename, totalEntries: existingData.length, filePath: `backups/${filename}` };
   } catch (error) {
-    console.error('Failed to save embedding result:', error);
+    console.error('❌ Failed to save embedding result:', error);
     return { success: false, error: error.message };
   }
 }
@@ -792,10 +797,1279 @@ export async function searchByEmbedding(request, reply) {
       })),
     });
   } catch (error) {
-    console.error('Debug searchByEmbedding error:', error);
+    console.error('❌ Debug searchByEmbedding error:', error);
     return reply.code(500).send({
       result: false,
       error: error.message,
     });
   }
+}
+
+// ============================================================================================ CATALOGUE MANAGEMENT ===
+
+export async function exportCatalogueToBackup(request, reply) {
+  try {
+    console.log('📤 Starting catalogue export to backup...');
+
+    const allEntries = await dbFood.getAllFoodCatalogueEntries();
+
+    if (!allEntries || allEntries.length === 0) {
+      console.log('❌ No catalogue entries found to export');
+      return reply.code(404).send({
+        result: false,
+        error: 'No catalogue entries found',
+      });
+    }
+
+    const cleanedEntries = allEntries.map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      descriptionForEmbedding: entry.descriptionForEmbedding,
+    }));
+
+    const timestamp = new Date().toISOString();
+    const filename = `catalogue-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    const backupsDir = join(process.cwd(), 'backups');
+    const filePath = join(backupsDir, filename);
+
+    if (!existsSync(backupsDir)) {
+      mkdirSync(backupsDir, { recursive: true });
+      console.log(`📁 Created backups directory: ${backupsDir}`);
+    }
+
+    const exportData = {
+      timestamp: timestamp,
+      totalEntries: cleanedEntries.length,
+      exportedBy: 'debug-api',
+      metadata: {
+        version: '1.0',
+        description: 'Food catalogue backup export',
+        source: 'foodCatalogue table',
+      },
+      entries: cleanedEntries,
+    };
+
+    writeFileSync(filePath, JSON.stringify(exportData, null, 2), 'utf8');
+
+    console.log(`✅ Successfully exported ${cleanedEntries.length} catalogue entries to: backups/${filename}`);
+
+    return reply.send({
+      result: true,
+      filename: filename,
+      filePath: `backups/${filename}`,
+      totalEntries: cleanedEntries.length,
+      timestamp: timestamp,
+      message: `Successfully exported ${cleanedEntries.length} catalogue entries`,
+    });
+  } catch (error) {
+    console.error('❌ Export catalogue error:', error);
+    return reply.code(500).send({
+      result: false,
+      error: error.message,
+    });
+  }
+}
+
+export async function importCatalogueFromBackup(request, reply) {
+  try {
+    const filename = request.body?.filename;
+
+    if (!filename) {
+      return reply.code(400).send({
+        result: false,
+        error: 'Filename parameter is required',
+      });
+    }
+
+    console.log(`📥 Starting catalogue import from backup: ${filename}`);
+
+    const backupsDir = join(process.cwd(), 'backups');
+    const filePath = join(backupsDir, filename);
+
+    if (!existsSync(filePath)) {
+      console.log(`❌ Backup file not found: ${filePath}`);
+      return reply.code(404).send({
+        result: false,
+        error: `Backup file not found: ${filename}`,
+      });
+    }
+
+    let backupData;
+    try {
+      const fileContent = readFileSync(filePath, 'utf8');
+      backupData = JSON.parse(fileContent);
+    } catch (parseError) {
+      console.error('❌ Failed to parse backup file:', parseError);
+      return reply.code(400).send({
+        result: false,
+        error: 'Invalid JSON format in backup file',
+      });
+    }
+
+    if (!backupData.entries || !Array.isArray(backupData.entries)) {
+      return reply.code(400).send({
+        result: false,
+        error: 'Invalid backup file format - missing entries array',
+      });
+    }
+
+    console.log(`📊 Backup file contains ${backupData.entries.length} entries`);
+    console.log(`🗑️  Clearing existing catalogue entries...`);
+
+    const deletedCount = await dbFood.clearAllFoodCatalogueEntries();
+    console.log(`✅ Cleared ${deletedCount} existing entries`);
+
+    console.log(`📥 Importing ${backupData.entries.length} entries...`);
+    const importedCount = await dbFood.importFoodCatalogueEntries(backupData.entries);
+
+    if (importedCount === null) {
+      console.log(`❌ Failed to import entries`);
+      return reply.code(500).send({
+        result: false,
+        error: 'Failed to import catalogue entries',
+      });
+    }
+
+    console.log(`✅ Successfully imported ${importedCount}/${backupData.entries.length} entries`);
+
+    return reply.send({
+      result: true,
+      filename: filename,
+      totalEntriesInBackup: backupData.entries.length,
+      deletedCount: deletedCount,
+      importedCount: importedCount,
+      skippedCount: backupData.entries.length - importedCount,
+      timestamp: new Date().toISOString(),
+      message: `Successfully imported ${importedCount} catalogue entries from backup`,
+    });
+  } catch (error) {
+    console.error('❌ Import catalogue error:', error);
+    return reply.code(500).send({
+      result: false,
+      error: error.message,
+    });
+  }
+}
+
+// =========================================================================================== PROMPT TESTING ===
+
+export async function testPrompts(request, reply) {
+  try {
+    if (!aiService.isAiEnabled()) {
+      return reply.code(503).send({
+        result: false,
+        error: 'AI service is disabled',
+      });
+    }
+
+    const catalogueId = parseInt(request.params.id);
+    if (!catalogueId || isNaN(catalogueId)) {
+      return reply.code(400).send({
+        result: false,
+        error: 'Invalid catalogue ID',
+      });
+    }
+
+    console.log(
+      `🧪 Matrix testing: ${Object.keys(AI_FOOD_GENERATION_PROMPTS).length} prompts × ${
+        AI_FOOD_TEST_MODELS.length
+      } models = ${Object.keys(AI_FOOD_GENERATION_PROMPTS).length * AI_FOOD_TEST_MODELS.length} total tests`
+    );
+
+    const allEntries = await dbFood.getAllFoodCatalogueEntries();
+    const entry = allEntries.find((e) => e.id === catalogueId);
+
+    if (!entry) {
+      return reply.code(404).send({
+        result: false,
+        error: 'Catalogue entry not found',
+      });
+    }
+
+    console.log(`📝 Testing entry: "${entry.name}" - "${entry.descriptionForEmbedding || 'no description'}"`);
+
+    const originalInput = `${entry.name}${entry.descriptionForEmbedding ? ` - ${entry.descriptionForEmbedding}` : ''}`;
+    const results = [];
+    let testNumber = 1;
+
+    // Матричное тестирование: каждый промпт на каждой модели
+    for (const [promptKey, promptConfig] of Object.entries(AI_FOOD_GENERATION_PROMPTS)) {
+      for (const model of AI_FOOD_TEST_MODELS) {
+        console.log(
+          `\n🔄 Test ${testNumber}/${
+            Object.keys(AI_FOOD_GENERATION_PROMPTS).length * AI_FOOD_TEST_MODELS.length
+          }: ${promptKey} on ${model}`
+        );
+
+        const startTime = Date.now();
+
+        try {
+          const userPrompt = promptConfig.userPrompt
+            .replace('{originalName}', entry.name)
+            .replace('{originalDescription}', entry.descriptionForEmbedding || '');
+
+          const llmResult = await callOpenRouterAPI({
+            model: model,
+            systemPrompt: AI_FOOD_GENERATION_SYSTEM_PROMPT,
+            userPrompt: userPrompt,
+          });
+
+          const responseTime = Date.now() - startTime;
+
+          if (llmResult.success) {
+            let parsedResult = null;
+            let parseError = null;
+
+            try {
+              parsedResult = parseJSONWithFallback(llmResult.data.content);
+
+              if (!parsedResult.name || !parsedResult.description) {
+                parseError = 'Missing required fields: name and/or description';
+              }
+            } catch (err) {
+              parseError = `JSON parse error: ${err.message}`;
+            }
+
+            results.push({
+              testNumber,
+              promptKey,
+              promptDescription: promptConfig.description,
+              model,
+              success: !parseError,
+              responseTime,
+              rawResponse: llmResult.data.content,
+              parsedResult,
+              parseError,
+              usage: llmResult.metadata?.usage,
+            });
+
+            console.log(`  ✅ Success (${responseTime}ms)`);
+            if (parsedResult && !parseError) {
+              console.log(`    Name: "${parsedResult.name}"`);
+              console.log(`    Description: "${parsedResult.description.substring(0, 80)}..."`);
+            } else {
+              console.log(`    ❌ Parse error: ${parseError}`);
+            }
+          } else {
+            results.push({
+              testNumber,
+              promptKey,
+              promptDescription: promptConfig.description,
+              model,
+              success: false,
+              responseTime,
+              error: llmResult.error,
+              rawResponse: null,
+              parsedResult: null,
+              parseError: null,
+              usage: null,
+            });
+
+            console.log(`  ❌ Failed (${responseTime}ms): ${llmResult.error}`);
+          }
+
+          // Пауза между запросами
+          await new Promise((resolve) => setTimeout(resolve, 800));
+        } catch (error) {
+          const responseTime = Date.now() - startTime;
+          results.push({
+            testNumber,
+            promptKey,
+            promptDescription: promptConfig.description,
+            model,
+            success: false,
+            responseTime,
+            error: error.message,
+            rawResponse: null,
+            parsedResult: null,
+            parseError: null,
+            usage: null,
+          });
+
+          console.log(`  ❌ Exception (${responseTime}ms): ${error.message}`);
+        }
+
+        testNumber++;
+      }
+    }
+
+    const saveResult = savePromptTestResults(entry, originalInput, results);
+
+    // Подсчёт статистики
+    const summary = {
+      totalTests: results.length,
+      totalPrompts: Object.keys(AI_FOOD_GENERATION_PROMPTS).length,
+      totalModels: AI_FOOD_TEST_MODELS.length,
+      successfulTests: results.filter((r) => r.success).length,
+      failedTests: results.filter((r) => !r.success).length,
+      averageResponseTime: Math.round(results.reduce((sum, r) => sum + r.responseTime, 0) / results.length),
+      successRate: Math.round((results.filter((r) => r.success).length / results.length) * 100),
+    };
+
+    // Статистика по промптам
+    const promptStats = {};
+    Object.keys(AI_FOOD_GENERATION_PROMPTS).forEach((promptKey) => {
+      const promptResults = results.filter((r) => r.promptKey === promptKey);
+      promptStats[promptKey] = {
+        total: promptResults.length,
+        successful: promptResults.filter((r) => r.success).length,
+        successRate: Math.round((promptResults.filter((r) => r.success).length / promptResults.length) * 100),
+        avgResponseTime: Math.round(promptResults.reduce((sum, r) => sum + r.responseTime, 0) / promptResults.length),
+      };
+    });
+
+    // Статистика по моделям
+    const modelStats = {};
+    AI_FOOD_TEST_MODELS.forEach((model) => {
+      const modelResults = results.filter((r) => r.model === model);
+      modelStats[model] = {
+        total: modelResults.length,
+        successful: modelResults.filter((r) => r.success).length,
+        successRate: Math.round((modelResults.filter((r) => r.success).length / modelResults.length) * 100),
+        avgResponseTime: Math.round(modelResults.reduce((sum, r) => sum + r.responseTime, 0) / modelResults.length),
+      };
+    });
+
+    console.log(`\n📊 Matrix testing summary:`);
+    console.log(
+      `  - Total tests: ${summary.totalTests} (${summary.totalPrompts} prompts × ${summary.totalModels} models)`
+    );
+    console.log(`  - Successful: ${summary.successfulTests}`);
+    console.log(`  - Failed: ${summary.failedTests}`);
+    console.log(`  - Success rate: ${summary.successRate}%`);
+    console.log(`  - Average response time: ${summary.averageResponseTime}ms`);
+
+    return reply.send({
+      result: true,
+      catalogueEntry: {
+        id: entry.id,
+        name: entry.name,
+        description: entry.descriptionForEmbedding,
+        originalInput,
+      },
+      matrixConfig: {
+        prompts: Object.keys(AI_FOOD_GENERATION_PROMPTS),
+        models: AI_FOOD_TEST_MODELS,
+        systemPrompt: AI_FOOD_GENERATION_SYSTEM_PROMPT.substring(0, 100) + '...',
+      },
+      summary,
+      promptStats,
+      modelStats,
+      results,
+      saveInfo: saveResult,
+    });
+  } catch (error) {
+    console.error('❌ Debug testPrompts error:', error);
+    return reply.code(500).send({
+      result: false,
+      error: error.message,
+    });
+  }
+}
+
+function parseJSONWithFallback(rawResponse) {
+  // Стратегия 1: Чистый JSON
+  try {
+    return JSON.parse(rawResponse);
+  } catch (e1) {
+    console.log(`❌ Strategy 1 failed: ${e1.message}`);
+  }
+
+  // Стратегия 2: Удаление ```json блоков
+  try {
+    const cleanedResponse = rawResponse
+      .replace(/^```json\s*/i, '')
+      .replace(/```\s*$/, '')
+      .trim();
+
+    console.log(`🔄 Trying Strategy 2 with cleaned response: ${cleanedResponse.substring(0, 50)}...`);
+    return JSON.parse(cleanedResponse);
+  } catch (e2) {
+    console.log(`❌ Strategy 2 failed: ${e2.message}`);
+  }
+
+  // Стратегия 3: Извлечение JSON из текста регулярными выражениями
+  try {
+    const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      console.log(`🔄 Trying Strategy 3 with extracted JSON: ${jsonMatch[0].substring(0, 50)}...`);
+      return JSON.parse(jsonMatch[0]);
+    }
+  } catch (e3) {
+    console.log(`❌ Strategy 3 failed: ${e3.message}`);
+  }
+
+  // Стратегия 4: Поиск многострочного JSON
+  try {
+    const lines = rawResponse.split('\n');
+    const startIdx = lines.findIndex((line) => line.trim().startsWith('{'));
+    const endIdx = lines.findLastIndex((line) => line.trim().endsWith('}'));
+
+    if (startIdx !== -1 && endIdx !== -1 && startIdx <= endIdx) {
+      const jsonLines = lines.slice(startIdx, endIdx + 1);
+      const reconstructedJson = jsonLines.join('\n');
+      console.log(`🔄 Trying Strategy 4 with reconstructed JSON: ${reconstructedJson.substring(0, 50)}...`);
+      return JSON.parse(reconstructedJson);
+    }
+  } catch (e4) {
+    console.log(`❌ Strategy 4 failed: ${e4.message}`);
+  }
+
+  throw new Error(`All parsing strategies failed for response: ${rawResponse.substring(0, 100)}...`);
+}
+
+async function callOpenRouterAPI({ model, systemPrompt, userPrompt }) {
+  try {
+    const response = await fetch(AI_PROVIDERS.TEXT_GEN.BASE_URL + '/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${AI_PROVIDERS.TEXT_GEN.API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        max_tokens: AI_PROVIDERS.TEXT_GEN.MAX_TOKENS,
+        temperature: AI_PROVIDERS.TEXT_GEN.TEMPERATURE,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.text();
+      return {
+        success: false,
+        error: `HTTP ${response.status}: ${errorData}`,
+      };
+    }
+
+    const data = await response.json();
+
+    return {
+      success: true,
+      data: {
+        content: data.choices[0].message.content,
+      },
+      metadata: {
+        model: data.model,
+        usage: data.usage,
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+}
+
+function savePromptTestResults(catalogueEntry, originalInput, results, testingMode = 'matrix') {
+  try {
+    const timestamp = new Date().toISOString();
+    const filename = `matrix-prompt-test-results-${new Date().toISOString().slice(0, 10)}.json`;
+    const backupsDir = join(process.cwd(), 'backups');
+    const filePath = join(backupsDir, filename);
+
+    if (!existsSync(backupsDir)) {
+      mkdirSync(backupsDir, { recursive: true });
+      console.log(`📁 Created backups directory: ${backupsDir}`);
+    }
+
+    const resultEntry = {
+      timestamp,
+      testingMode,
+      catalogueEntry: {
+        id: catalogueEntry.id,
+        name: catalogueEntry.name,
+        description: catalogueEntry.descriptionForEmbedding,
+        originalInput,
+      },
+      matrixConfig: {
+        totalPrompts: Object.keys(AI_FOOD_GENERATION_PROMPTS).length,
+        totalModels: AI_FOOD_TEST_MODELS.length,
+        totalTests: results.length,
+        prompts: Object.keys(AI_FOOD_GENERATION_PROMPTS),
+        models: AI_FOOD_TEST_MODELS,
+        systemPrompt: AI_FOOD_GENERATION_SYSTEM_PROMPT,
+      },
+      results,
+    };
+
+    let existingData = [];
+    if (existsSync(filePath)) {
+      try {
+        const fileContent = readFileSync(filePath, 'utf8');
+        existingData = JSON.parse(fileContent);
+        if (!Array.isArray(existingData)) {
+          console.warn(`📁 File ${filename} contains invalid data, starting fresh`);
+          existingData = [];
+        }
+      } catch (parseError) {
+        console.warn(`📁 Failed to parse existing file ${filename}, starting fresh:`, parseError.message);
+        existingData = [];
+      }
+    }
+
+    existingData.push(resultEntry);
+
+    writeFileSync(filePath, JSON.stringify(existingData, null, 2), 'utf8');
+
+    console.log(`💾 Matrix test results saved to: backups/${filename}`);
+    console.log(`📊 Total matrix test sessions in file: ${existingData.length}`);
+
+    return { success: true, filename, totalSessions: existingData.length, filePath: `backups/${filename}` };
+  } catch (error) {
+    console.error('❌ Failed to save matrix test results:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+export async function testPromptsParallel(request, reply) {
+  try {
+    if (!aiService.isAiEnabled()) {
+      return reply.code(503).send({
+        result: false,
+        error: 'AI service is disabled',
+      });
+    }
+
+    const catalogueId = parseInt(request.params.id);
+    if (!catalogueId || isNaN(catalogueId)) {
+      return reply.code(400).send({
+        result: false,
+        error: 'Invalid catalogue ID',
+      });
+    }
+
+    // Настройки для параллельного выполнения
+    const parallelismLevel = parseInt(request.query.parallelism) || 3; // По умолчанию 3 одновременных запроса
+    const requestDelay = parseInt(request.query.delay) || 100; // Минимальная задержка между запросами
+    const useStaggered = request.query.staggered !== 'false'; // Ступенчатый запуск (по умолчанию включен)
+
+    console.log(
+      `🚀 Parallel matrix testing: ${Object.keys(AI_FOOD_GENERATION_PROMPTS).length} prompts × ${
+        AI_FOOD_TEST_MODELS.length
+      } models = ${Object.keys(AI_FOOD_GENERATION_PROMPTS).length * AI_FOOD_TEST_MODELS.length} total tests`
+    );
+    console.log(`⚡ Parallelism: ${parallelismLevel}, Delay: ${requestDelay}ms, Staggered: ${useStaggered}`);
+
+    const allEntries = await dbFood.getAllFoodCatalogueEntries();
+    const entry = allEntries.find((e) => e.id === catalogueId);
+
+    if (!entry) {
+      return reply.code(404).send({
+        result: false,
+        error: 'Catalogue entry not found',
+      });
+    }
+
+    console.log(`📝 Testing entry: "${entry.name}" - "${entry.descriptionForEmbedding || 'no description'}"`);
+
+    const originalInput = `${entry.name}${entry.descriptionForEmbedding ? ` - ${entry.descriptionForEmbedding}` : ''}`;
+
+    // Подготавливаем все задачи для параллельного выполнения
+    const allTasks = [];
+    let testNumber = 1;
+
+    for (const [promptKey, promptConfig] of Object.entries(AI_FOOD_GENERATION_PROMPTS)) {
+      for (const model of AI_FOOD_TEST_MODELS) {
+        allTasks.push({
+          testNumber: testNumber++,
+          promptKey,
+          promptDescription: promptConfig.description,
+          model,
+          userPrompt: promptConfig.userPrompt
+            .replace('{originalName}', entry.name)
+            .replace('{originalDescription}', entry.descriptionForEmbedding || ''),
+        });
+      }
+    }
+
+    const startTime = Date.now();
+    const results = await executeTasksInParallel(allTasks, parallelismLevel, requestDelay, useStaggered);
+    const totalTime = Date.now() - startTime;
+
+    const saveResult = savePromptTestResults(entry, originalInput, results, 'parallel');
+
+    // Подсчёт статистики
+    const summary = {
+      totalTests: results.length,
+      totalPrompts: Object.keys(AI_FOOD_GENERATION_PROMPTS).length,
+      totalModels: AI_FOOD_TEST_MODELS.length,
+      successfulTests: results.filter((r) => r.success).length,
+      failedTests: results.filter((r) => !r.success).length,
+      averageResponseTime: Math.round(results.reduce((sum, r) => sum + r.responseTime, 0) / results.length),
+      successRate: Math.round((results.filter((r) => r.success).length / results.length) * 100),
+      totalExecutionTime: totalTime,
+      parallelismLevel,
+      requestDelay,
+      performanceImprovement: `~${Math.round((18 * 22126 + 17 * 800) / totalTime)}x faster`,
+    };
+
+    // Статистика по промптам
+    const promptStats = {};
+    Object.keys(AI_FOOD_GENERATION_PROMPTS).forEach((promptKey) => {
+      const promptResults = results.filter((r) => r.promptKey === promptKey);
+      promptStats[promptKey] = {
+        total: promptResults.length,
+        successful: promptResults.filter((r) => r.success).length,
+        successRate: Math.round((promptResults.filter((r) => r.success).length / promptResults.length) * 100),
+        avgResponseTime: Math.round(promptResults.reduce((sum, r) => sum + r.responseTime, 0) / promptResults.length),
+      };
+    });
+
+    // Статистика по моделям
+    const modelStats = {};
+    AI_FOOD_TEST_MODELS.forEach((model) => {
+      const modelResults = results.filter((r) => r.model === model);
+      modelStats[model] = {
+        total: modelResults.length,
+        successful: modelResults.filter((r) => r.success).length,
+        successRate: Math.round((modelResults.filter((r) => r.success).length / modelResults.length) * 100),
+        avgResponseTime: Math.round(modelResults.reduce((sum, r) => sum + r.responseTime, 0) / modelResults.length),
+      };
+    });
+
+    console.log(`\n🚀 Parallel matrix testing summary:`);
+    console.log(
+      `  - Total tests: ${summary.totalTests} (${summary.totalPrompts} prompts × ${summary.totalModels} models)`
+    );
+    console.log(`  - Successful: ${summary.successfulTests}`);
+    console.log(`  - Failed: ${summary.failedTests}`);
+    console.log(`  - Success rate: ${summary.successRate}%`);
+    console.log(`  - Average response time: ${summary.averageResponseTime}ms`);
+    console.log(`  - Total execution time: ${totalTime}ms (${Math.round(totalTime / 1000)}s)`);
+    console.log(`  - Performance improvement: ${summary.performanceImprovement}`);
+
+    return reply.send({
+      result: true,
+      catalogueEntry: {
+        id: entry.id,
+        name: entry.name,
+        description: entry.descriptionForEmbedding,
+        originalInput,
+      },
+      matrixConfig: {
+        prompts: Object.keys(AI_FOOD_GENERATION_PROMPTS),
+        models: AI_FOOD_TEST_MODELS,
+        systemPrompt: AI_FOOD_GENERATION_SYSTEM_PROMPT.substring(0, 100) + '...',
+        parallelismLevel,
+        requestDelay,
+        useStaggered,
+      },
+      summary,
+      promptStats,
+      modelStats,
+      results,
+      saveInfo: saveResult,
+    });
+  } catch (error) {
+    console.error('❌ Debug testPromptsParallel error:', error);
+    return reply.code(500).send({
+      result: false,
+      error: error.message,
+    });
+  }
+}
+
+// Функция для параллельного выполнения задач с контролем rate limit
+async function executeTasksInParallel(tasks, parallelismLevel, requestDelay, useStaggered) {
+  const results = [];
+  const executing = new Set();
+
+  // Функция для выполнения одной задачи
+  async function executeTask(task, delayMs = 0) {
+    if (delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+
+    console.log(`\n🔄 Test ${task.testNumber}/${tasks.length}: ${task.promptKey} on ${task.model}`);
+    const startTime = Date.now();
+
+    try {
+      const llmResult = await callOpenRouterAPI({
+        model: task.model,
+        systemPrompt: AI_FOOD_GENERATION_SYSTEM_PROMPT,
+        userPrompt: task.userPrompt,
+      });
+
+      const responseTime = Date.now() - startTime;
+
+      if (llmResult.success) {
+        let parsedResult = null;
+        let parseError = null;
+
+        try {
+          parsedResult = parseJSONWithFallbackAdvanced(llmResult.data.content);
+
+          if (!parsedResult.name || !parsedResult.description) {
+            parseError = 'Missing required fields: name and/or description';
+          }
+        } catch (err) {
+          parseError = `JSON parse error: ${err.message}`;
+        }
+
+        const result = {
+          testNumber: task.testNumber,
+          promptKey: task.promptKey,
+          promptDescription: task.promptDescription,
+          model: task.model,
+          success: !parseError,
+          responseTime,
+          rawResponse: llmResult.data.content,
+          parsedResult,
+          parseError,
+          usage: llmResult.metadata?.usage,
+        };
+
+        results.push(result);
+        console.log(`  ✅ Success (${responseTime}ms)`);
+        if (parsedResult && !parseError) {
+          console.log(`    Name: "${parsedResult.name}"`);
+          console.log(`    Description: "${parsedResult.description.substring(0, 80)}..."`);
+        } else {
+          console.log(`    ❌ Parse error: ${parseError}`);
+        }
+      } else {
+        const result = {
+          testNumber: task.testNumber,
+          promptKey: task.promptKey,
+          promptDescription: task.promptDescription,
+          model: task.model,
+          success: false,
+          responseTime,
+          error: llmResult.error,
+          rawResponse: null,
+          parsedResult: null,
+          parseError: null,
+          usage: null,
+        };
+
+        results.push(result);
+        console.log(`  ❌ Failed (${responseTime}ms): ${llmResult.error}`);
+      }
+    } catch (error) {
+      const responseTime = Date.now() - startTime;
+      const result = {
+        testNumber: task.testNumber,
+        promptKey: task.promptKey,
+        promptDescription: task.promptDescription,
+        model: task.model,
+        success: false,
+        responseTime,
+        error: error.message,
+        rawResponse: null,
+        parsedResult: null,
+        parseError: null,
+        usage: null,
+      };
+
+      results.push(result);
+      console.log(`  ❌ Exception (${responseTime}ms): ${error.message}`);
+    }
+  }
+
+  // Запускаем задачи параллельно с контролем количества одновременных запросов
+  let taskIndex = 0;
+
+  while (taskIndex < tasks.length || executing.size > 0) {
+    // Запускаем новые задачи, если есть свободные слоты
+    while (executing.size < parallelismLevel && taskIndex < tasks.length) {
+      const task = tasks[taskIndex++];
+
+      // Ступенчатый запуск для равномерного распределения нагрузки
+      const staggerDelay = useStaggered ? executing.size * requestDelay : 0;
+
+      const promise = executeTask(task, staggerDelay).finally(() => {
+        executing.delete(promise);
+      });
+
+      executing.add(promise);
+
+      // Небольшая задержка между запусками задач
+      if (taskIndex < tasks.length) {
+        await new Promise((resolve) => setTimeout(resolve, requestDelay));
+      }
+    }
+
+    // Ждем завершения хотя бы одной задачи
+    if (executing.size > 0) {
+      await Promise.race(executing);
+    }
+  }
+
+  // Сортируем результаты по номеру теста
+  return results.sort((a, b) => a.testNumber - b.testNumber);
+}
+
+// Улучшенная функция парсинга JSON с дополнительными стратегиями
+function parseJSONWithFallbackAdvanced(rawResponse) {
+  // Стратегия 1: Чистый JSON
+  try {
+    return JSON.parse(rawResponse);
+  } catch (e1) {
+    console.log(`❌ Strategy 1 failed: ${e1.message}`);
+  }
+
+  // Стратегия 2: Удаление markdown блоков
+  try {
+    const cleanedResponse = rawResponse
+      .replace(/^```(?:json)?\s*/im, '')
+      .replace(/```\s*$/m, '')
+      .trim();
+
+    console.log(`🔄 Trying Strategy 2 with cleaned response: ${cleanedResponse.substring(0, 50)}...`);
+    return JSON.parse(cleanedResponse);
+  } catch (e2) {
+    console.log(`❌ Strategy 2 failed: ${e2.message}`);
+  }
+
+  // Стратегия 3: Извлечение JSON регулярными выражениями (более агрессивный поиск)
+  try {
+    const jsonMatch = rawResponse.match(/\{[\s\S]*?\}(?=\s*(?:```|$))/m);
+    if (jsonMatch) {
+      console.log(`🔄 Trying Strategy 3 with extracted JSON: ${jsonMatch[0].substring(0, 50)}...`);
+      return JSON.parse(jsonMatch[0]);
+    }
+  } catch (e3) {
+    console.log(`❌ Strategy 3 failed: ${e3.message}`);
+  }
+
+  // Стратегия 4: Поиск между первой { и последней }
+  try {
+    const firstBrace = rawResponse.indexOf('{');
+    const lastBrace = rawResponse.lastIndexOf('}');
+
+    if (firstBrace !== -1 && lastBrace !== -1 && firstBrace < lastBrace) {
+      const extractedJson = rawResponse.substring(firstBrace, lastBrace + 1);
+      console.log(`🔄 Trying Strategy 4 with extracted JSON: ${extractedJson.substring(0, 50)}...`);
+      return JSON.parse(extractedJson);
+    }
+  } catch (e4) {
+    console.log(`❌ Strategy 4 failed: ${e4.message}`);
+  }
+
+  // Стратегия 5: Построчный поиск JSON объекта
+  try {
+    const lines = rawResponse.split('\n');
+    const startIdx = lines.findIndex((line) => line.trim().includes('{'));
+    const endIdx = lines.findLastIndex((line) => line.trim().includes('}'));
+
+    if (startIdx !== -1 && endIdx !== -1 && startIdx <= endIdx) {
+      const jsonLines = lines.slice(startIdx, endIdx + 1);
+      const reconstructedJson = jsonLines.join('\n');
+      console.log(`🔄 Trying Strategy 5 with reconstructed JSON: ${reconstructedJson.substring(0, 50)}...`);
+      return JSON.parse(reconstructedJson);
+    }
+  } catch (e5) {
+    console.log(`❌ Strategy 5 failed: ${e5.message}`);
+  }
+
+  throw new Error(`All parsing strategies failed for response: ${rawResponse.substring(0, 200)}...`);
+}
+
+export async function getCatalogueSample(request, reply) {
+  try {
+    const limit = Math.min(request.query.limit || 10, 50);
+
+    const allEntries = await dbFood.getAllFoodCatalogueEntries();
+
+    if (!allEntries || allEntries.length === 0) {
+      return reply.send({
+        result: true,
+        entries: [],
+        totalCount: 0,
+      });
+    }
+
+    const sampleEntries = allEntries.slice(0, limit).map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      description: entry.descriptionForEmbedding,
+      hasDescription: !!(entry.descriptionForEmbedding && entry.descriptionForEmbedding.trim().length > 0),
+      previewInput: `${entry.name}${
+        entry.descriptionForEmbedding ? ` - ${entry.descriptionForEmbedding.substring(0, 100)}...` : ''
+      }`,
+    }));
+
+    console.log(`📋 Returning ${sampleEntries.length} catalogue entries for prompt testing`);
+
+    return reply.send({
+      result: true,
+      entries: sampleEntries,
+      totalCount: allEntries.length,
+    });
+  } catch (error) {
+    console.error('❌ Debug getCatalogueSample error:', error);
+    return reply.code(500).send({
+      result: false,
+      error: error.message,
+    });
+  }
+}
+
+export async function getTestConfig(request, reply) {
+  try {
+    const config = {
+      systemPrompt: AI_FOOD_GENERATION_SYSTEM_PROMPT,
+      prompts: Object.entries(AI_FOOD_GENERATION_PROMPTS).map(([key, value]) => ({
+        key,
+        description: value.description,
+        userPrompt: value.userPrompt.substring(0, 150) + '...',
+      })),
+      models: AI_FOOD_TEST_MODELS,
+      matrixSize: {
+        totalPrompts: Object.keys(AI_FOOD_GENERATION_PROMPTS).length,
+        totalModels: AI_FOOD_TEST_MODELS.length,
+        totalTests: Object.keys(AI_FOOD_GENERATION_PROMPTS).length * AI_FOOD_TEST_MODELS.length,
+      },
+    };
+
+    console.log(
+      `📋 Matrix testing config: ${config.matrixSize.totalPrompts} prompts × ${config.matrixSize.totalModels} models = ${config.matrixSize.totalTests} tests`
+    );
+
+    return reply.send({
+      result: true,
+      config,
+    });
+  } catch (error) {
+    console.error('❌ Debug getTestConfig error:', error);
+    return reply.code(500).send({
+      result: false,
+      error: error.message,
+    });
+  }
+}
+
+export async function enrichCatalogueNames(request, reply) {
+  try {
+    if (!aiService.isAiEnabled()) {
+      return reply.code(503).send({
+        result: false,
+        error: 'AI service is disabled',
+      });
+    }
+
+    const count = Math.min(request.query.count || 1, 100);
+    const results = [];
+    let processed = 0;
+
+    console.log(`🎯 Starting catalogue names enrichment: ${count} entries with empty embedding`);
+
+    for (let i = 0; i < count; i++) {
+      const allEntries = await dbFood.getAllFoodCatalogueEntries();
+
+      // Сортируем по ID и находим первую запись с пустым embedding (исключаем конфликтные)
+      const entriesWithoutEmbedding = allEntries
+        .filter((entry) => !entry.embedding || entry.embedding === null || entry.embedding === '')
+        .filter((entry) => !entry.embedding || !entry.embedding.startsWith('conflicted:'))
+        .sort((a, b) => a.id - b.id);
+
+      const entryWithoutEmbedding = entriesWithoutEmbedding[0];
+
+      if (!entryWithoutEmbedding) {
+        console.log(
+          `✅ Batch enrichment completed: ${processed}/${count} entries processed (no more entries need enrichment)`
+        );
+        break;
+      }
+
+      console.log(
+        `📊 Progress: ${i + 1}/${count} - Processing entry ${entryWithoutEmbedding.id}: "${entryWithoutEmbedding.name}"`
+      );
+
+      const result = await enrichSingleCatalogueName(entryWithoutEmbedding);
+      results.push(result);
+
+      if (result.result) {
+        processed++;
+        console.log(`✅ Successfully enriched entry ${entryWithoutEmbedding.id}`);
+      } else {
+        console.log(`❌ Failed to enrich entry ${entryWithoutEmbedding.id}: ${result.error}`);
+      }
+
+      if (i < count - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    }
+
+    console.log(`🏁 Names enrichment finished: ${processed}/${count} entries successfully processed\n\n\n`);
+
+    return reply.send({
+      result: true,
+      batchProcessing: true,
+      processedCount: processed,
+      requestedCount: count,
+      results: results,
+    });
+  } catch (error) {
+    console.error('❌ Debug enrichCatalogueNames error:', error);
+    return reply.code(500).send({
+      result: false,
+      error: error.message,
+    });
+  }
+}
+
+export async function enrichCatalogueNameById(request, reply) {
+  try {
+    if (!aiService.isAiEnabled()) {
+      return reply.code(503).send({
+        result: false,
+        error: 'AI service is disabled',
+      });
+    }
+
+    const catalogueId = parseInt(request.params.id);
+    if (!catalogueId || isNaN(catalogueId)) {
+      return reply.code(400).send({
+        result: false,
+        error: 'Invalid catalogue ID',
+      });
+    }
+
+    console.log(`🎯 Starting single entry name enrichment for ID: ${catalogueId}`);
+
+    const allEntries = await dbFood.getAllFoodCatalogueEntries();
+    const catalogueEntry = allEntries.find((e) => e.id === catalogueId);
+
+    if (!catalogueEntry) {
+      return reply.code(404).send({
+        result: false,
+        error: 'Catalogue entry not found',
+      });
+    }
+
+    // Проверяем, не помечена ли запись как конфликтная
+    if (catalogueEntry.embedding && catalogueEntry.embedding.startsWith('conflicted:')) {
+      return reply.send({
+        result: false,
+        error: 'Entry is marked as conflicted',
+        catalogueEntry: {
+          id: catalogueEntry.id,
+          originalName: catalogueEntry.name,
+          originalDescription: catalogueEntry.descriptionForEmbedding,
+          embeddingStatus: catalogueEntry.embedding,
+        },
+        skipReason: 'Previously marked as conflicted due to naming conflicts',
+      });
+    }
+
+    const result = await enrichSingleCatalogueName(catalogueEntry);
+    return reply.send(result);
+  } catch (error) {
+    console.error('❌ Debug enrichCatalogueNameById error:', error);
+    return reply.code(500).send({
+      result: false,
+      error: error.message,
+    });
+  }
+}
+
+async function enrichSingleCatalogueName(catalogueEntry) {
+  try {
+    console.log(`🔄 Enriching names for catalogue entry ${catalogueEntry.id}: "${catalogueEntry.name}"`);
+
+    const originalInput = `${catalogueEntry.name}${
+      catalogueEntry.descriptionForEmbedding ? ` - ${catalogueEntry.descriptionForEmbedding}` : ''
+    }`;
+    console.log(`📝 Original input: "${originalInput}"`);
+
+    const promptConfig = AI_FOOD_GENERATION_PROMPTS['ULTIMATE-1'];
+    const userPrompt = promptConfig.userPrompt
+      .replace('{originalName}', catalogueEntry.name)
+      .replace('{originalDescription}', catalogueEntry.descriptionForEmbedding || '');
+
+    for (const model of AI_FOOD_TEST_MODELS) {
+      console.log(`🤖 Trying model: ${model}`);
+
+      const startTime = Date.now();
+      const llmResult = await callOpenRouterAPI({
+        model: model,
+        systemPrompt: AI_FOOD_GENERATION_SYSTEM_PROMPT,
+        userPrompt: userPrompt,
+      });
+      const responseTime = Date.now() - startTime;
+
+      if (!llmResult.success) {
+        console.log(`  ❌ Model ${model} failed (${responseTime}ms): ${llmResult.error}`);
+        continue;
+      }
+
+      console.log(`  ✅ Model ${model} responded (${responseTime}ms)`);
+
+      const parsedResult = parseJSONWithMultipleStrategies(llmResult.data.content);
+
+      if (parsedResult.success && parsedResult.data.name && parsedResult.data.description) {
+        console.log(`  ✅ Successfully parsed JSON`);
+        console.log(`    New name: "${parsedResult.data.name}"`);
+        console.log(`    New description: "${parsedResult.data.description.substring(0, 100)}..."`);
+
+        const updateResult = await dbFood.updateCatalogueEntryNameAndDescription(
+          catalogueEntry.id,
+          parsedResult.data.name,
+          parsedResult.data.description
+        );
+
+        if (updateResult.success) {
+          console.log(`✅ Successfully updated catalogue entry ${catalogueEntry.id} in database`);
+          return {
+            result: true,
+            catalogueEntry: {
+              id: catalogueEntry.id,
+              originalName: catalogueEntry.name,
+              originalDescription: catalogueEntry.descriptionForEmbedding,
+              originalInput,
+            },
+            enrichmentResult: {
+              usedModel: model,
+              responseTime,
+              newName: parsedResult.data.name,
+              newDescription: parsedResult.data.description,
+              dbUpdateSuccess: true,
+            },
+          };
+        } else if (updateResult.error === 'DUPLICATE_NAME') {
+          console.log(`⚠️  Name conflict for entry ${catalogueEntry.id}: "${parsedResult.data.name}" already exists`);
+          console.log(`🏷️  Marking entry as conflicted and skipping to next model...`);
+
+          // Пробуем следующую модель, может она предложит другое название
+          continue;
+        } else {
+          console.log(`❌ Database error for entry ${catalogueEntry.id}: ${updateResult.sqliteError}`);
+          return {
+            result: false,
+            error: `Database error: ${updateResult.error}`,
+            catalogueEntry: {
+              id: catalogueEntry.id,
+              originalName: catalogueEntry.name,
+              originalDescription: catalogueEntry.descriptionForEmbedding,
+              originalInput,
+            },
+            enrichmentResult: {
+              usedModel: model,
+              responseTime,
+              newName: parsedResult.data.name,
+              newDescription: parsedResult.data.description,
+              dbUpdateSuccess: false,
+              errorDetails: updateResult.sqliteError,
+            },
+          };
+        }
+      } else {
+        console.log(`  ❌ Failed to parse JSON from model ${model}: ${parsedResult.error}`);
+        console.log(`    Raw response: ${llmResult.data.content.substring(0, 200)}...`);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 800));
+    }
+
+    console.log(`❌ All models failed for entry ${catalogueEntry.id}`);
+    console.log(`🏷️  Marking entry ${catalogueEntry.id} as conflicted due to repeated naming conflicts`);
+
+    // Помечаем запись как конфликтную, чтобы не пытаться её обработать снова
+    const markResult = await dbFood.markCatalogueEntryAsConflicted(catalogueEntry.id, 'naming_conflicts');
+
+    return {
+      result: false,
+      error: 'All models failed - likely due to naming conflicts',
+      catalogueEntry: {
+        id: catalogueEntry.id,
+        originalName: catalogueEntry.name,
+        originalDescription: catalogueEntry.descriptionForEmbedding,
+        originalInput,
+      },
+      markedAsConflicted: markResult,
+    };
+  } catch (error) {
+    console.error('❌ Error enriching single catalogue name:', error);
+    return {
+      result: false,
+      error: error.message,
+    };
+  }
+}
+
+function parseJSONWithMultipleStrategies(rawResponse) {
+  console.log(`🔄 Attempting to parse JSON with multiple strategies...`);
+
+  const strategies = [
+    {
+      name: 'Clean JSON',
+      fn: (response) => JSON.parse(response),
+    },
+    {
+      name: 'Remove markdown blocks',
+      fn: (response) => {
+        const cleaned = response
+          .replace(/^```(?:json)?\s*/im, '')
+          .replace(/```\s*$/m, '')
+          .trim();
+        return JSON.parse(cleaned);
+      },
+    },
+    {
+      name: 'Extract JSON with regex',
+      fn: (response) => {
+        const match = response.match(/\{[\s\S]*?\}(?=\s*(?:```|$))/m);
+        if (!match) throw new Error('No JSON found');
+        return JSON.parse(match[0]);
+      },
+    },
+    {
+      name: 'Extract between first and last braces',
+      fn: (response) => {
+        const firstBrace = response.indexOf('{');
+        const lastBrace = response.lastIndexOf('}');
+        if (firstBrace === -1 || lastBrace === -1 || firstBrace >= lastBrace) {
+          throw new Error('No valid JSON braces found');
+        }
+        const extracted = response.substring(firstBrace, lastBrace + 1);
+        return JSON.parse(extracted);
+      },
+    },
+    {
+      name: 'Line-by-line reconstruction',
+      fn: (response) => {
+        const lines = response.split('\n');
+        const startIdx = lines.findIndex((line) => line.trim().includes('{'));
+        const endIdx = lines.findLastIndex((line) => line.trim().includes('}'));
+        if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) {
+          throw new Error('No valid JSON structure found');
+        }
+        const reconstructed = lines.slice(startIdx, endIdx + 1).join('\n');
+        return JSON.parse(reconstructed);
+      },
+    },
+  ];
+
+  for (const strategy of strategies) {
+    try {
+      console.log(`  🔄 Trying strategy: ${strategy.name}`);
+      const result = strategy.fn(rawResponse);
+
+      if (!result.name || !result.description) {
+        console.log(`  ❌ Strategy ${strategy.name}: Missing required fields`);
+        continue;
+      }
+
+      console.log(`  ✅ Strategy ${strategy.name}: Success`);
+      return {
+        success: true,
+        data: result,
+        usedStrategy: strategy.name,
+      };
+    } catch (error) {
+      console.log(`  ❌ Strategy ${strategy.name}: ${error.message}`);
+    }
+  }
+
+  return {
+    success: false,
+    error: `All ${strategies.length} parsing strategies failed`,
+    rawResponse: rawResponse.substring(0, 200) + '...',
+  };
 }

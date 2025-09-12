@@ -188,4 +188,176 @@ export async function debugRoutes(fastify) {
     },
     handler: debugController.searchByEmbedding,
   });
+
+  fastify.get('/export-catalogue', {
+    schema: {
+      tags: ['debug'],
+      description: 'Export all food catalogue entries to JSON backup file',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            result: { type: 'boolean' },
+            filename: { type: 'string' },
+            filePath: { type: 'string' },
+            totalEntries: { type: 'number' },
+            timestamp: { type: 'string' },
+            message: { type: 'string' },
+          },
+        },
+      },
+    },
+    handler: debugController.exportCatalogueToBackup,
+  });
+
+  fastify.post('/import-catalogue', {
+    schema: {
+      tags: ['debug'],
+      description: 'Import food catalogue entries from JSON backup file (replaces all existing entries)',
+      body: {
+        type: 'object',
+        properties: {
+          filename: { type: 'string', description: 'Name of the backup file in backups/ directory' },
+        },
+        required: ['filename'],
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            result: { type: 'boolean' },
+            filename: { type: 'string' },
+            totalEntriesInBackup: { type: 'number' },
+            deletedCount: { type: 'number' },
+            importedCount: { type: 'number' },
+            skippedCount: { type: 'number' },
+            timestamp: { type: 'string' },
+            message: { type: 'string' },
+          },
+        },
+      },
+    },
+    handler: debugController.importCatalogueFromBackup,
+  });
+
+  fastify.get('/test-prompts/:id', {
+    schema: {
+      tags: ['debug'],
+      description: 'Matrix test: 6 food generation prompts × N models on a specific catalogue entry',
+      params: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', pattern: '^[0-9]+$' },
+        },
+        required: ['id'],
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            result: { type: 'boolean' },
+            catalogueEntry: { type: 'object' },
+            matrixConfig: { type: 'object' },
+            summary: { type: 'object' },
+            promptStats: { type: 'object' },
+            modelStats: { type: 'object' },
+            results: { type: 'array' },
+            saveInfo: { type: 'object' },
+          },
+        },
+      },
+    },
+    handler: debugController.testPrompts,
+  });
+
+  fastify.get('/test-prompts-parallel/:id', {
+    schema: {
+      tags: ['debug'],
+      description: 'Parallel matrix test: 6 food generation prompts × N models with configurable concurrency',
+      params: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', pattern: '^[0-9]+$' },
+        },
+        required: ['id'],
+      },
+      querystring: {
+        type: 'object',
+        properties: {
+          parallelism: { type: 'number', description: 'Number of concurrent requests (default: 3, max: 10)' },
+          delay: { type: 'number', description: 'Delay between request starts in ms (default: 100)' },
+          staggered: { type: 'string', description: 'Enable staggered start for load balancing (default: true)' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            result: { type: 'boolean' },
+            catalogueEntry: { type: 'object' },
+            matrixConfig: { type: 'object' },
+            summary: { type: 'object' },
+            promptStats: { type: 'object' },
+            modelStats: { type: 'object' },
+            results: { type: 'array' },
+            saveInfo: { type: 'object' },
+          },
+        },
+      },
+    },
+    handler: debugController.testPromptsParallel,
+  });
+
+  fastify.get('/enrich-catalogue-names', {
+    schema: {
+      tags: ['debug'],
+      description: 'Enrich catalogue entries with new names and descriptions, targeting entries with empty embedding',
+      querystring: {
+        type: 'object',
+        properties: {
+          count: { type: 'number', description: 'Number of entries to enrich in sequence (default: 1, max: 100)' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            result: { type: 'boolean' },
+            batchProcessing: { type: 'boolean' },
+            processedCount: { type: 'number' },
+            requestedCount: { type: 'number' },
+            results: { type: 'array' },
+          },
+        },
+      },
+    },
+    handler: debugController.enrichCatalogueNames,
+  });
+
+  fastify.get('/enrich-catalogue-names/:id', {
+    schema: {
+      tags: ['debug'],
+      description: 'Enrich specific catalogue entry with new name and description by ID',
+      params: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', pattern: '^[0-9]+$' },
+        },
+        required: ['id'],
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            result: { type: 'boolean' },
+            catalogueEntry: { type: 'object' },
+            enrichmentResult: { type: 'object' },
+            error: { type: 'string' },
+            markedAsConflicted: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    handler: debugController.enrichCatalogueNameById,
+  });
 }

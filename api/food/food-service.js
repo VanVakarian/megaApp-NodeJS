@@ -57,7 +57,7 @@ export function organizeWeightsByDate(arrayOfWeights) {
 }
 
 export async function formFoodCatalogue() {
-  const foodCatalogueRaw = await dbFood.getAllFoodCatalogueEntries();
+  const foodCatalogueRaw = await dbFood.getAllFoodCatalogueEntriesForAPI();
   const foodCataloguePrepped = prepFoodCatalogue(foodCatalogueRaw);
   return foodCataloguePrepped;
 }
@@ -484,7 +484,13 @@ export async function createGeneralizedCatalogueEntry(description) {
       }
     }
 
-    const fullEntry = existingEntry || (await dbFood.getCatalogueEntryByName(generalizedName));
+    const fullEntry = existingEntry
+      ? { ...existingEntry, description: existingEntry.descriptionForEmbedding }
+      : await dbFood.getCatalogueEntryByNameForAPI(generalizedName);
+
+    if (fullEntry && fullEntry.descriptionForEmbedding) {
+      delete fullEntry.descriptionForEmbedding;
+    }
 
     return {
       success: true,
