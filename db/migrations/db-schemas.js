@@ -237,7 +237,8 @@ const dbVersion003 = [
     carbs REAL DEFAULT 0,
     fiber REAL DEFAULT NULL,
     descriptionForEmbedding TEXT DEFAULT NULL,
-    embedding BLOB DEFAULT NULL
+    embedding BLOB DEFAULT NULL,
+    legacyName TEXT
   );
   `,
 

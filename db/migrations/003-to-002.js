@@ -12,6 +12,7 @@ export const migration003to002 = [
   `ALTER TABLE foodCatalogue DROP COLUMN fiber;`,
   `ALTER TABLE foodCatalogue DROP COLUMN descriptionForEmbedding;`,
   `ALTER TABLE foodCatalogue DROP COLUMN embedding;`,
+  `ALTER TABLE foodCatalogue DROP COLUMN legacyName;`,
 
   // Удаляем индекс
   `DROP INDEX IF EXISTS idx_foodCatalogue_name;`,

@@ -368,7 +368,7 @@ export async function getAllFoodCatalogueEntries() {
   try {
     const query = `
       SELECT
-        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding, embedding
+        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding, legacyName, embedding
       FROM
         foodCatalogue
       ORDER BY
@@ -387,7 +387,7 @@ export async function getAllFoodCatalogueEntriesForAPI() {
   try {
     const query = `
       SELECT
-        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding as description
+        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding as description, legacyName
       FROM
         foodCatalogue
       ORDER BY
