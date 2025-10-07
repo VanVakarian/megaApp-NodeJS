@@ -106,7 +106,7 @@ export async function foodRoutes(fastify) {
     handler: foodController.searchCatalogueEntries,
   });
 
-  fastify.post('/create-generalized', {
+  fastify.post('/generate-product-preview', {
     schema: {
       tags: ['food'],
       body: {
@@ -118,7 +118,29 @@ export async function foodRoutes(fastify) {
       },
     },
     preValidation: [authController.authMiddleware],
-    handler: foodController.createGeneralizedCatalogueEntry,
+    handler: foodController.generateProductPreview,
+  });
+
+  fastify.post('/save-product', {
+    schema: {
+      tags: ['food'],
+      body: {
+        type: 'object',
+        properties: {
+          id: { type: 'number' },
+          name: { type: 'string', minLength: 1, maxLength: 100 },
+          kcals: { type: 'number', minimum: 0, maximum: 1000 },
+          protein: { type: 'number', minimum: 0, maximum: 100 },
+          fat: { type: 'number', minimum: 0, maximum: 100 },
+          carbs: { type: 'number', minimum: 0, maximum: 100 },
+          fiber: { type: 'number', minimum: 0, maximum: 50 },
+          description: { type: 'string', minLength: 1, maxLength: 2000 },
+        },
+        required: ['name', 'kcals', 'protein', 'fat', 'carbs', 'fiber', 'description'],
+      },
+    },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.saveProduct,
   });
 
   // =========================================================================================== MULTIMODAL ANALYSIS ===

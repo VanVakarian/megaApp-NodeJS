@@ -18,6 +18,7 @@ export const WS_MESSAGE_TYPES = {
   VOICE_SEARCH_RESULTS: 'VOICE_SEARCH_RESULTS',
   SEARCH_QUERY: 'SEARCH_QUERY',
   SEARCH_RESULTS: 'SEARCH_RESULTS',
+  CATALOGUE_ENTRY_SAVED: 'CATALOGUE_ENTRY_SAVED',
 };
 
 // ===================================================================================================== FULL UPDATE ===
@@ -179,11 +180,94 @@ export async function createCatalogueEntry(request, reply) {
 // ============================================================================================= NEW SEMANTIC SEARCH ===
 
 /**
- * Handles semantic search requests for catalogue entries
- * @param {Object} request - Fastify request object with query parameters
+ * Generates product preview data using LLM without creating database entry
+ * @param {Object} request - Fastify request object with description in body
  * @param {Object} reply - Fastify reply object
- * @returns {Promise<Object>} Search results with matching catalogue entries
+ * @returns {Promise<Object>} Generated product data with KBJU values
  */
+export async function generateProductPreview(request, reply) {
+  const { description } = request.body;
+
+  if (!description || description.trim() === '') {
+    return reply.code(400).send({ result: false, error: 'Description is required' });
+  }
+
+  try {
+    const result = await foodService.generateProductPreviewData(description.trim());
+
+    if (result.success) {
+      return reply.code(200).send({
+        result: true,
+        data: result.data,
+      });
+    }
+
+    return reply.code(400).send({ result: false, error: result.error });
+  } catch (error) {
+    console.error('Error in generateProductPreview:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
+}
+
+/**
+ * Universal endpoint for creating or updating catalogue entries
+ * @param {Object} request - Fastify request object with optional id and full product data in body
+ * @param {Object} reply - Fastify reply object
+ * @returns {Promise<Object>} Created/updated catalogue entry with broadcast to all clients
+ */
+export async function saveProduct(request, reply) {
+  const { id, name, kcals, protein, fat, carbs, fiber, description } = request.body;
+  const userId = request.user.id;
+
+  if (
+    !name ||
+    kcals === undefined ||
+    protein === undefined ||
+    fat === undefined ||
+    carbs === undefined ||
+    fiber === undefined ||
+    !description
+  ) {
+    return reply.code(400).send({ result: false, error: 'All fields are required' });
+  }
+
+  try {
+    const result = await foodService.saveProductData(id || null, {
+      name: name.trim(),
+      kcals: parseFloat(kcals),
+      protein: parseFloat(protein),
+      fat: parseFloat(fat),
+      carbs: parseFloat(carbs),
+      fiber: parseFloat(fiber),
+      description: description.trim(),
+    });
+
+    if (result.success) {
+      updateUserDataLastModified(userId);
+
+      request.server.broadcast(userId, {
+        type: WS_MESSAGE_TYPES.CATALOGUE_ENTRY_SAVED,
+        payload: result.data.catalogueEntry,
+      });
+
+      const statusCode = id ? 200 : 201;
+      return reply.code(statusCode).send({
+        result: true,
+        data: result.data,
+      });
+    }
+
+    if (result.error === 'Product not found') {
+      return reply.code(404).send({ result: false, error: result.error });
+    }
+
+    return reply.code(400).send({ result: false, error: result.error });
+  } catch (error) {
+    console.error('Error in saveProduct:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
+}
+
 export async function searchCatalogueEntries(request, reply) {
   const { query } = request.query;
 
@@ -203,46 +287,8 @@ export async function searchCatalogueEntries(request, reply) {
   }
 }
 
-/**
- * Creates generalized catalogue entry from user description using LLM analysis
- * @param {Object} request - Fastify request object with description in body
- * @param {Object} reply - Fastify reply object
- * @returns {Promise<Object>} Created catalogue entry data
- */
-export async function createGeneralizedCatalogueEntry(request, reply) {
-  const { description } = request.body;
-  const userId = request.user.id;
-
-  if (!description || description.trim() === '') {
-    return reply.code(400).send({ result: false, error: 'Description is required' });
-  }
-
-  try {
-    const result = await foodService.createGeneralizedCatalogueEntry(description.trim());
-
-    if (result.success) {
-      updateUserDataLastModified(userId);
-      return reply.code(201).send({
-        result: true,
-        data: result.data,
-      });
-    }
-
-    return reply.code(400).send({ result: false, error: result.error });
-  } catch (error) {
-    console.error('Error in createGeneralizedCatalogueEntry:', error);
-    return reply.code(500).send({ result: false, error: 'Internal server error' });
-  }
-}
-
 // ============================================================================================= MULTIMODAL ANALYSIS ===
 
-/**
- * Analyzes uploaded food image using AI vision to detect products
- * @param {Object} request - Fastify request object with multipart image file
- * @param {Object} reply - Fastify reply object
- * @returns {Promise<Object>} Detected food product data and search suggestions
- */
 export async function analyzeImage(request, reply) {
   const userId = request.user.id;
 

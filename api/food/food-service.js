@@ -429,10 +429,223 @@ export async function searchCatalogueEntries(query) {
 // ============================================================================================ GENERALIZED PRODUCTS ===
 
 /**
- * Creates a generalized catalogue entry using LLM analysis of user description
+ * Generates product preview data using LLM analysis without database creation
  * @param {string} description - User's free-form product description
- * @returns {Promise<Object>} Result object with success status and created entry data
+ * @returns {Promise<{success: boolean, data?: Object, error?: string}>} Generated product data
  */
+export async function generateProductPreviewData(description) {
+  try {
+    if (!aiService.isAiEnabled()) {
+      return {
+        success: false,
+        error: 'LLM service is disabled',
+      };
+    }
+
+    const llmResult = await aiService.generateGeneralizedProduct(description);
+    if (!llmResult.success) {
+      return {
+        success: false,
+        error: llmResult.error,
+      };
+    }
+
+    return {
+      success: true,
+      data: {
+        generalizedName: llmResult.data.generalizedName,
+        kcals: llmResult.data.kcals,
+        protein: llmResult.data.protein,
+        fat: llmResult.data.fat,
+        carbs: llmResult.data.carbs,
+        fiber: llmResult.data.fiber,
+        descriptionForEmbedding: llmResult.data.descriptionForEmbedding,
+        confidence: llmResult.data.confidence,
+      },
+    };
+  } catch (error) {
+    console.error('Error generating product preview:', error);
+    return {
+      success: false,
+      error: 'Internal server error',
+    };
+  }
+}
+
+/**
+ * Universal function for creating or updating catalogue entries
+ * @param {number|null} id - Catalogue entry ID (null for create, number for update)
+ * @param {Object} productData - Complete product information
+ * @param {string} productData.name - Product name (1-100 characters)
+ * @param {number} productData.kcals - Calories per 100g (0-1000)
+ * @param {number} productData.protein - Protein per 100g (0-100)
+ * @param {number} productData.fat - Fat per 100g (0-100)
+ * @param {number} productData.carbs - Carbs per 100g (0-100)
+ * @param {number} productData.fiber - Fiber per 100g (0-50)
+ * @param {string} productData.description - Product description (1-2000 characters)
+ * @returns {Promise<{success: boolean, data?: Object, error?: string}>} Created/updated entry or error
+ */
+export async function saveProductData(id, productData) {
+  try {
+    const { name, kcals, protein, fat, carbs, fiber, description } = productData;
+
+    if (
+      !name ||
+      kcals === undefined ||
+      protein === undefined ||
+      fat === undefined ||
+      carbs === undefined ||
+      fiber === undefined ||
+      !description
+    ) {
+      return {
+        success: false,
+        error: 'Missing required fields',
+      };
+    }
+
+    if (kcals < 0 || kcals > 1000) {
+      return {
+        success: false,
+        error: 'Calories must be between 0 and 1000',
+      };
+    }
+
+    if (protein < 0 || protein > 100 || fat < 0 || fat > 100 || carbs < 0 || carbs > 100) {
+      return {
+        success: false,
+        error: 'Protein, fat, and carbs must be between 0 and 100',
+      };
+    }
+
+    if (fiber < 0 || fiber > 50) {
+      return {
+        success: false,
+        error: 'Fiber must be between 0 and 50',
+      };
+    }
+
+    if (name.length < 1 || name.length > 100) {
+      return {
+        success: false,
+        error: 'Name must be between 1 and 100 characters',
+      };
+    }
+
+    if (description.length < 1 || description.length > 2000) {
+      return {
+        success: false,
+        error: 'Description must be between 1 and 2000 characters',
+      };
+    }
+
+    if (id === null || id === undefined) {
+      const existingEntry = await dbFood.getCatalogueEntryByName(name);
+      if (existingEntry) {
+        return {
+          success: false,
+          error: 'Product with this name already exists',
+        };
+      }
+
+      const catalogueId = await dbFood.createCatalogueEntryWithFullNutrition(name, {
+        kcals,
+        protein,
+        fat,
+        carbs,
+        fiber,
+        descriptionForEmbedding: description,
+      });
+
+      if (!catalogueId) {
+        return {
+          success: false,
+          error: 'Failed to create catalogue entry',
+        };
+      }
+
+      const embeddingResult = await aiService.generateEmbedding(description);
+      if (embeddingResult.success) {
+        await dbFood.updateCatalogueEntryEmbedding(catalogueId, embeddingResult.data.embedding);
+      }
+
+      const createdEntry = await dbFood.getCatalogueEntryByIdForAPI(catalogueId);
+
+      return {
+        success: true,
+        data: {
+          catalogueEntry: createdEntry,
+        },
+      };
+    } else {
+      const existingEntry = await dbFood.getCatalogueEntryById(id);
+      if (!existingEntry) {
+        return {
+          success: false,
+          error: 'Product not found',
+        };
+      }
+
+      const duplicateEntry = await dbFood.getCatalogueEntryByName(name);
+      if (duplicateEntry && duplicateEntry.id !== id) {
+        return {
+          success: false,
+          error: 'Product with this name already exists',
+        };
+      }
+
+      const updateResult = await dbFood.updateCatalogueEntryFull(
+        id,
+        name,
+        kcals,
+        protein,
+        fat,
+        carbs,
+        fiber,
+        description
+      );
+
+      if (updateResult === false || (updateResult.success === false && updateResult.error === 'DUPLICATE_NAME')) {
+        return {
+          success: false,
+          error: 'Product with this name already exists',
+        };
+      }
+
+      if (updateResult === false) {
+        return {
+          success: false,
+          error: 'Failed to update catalogue entry',
+        };
+      }
+
+      const needsEmbeddingUpdate = existingEntry.name !== name || existingEntry.descriptionForEmbedding !== description;
+
+      if (needsEmbeddingUpdate) {
+        const embeddingResult = await aiService.generateEmbedding(description);
+        if (embeddingResult.success) {
+          await dbFood.updateCatalogueEntryEmbedding(id, embeddingResult.data.embedding);
+        }
+      }
+
+      const updatedEntry = await dbFood.getCatalogueEntryByIdForAPI(id);
+
+      return {
+        success: true,
+        data: {
+          catalogueEntry: updatedEntry,
+        },
+      };
+    }
+  } catch (error) {
+    console.error('Error saving product data:', error);
+    return {
+      success: false,
+      error: 'Internal server error',
+    };
+  }
+}
+
 export async function createGeneralizedCatalogueEntry(description) {
   try {
     if (!aiService.isAiEnabled()) {

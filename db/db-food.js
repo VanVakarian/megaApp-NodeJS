@@ -246,6 +246,44 @@ export async function getCatalogueEntryByName(foodName) {
   }
 }
 
+export async function getCatalogueEntryById(catalogueId) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      SELECT
+        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding
+      FROM
+        foodCatalogue
+      WHERE
+        id = ?;
+    `;
+    const result = await connection.get(query, [catalogueId]);
+    return result || null;
+  } catch (error) {
+    console.error('Error getting catalogue entry by id:', error);
+    return null;
+  }
+}
+
+export async function getCatalogueEntryByIdForAPI(catalogueId) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      SELECT
+        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding as description, legacyName
+      FROM
+        foodCatalogue
+      WHERE
+        id = ?;
+    `;
+    const result = await connection.get(query, [catalogueId]);
+    return result || null;
+  } catch (error) {
+    console.error('Error getting catalogue entry by id for API:', error);
+    return null;
+  }
+}
+
 export async function getCatalogueEntryByNameForAPI(foodName) {
   const connection = await getConnection();
   try {
@@ -299,6 +337,28 @@ export async function updateFoodCatalogueNutrition(foodId, kcals, protein, fat, 
     return true;
   } catch (error) {
     console.error(error);
+    return false;
+  }
+}
+
+export async function updateCatalogueEntryFull(foodId, name, kcals, protein, fat, carbs, fiber, description) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      UPDATE
+        foodCatalogue
+      SET
+        name = ?, kcals = ?, protein = ?, fat = ?, carbs = ?, fiber = ?, descriptionForEmbedding = ?, legacyName = ?
+      WHERE
+        id = ?;
+    `;
+    await connection.run(query, [name, kcals, protein, fat, carbs, fiber, description, name, foodId]);
+    return true;
+  } catch (error) {
+    console.error('Error updating catalogue entry:', error);
+    if (error.code === 'SQLITE_CONSTRAINT' && error.message.includes('UNIQUE constraint failed: foodCatalogue.name')) {
+      return { success: false, error: 'DUPLICATE_NAME' };
+    }
     return false;
   }
 }
