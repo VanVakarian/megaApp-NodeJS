@@ -443,6 +443,7 @@ export async function generateProductPreviewData(description) {
     }
 
     const llmResult = await aiService.generateGeneralizedProduct(description);
+
     if (!llmResult.success) {
       return {
         success: false,

@@ -1,5 +1,11 @@
 import OpenAI from 'openai';
-import { AI_PROMPTS, AI_PROVIDERS } from '../../env.js';
+import {
+  AI_FOOD_GENERATION_PROMPTS,
+  AI_FOOD_GENERATION_SYSTEM_PROMPT,
+  AI_FOOD_TEST_MODELS,
+  AI_PROMPTS,
+  AI_PROVIDERS,
+} from '../../env.js';
 
 const clients = {
   TEXT_GEN: null,
@@ -70,7 +76,7 @@ const FOOD_NUTRITION_SCHEMA = {
   additionalProperties: false,
 };
 
-function validateNutritionData(data) {
+function isNutritionDataValid(data) {
   if (!data || typeof data !== 'object') {
     return false;
   }
@@ -159,7 +165,7 @@ async function callModelsInParallel(messages, responseFormat) {
       try {
         const parsedData = JSON.parse(result.value.data);
 
-        if (!validateNutritionData(parsedData)) {
+        if (!isNutritionDataValid(parsedData)) {
           console.warn(`Invalid nutrition data from model ${result.value.model}:`, parsedData);
           continue;
         }
@@ -226,7 +232,7 @@ async function callVisionModelsInParallel(messages, responseFormat) {
       try {
         const parsedData = JSON.parse(result.value.data);
 
-        if (!validateNutritionData(parsedData)) {
+        if (!isNutritionDataValid(parsedData)) {
           console.warn(`Invalid nutrition data from model ${result.value.model}:`, parsedData);
           continue;
         }
@@ -309,6 +315,142 @@ async function callSimpleVisionModels(messages) {
   };
 }
 
+function parseJSONWithMultipleStrategies(rawResponse) {
+  const strategies = [
+    {
+      name: 'Clean JSON',
+      fn: (response) => JSON.parse(response),
+    },
+    {
+      name: 'Remove markdown blocks',
+      fn: (response) => {
+        const cleaned = response
+          .replace(/^```(?:json)?\s*/im, '')
+          .replace(/```\s*$/m, '')
+          .trim();
+        return JSON.parse(cleaned);
+      },
+    },
+    {
+      name: 'Extract JSON with regex',
+      fn: (response) => {
+        const match = response.match(/\{[\s\S]*?\}(?=\s*(?:```|$))/m);
+        if (!match) throw new Error('No JSON found');
+        return JSON.parse(match[0]);
+      },
+    },
+    {
+      name: 'Extract between first and last braces',
+      fn: (response) => {
+        const firstBrace = response.indexOf('{');
+        const lastBrace = response.lastIndexOf('}');
+        if (firstBrace === -1 || lastBrace === -1 || firstBrace >= lastBrace) {
+          throw new Error('No valid JSON braces found');
+        }
+        const extracted = response.substring(firstBrace, lastBrace + 1);
+        return JSON.parse(extracted);
+      },
+    },
+    {
+      name: 'Line-by-line reconstruction',
+      fn: (response) => {
+        const lines = response.split('\n');
+        const startIdx = lines.findIndex((line) => line.trim().includes('{'));
+        const endIdx = lines.findLastIndex((line) => line.trim().includes('}'));
+        if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) {
+          throw new Error('No valid JSON structure found');
+        }
+        const reconstructed = lines.slice(startIdx, endIdx + 1).join('\n');
+        return JSON.parse(reconstructed);
+      },
+    },
+  ];
+
+  for (const strategy of strategies) {
+    try {
+      const result = strategy.fn(rawResponse);
+
+      if (!result.name || !result.description) {
+        continue;
+      }
+
+      const hasKBJU =
+        typeof result.kcals === 'number' &&
+        typeof result.protein === 'number' &&
+        typeof result.fat === 'number' &&
+        typeof result.carbs === 'number' &&
+        typeof result.fiber === 'number';
+
+      if (!hasKBJU) {
+        continue;
+      }
+
+      return {
+        success: true,
+        data: result,
+        usedStrategy: strategy.name,
+      };
+    } catch (error) {
+      continue;
+    }
+  }
+
+  return {
+    success: false,
+    error: `All ${strategies.length} parsing strategies failed`,
+    rawResponse: rawResponse.substring(0, 200) + '...',
+  };
+}
+
+async function callOpenRouterDirectly({ model, systemPrompt, userPrompt }) {
+  try {
+    const config = AI_PROVIDERS.TEXT_GEN;
+
+    const response = await fetch(config.BASE_URL + '/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        max_tokens: config.MAX_TOKENS,
+        temperature: config.TEMPERATURE,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.text();
+      return {
+        success: false,
+        error: `HTTP ${response.status}: ${errorData}`,
+      };
+    }
+
+    const data = await response.json();
+
+    return {
+      success: true,
+      data: {
+        content: data.choices[0].message.content,
+      },
+      metadata: {
+        model: data.model,
+        usage: data.usage,
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+}
+
 export async function generateGeneralizedProduct(description) {
   try {
     const config = AI_PROVIDERS.TEXT_GEN;
@@ -317,32 +459,61 @@ export async function generateGeneralizedProduct(description) {
       throw new Error('Chat provider is disabled');
     }
 
-    const messages = [
-      {
-        role: 'user',
-        content: AI_PROMPTS.USER_GENERALIZE_PRODUCT.replace('{description}', description),
-      },
-    ];
+    const promptConfig = AI_FOOD_GENERATION_PROMPTS['ULTIMATE-1'];
+    const userPrompt = promptConfig.userPrompt
+      .replace('{originalName}', description)
+      .replace('{originalDescription}', '');
 
-    const responseFormat = {
-      type: 'json_schema',
-      json_schema: {
-        name: 'food_nutrition',
-        schema: FOOD_NUTRITION_SCHEMA,
-      },
-    };
+    for (const model of AI_FOOD_TEST_MODELS) {
+      const startTime = Date.now();
+      const llmResult = await callOpenRouterDirectly({
+        model: model,
+        systemPrompt: AI_FOOD_GENERATION_SYSTEM_PROMPT,
+        userPrompt: userPrompt,
+      });
+      const responseTime = Date.now() - startTime;
 
-    const result = await callModelsInParallel(messages, responseFormat);
+      if (!llmResult.success) {
+        continue;
+      }
 
-    return {
-      success: true,
-      data: result.data,
-      metadata: {
-        model: result.model,
-        provider: config.PROVIDER,
-        usage: result.usage,
-      },
-    };
+      const parsedResult = parseJSONWithMultipleStrategies(llmResult.data.content);
+
+      if (!parsedResult.success) {
+        continue;
+      }
+
+      if (parsedResult.data.name && parsedResult.data.description) {
+        const nutritionData = {
+          generalizedName: parsedResult.data.name,
+          kcals: parsedResult.data.kcals || 0,
+          protein: parsedResult.data.protein || 0,
+          fat: parsedResult.data.fat || 0,
+          carbs: parsedResult.data.carbs || 0,
+          fiber: parsedResult.data.fiber || 0,
+          confidence: parsedResult.data.confidence || 0.5,
+          descriptionForEmbedding: parsedResult.data.description,
+        };
+
+        if (!isNutritionDataValid(nutritionData)) {
+          continue;
+        }
+
+        return {
+          success: true,
+          data: nutritionData,
+          metadata: {
+            model: model,
+            provider: config.PROVIDER,
+            usage: llmResult.metadata?.usage,
+            responseTime: responseTime,
+            parsingStrategy: parsedResult.usedStrategy,
+          },
+        };
+      }
+    }
+
+    throw new Error('All models failed to generate valid product data');
   } catch (error) {
     console.error('LLM generateGeneralizedProduct error:', error);
     return {
@@ -651,7 +822,7 @@ export async function runMultipleModels(description) {
         try {
           const parsedData = JSON.parse(response.choices[0].message.content);
 
-          if (!validateNutritionData(parsedData)) {
+          if (!isNutritionDataValid(parsedData)) {
             return {
               model,
               success: false,
