@@ -461,7 +461,6 @@ export async function generateProductPreviewData(description) {
         carbs: llmResult.data.carbs,
         fiber: llmResult.data.fiber,
         descriptionForEmbedding: llmResult.data.descriptionForEmbedding,
-        confidence: llmResult.data.confidence,
       },
     };
   } catch (error) {
@@ -711,7 +710,6 @@ export async function createGeneralizedCatalogueEntry(description) {
       data: {
         catalogueEntry: fullEntry,
         isNew: isNew,
-        confidence: productData.confidence,
       },
     };
   } catch (error) {
@@ -814,7 +812,6 @@ export async function analyzeVoiceForCatalogueEntry(transcript) {
       data: {
         detectedProduct: productData,
         searchResults: searchResults,
-        confidence: productData.confidence,
       },
     };
   } catch (error) {

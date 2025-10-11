@@ -2,12 +2,7 @@ import { execSync } from 'child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import * as dbFood from '../../db/db-food.js';
-import {
-  AI_FOOD_GENERATION_PROMPTS,
-  AI_FOOD_GENERATION_SYSTEM_PROMPT,
-  AI_FOOD_TEST_MODELS,
-  AI_PROVIDERS,
-} from '../../env.js';
+import { AI_FOOD_DESCRIPTION_GEN_SYSTEM_PROMPT, AI_FOOD_DESCRIPTION_MODELS, AI_PROVIDERS } from '../../env.js';
 import * as aiService from '../ai/ai-service.js';
 import * as debugService from './debug-service.js';
 
@@ -294,7 +289,6 @@ async function enrichSingleCatalogueEntry(catalogueId, threshold = 75) {
         console.log(`  ⏱️  Response time: ${timeSeconds}s (${result.responseTime}ms)`);
         console.log(`  📝 Generalized name: "${result.data.generalizedName}"`);
         console.log(`  🍎 KBJU: ${result.data.kcals}kcal, P:${result.data.protein}g, F:${result.data.fat}g, C:${result.data.carbs}g, Fiber:${result.data.fiber}g`); // prettier-ignore
-        console.log(`  🎯 Confidence: ${result.data.confidence}`);
         console.log(`  📖 Description: "${result.data.descriptionForEmbedding}"`);
       } else {
         console.log(`  ❌ Failed`);
@@ -319,15 +313,14 @@ async function enrichSingleCatalogueEntry(catalogueId, threshold = 75) {
         filteredResults.push(...successfulResults);
       }
 
-      const totalConfidence = filteredResults.reduce((sum, r) => sum + r.data.confidence, 0);
+      const resultsCount = filteredResults.length;
 
       weightedAverage = {
-        kcals: filteredResults.reduce((sum, r) => sum + r.data.kcals * r.data.confidence, 0) / totalConfidence,
-        protein: filteredResults.reduce((sum, r) => sum + r.data.protein * r.data.confidence, 0) / totalConfidence,
-        fat: filteredResults.reduce((sum, r) => sum + r.data.fat * r.data.confidence, 0) / totalConfidence,
-        carbs: filteredResults.reduce((sum, r) => sum + r.data.carbs * r.data.confidence, 0) / totalConfidence,
-        fiber: filteredResults.reduce((sum, r) => sum + r.data.fiber * r.data.confidence, 0) / totalConfidence,
-        averageConfidence: totalConfidence / filteredResults.length,
+        kcals: filteredResults.reduce((sum, r) => sum + r.data.kcals, 0) / resultsCount,
+        protein: filteredResults.reduce((sum, r) => sum + r.data.protein, 0) / resultsCount,
+        fat: filteredResults.reduce((sum, r) => sum + r.data.fat, 0) / resultsCount,
+        carbs: filteredResults.reduce((sum, r) => sum + r.data.carbs, 0) / resultsCount,
+        fiber: filteredResults.reduce((sum, r) => sum + r.data.fiber, 0) / resultsCount,
       };
 
       const longestDescription = filteredResults
@@ -346,9 +339,8 @@ async function enrichSingleCatalogueEntry(catalogueId, threshold = 75) {
 
       weightedAverage.selectedDescription = longestDescription;
 
-      console.log(`\n📊 Weighted Average (by confidence):`);
+      console.log(`\n📊 Average KBJU (arithmetic mean):`);
       console.log(`  🍎 KBJU: ${weightedAverage.kcals.toFixed(1)}kcal, P:${weightedAverage.protein.toFixed(1)}g, F:${weightedAverage.fat.toFixed(1)}g, C:${weightedAverage.carbs.toFixed(1)}g, Fiber:${weightedAverage.fiber.toFixed(1)}g`); // prettier-ignore
-      console.log(`  🎯 Average confidence: ${weightedAverage.averageConfidence.toFixed(3)}`);
       console.log(`  🔥 Kcals comparison: DB=${entry.kcals || 0} → LLM=${weightedAverage.kcals.toFixed(1)} (${kcalsDiff >= 0 ? '+' : ''}${kcalsDiff.toFixed(1)}${kcalsDiffPercent !== null ? `, ${kcalsDiffPercent >= 0 ? '+' : ''}${kcalsDiffPercent.toFixed(1)}%` : ''})`); // prettier-ignore
       console.log(`  📖 Selected description (longest): "${longestDescription}"`);
 
@@ -971,9 +963,7 @@ export async function testPrompts(request, reply) {
     }
 
     console.log(
-      `🧪 Matrix testing: ${Object.keys(AI_FOOD_GENERATION_PROMPTS).length} prompts × ${
-        AI_FOOD_TEST_MODELS.length
-      } models = ${Object.keys(AI_FOOD_GENERATION_PROMPTS).length * AI_FOOD_TEST_MODELS.length} total tests`
+      `🧪 Matrix testing: 1 prompt × ${AI_FOOD_DESCRIPTION_MODELS.length} models = ${AI_FOOD_DESCRIPTION_MODELS.length} total tests`
     );
 
     const allEntries = await dbFood.getAllFoodCatalogueEntries();
@@ -992,105 +982,93 @@ export async function testPrompts(request, reply) {
     const results = [];
     let testNumber = 1;
 
-    // Матричное тестирование: каждый промпт на каждой модели
-    for (const [promptKey, promptConfig] of Object.entries(AI_FOOD_GENERATION_PROMPTS)) {
-      for (const model of AI_FOOD_TEST_MODELS) {
-        console.log(
-          `\n🔄 Test ${testNumber}/${
-            Object.keys(AI_FOOD_GENERATION_PROMPTS).length * AI_FOOD_TEST_MODELS.length
-          }: ${promptKey} on ${model}`
+    for (const model of AI_FOOD_DESCRIPTION_MODELS) {
+      console.log(`\n🔄 Test ${testNumber}/${AI_FOOD_DESCRIPTION_MODELS.length}: ${model}`);
+
+      const startTime = Date.now();
+
+      try {
+        const userPrompt = AI_FOOD_DESCRIPTION_USER_PROMPT.replace('{originalName}', entry.name).replace(
+          '{originalDescription}',
+          entry.descriptionForEmbedding || ''
         );
 
-        const startTime = Date.now();
+        const llmResult = await callOpenRouterAPI({
+          model: model,
+          systemPrompt: AI_FOOD_DESCRIPTION_GEN_SYSTEM_PROMPT,
+          userPrompt: userPrompt,
+        });
 
-        try {
-          const userPrompt = promptConfig.userPrompt
-            .replace('{originalName}', entry.name)
-            .replace('{originalDescription}', entry.descriptionForEmbedding || '');
+        const responseTime = Date.now() - startTime;
 
-          const llmResult = await callOpenRouterAPI({
-            model: model,
-            systemPrompt: AI_FOOD_GENERATION_SYSTEM_PROMPT,
-            userPrompt: userPrompt,
-          });
+        if (llmResult.success) {
+          let parsedResult = null;
+          let parseError = null;
 
-          const responseTime = Date.now() - startTime;
+          try {
+            parsedResult = parseJSONWithFallback(llmResult.data.content);
 
-          if (llmResult.success) {
-            let parsedResult = null;
-            let parseError = null;
-
-            try {
-              parsedResult = parseJSONWithFallback(llmResult.data.content);
-
-              if (!parsedResult.name || !parsedResult.description) {
-                parseError = 'Missing required fields: name and/or description';
-              }
-            } catch (err) {
-              parseError = `JSON parse error: ${err.message}`;
+            if (!parsedResult.name || !parsedResult.description) {
+              parseError = 'Missing required fields: name and/or description';
             }
-
-            results.push({
-              testNumber,
-              promptKey,
-              promptDescription: promptConfig.description,
-              model,
-              success: !parseError,
-              responseTime,
-              rawResponse: llmResult.data.content,
-              parsedResult,
-              parseError,
-              usage: llmResult.metadata?.usage,
-            });
-
-            console.log(`  ✅ Success (${responseTime}ms)`);
-            if (parsedResult && !parseError) {
-              console.log(`    Name: "${parsedResult.name}"`);
-              console.log(`    Description: "${parsedResult.description.substring(0, 80)}..."`);
-            } else {
-              console.log(`    ❌ Parse error: ${parseError}`);
-            }
-          } else {
-            results.push({
-              testNumber,
-              promptKey,
-              promptDescription: promptConfig.description,
-              model,
-              success: false,
-              responseTime,
-              error: llmResult.error,
-              rawResponse: null,
-              parsedResult: null,
-              parseError: null,
-              usage: null,
-            });
-
-            console.log(`  ❌ Failed (${responseTime}ms): ${llmResult.error}`);
+          } catch (err) {
+            parseError = `JSON parse error: ${err.message}`;
           }
 
-          // Пауза между запросами
-          await new Promise((resolve) => setTimeout(resolve, 800));
-        } catch (error) {
-          const responseTime = Date.now() - startTime;
           results.push({
             testNumber,
-            promptKey,
-            promptDescription: promptConfig.description,
+            model,
+            success: !parseError,
+            responseTime,
+            rawResponse: llmResult.data.content,
+            parsedResult,
+            parseError,
+            usage: llmResult.metadata?.usage,
+          });
+
+          console.log(`  ✅ Success (${responseTime}ms)`);
+          if (parsedResult && !parseError) {
+            console.log(`    Name: "${parsedResult.name}"`);
+            console.log(`    Description: "${parsedResult.description.substring(0, 80)}..."`);
+          } else {
+            console.log(`    ❌ Parse error: ${parseError}`);
+          }
+        } else {
+          results.push({
+            testNumber,
             model,
             success: false,
             responseTime,
-            error: error.message,
+            error: llmResult.error,
             rawResponse: null,
             parsedResult: null,
             parseError: null,
             usage: null,
           });
 
-          console.log(`  ❌ Exception (${responseTime}ms): ${error.message}`);
+          console.log(`  ❌ Failed (${responseTime}ms): ${llmResult.error}`);
         }
 
-        testNumber++;
+        // Пауза между запросами
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      } catch (error) {
+        const responseTime = Date.now() - startTime;
+        results.push({
+          testNumber,
+          model,
+          success: false,
+          responseTime,
+          error: error.message,
+          rawResponse: null,
+          parsedResult: null,
+          parseError: null,
+          usage: null,
+        });
+
+        console.log(`  ❌ Exception (${responseTime}ms): ${error.message}`);
       }
+
+      testNumber++;
     }
 
     const saveResult = savePromptTestResults(entry, originalInput, results);
@@ -1098,29 +1076,16 @@ export async function testPrompts(request, reply) {
     // Подсчёт статистики
     const summary = {
       totalTests: results.length,
-      totalPrompts: Object.keys(AI_FOOD_GENERATION_PROMPTS).length,
-      totalModels: AI_FOOD_TEST_MODELS.length,
+      totalModels: AI_FOOD_DESCRIPTION_MODELS.length,
       successfulTests: results.filter((r) => r.success).length,
       failedTests: results.filter((r) => !r.success).length,
       averageResponseTime: Math.round(results.reduce((sum, r) => sum + r.responseTime, 0) / results.length),
       successRate: Math.round((results.filter((r) => r.success).length / results.length) * 100),
     };
 
-    // Статистика по промптам
-    const promptStats = {};
-    Object.keys(AI_FOOD_GENERATION_PROMPTS).forEach((promptKey) => {
-      const promptResults = results.filter((r) => r.promptKey === promptKey);
-      promptStats[promptKey] = {
-        total: promptResults.length,
-        successful: promptResults.filter((r) => r.success).length,
-        successRate: Math.round((promptResults.filter((r) => r.success).length / promptResults.length) * 100),
-        avgResponseTime: Math.round(promptResults.reduce((sum, r) => sum + r.responseTime, 0) / promptResults.length),
-      };
-    });
-
     // Статистика по моделям
     const modelStats = {};
-    AI_FOOD_TEST_MODELS.forEach((model) => {
+    AI_FOOD_DESCRIPTION_MODELS.forEach((model) => {
       const modelResults = results.filter((r) => r.model === model);
       modelStats[model] = {
         total: modelResults.length,
@@ -1148,12 +1113,10 @@ export async function testPrompts(request, reply) {
         originalInput,
       },
       matrixConfig: {
-        prompts: Object.keys(AI_FOOD_GENERATION_PROMPTS),
-        models: AI_FOOD_TEST_MODELS,
-        systemPrompt: AI_FOOD_GENERATION_SYSTEM_PROMPT.substring(0, 100) + '...',
+        models: AI_FOOD_DESCRIPTION_MODELS,
+        systemPrompt: AI_FOOD_DESCRIPTION_GEN_SYSTEM_PROMPT.substring(0, 100) + '...',
       },
       summary,
-      promptStats,
       modelStats,
       results,
       saveInfo: saveResult,
@@ -1287,12 +1250,10 @@ function savePromptTestResults(catalogueEntry, originalInput, results, testingMo
         originalInput,
       },
       matrixConfig: {
-        totalPrompts: Object.keys(AI_FOOD_GENERATION_PROMPTS).length,
-        totalModels: AI_FOOD_TEST_MODELS.length,
+        totalModels: AI_FOOD_DESCRIPTION_MODELS.length,
         totalTests: results.length,
-        prompts: Object.keys(AI_FOOD_GENERATION_PROMPTS),
-        models: AI_FOOD_TEST_MODELS,
-        systemPrompt: AI_FOOD_GENERATION_SYSTEM_PROMPT,
+        models: AI_FOOD_DESCRIPTION_MODELS,
+        systemPrompt: AI_FOOD_DESCRIPTION_GEN_SYSTEM_PROMPT,
       },
       results,
     };
@@ -1349,11 +1310,9 @@ export async function testPromptsParallel(request, reply) {
     const useStaggered = request.query.staggered !== 'false'; // Ступенчатый запуск (по умолчанию включен)
 
     console.log(
-      `🚀 Parallel matrix testing: ${Object.keys(AI_FOOD_GENERATION_PROMPTS).length} prompts × ${
-        AI_FOOD_TEST_MODELS.length
-      } models = ${Object.keys(AI_FOOD_GENERATION_PROMPTS).length * AI_FOOD_TEST_MODELS.length} total tests`
+      `🚀 Parallel matrix testing: ${AI_FOOD_DESCRIPTION_MODELS.length} models (parallelism: ${parallelismLevel})`
     );
-    console.log(`⚡ Parallelism: ${parallelismLevel}, Delay: ${requestDelay}ms, Staggered: ${useStaggered}`);
+    console.log(`⚡ Delay: ${requestDelay}ms, Staggered: ${useStaggered}`);
 
     const allEntries = await dbFood.getAllFoodCatalogueEntries();
     const entry = allEntries.find((e) => e.id === catalogueId);
@@ -1369,22 +1328,18 @@ export async function testPromptsParallel(request, reply) {
 
     const originalInput = `${entry.name}${entry.descriptionForEmbedding ? ` - ${entry.descriptionForEmbedding}` : ''}`;
 
-    // Подготавливаем все задачи для параллельного выполнения
     const allTasks = [];
     let testNumber = 1;
 
-    for (const [promptKey, promptConfig] of Object.entries(AI_FOOD_GENERATION_PROMPTS)) {
-      for (const model of AI_FOOD_TEST_MODELS) {
-        allTasks.push({
-          testNumber: testNumber++,
-          promptKey,
-          promptDescription: promptConfig.description,
-          model,
-          userPrompt: promptConfig.userPrompt
-            .replace('{originalName}', entry.name)
-            .replace('{originalDescription}', entry.descriptionForEmbedding || ''),
-        });
-      }
+    for (const model of AI_FOOD_DESCRIPTION_MODELS) {
+      allTasks.push({
+        testNumber: testNumber++,
+        model,
+        userPrompt: AI_FOOD_DESCRIPTION_USER_PROMPT.replace('{originalName}', entry.name).replace(
+          '{originalDescription}',
+          entry.descriptionForEmbedding || ''
+        ),
+      });
     }
 
     const startTime = Date.now();
@@ -1393,11 +1348,9 @@ export async function testPromptsParallel(request, reply) {
 
     const saveResult = savePromptTestResults(entry, originalInput, results, 'parallel');
 
-    // Подсчёт статистики
     const summary = {
       totalTests: results.length,
-      totalPrompts: Object.keys(AI_FOOD_GENERATION_PROMPTS).length,
-      totalModels: AI_FOOD_TEST_MODELS.length,
+      totalModels: AI_FOOD_DESCRIPTION_MODELS.length,
       successfulTests: results.filter((r) => r.success).length,
       failedTests: results.filter((r) => !r.success).length,
       averageResponseTime: Math.round(results.reduce((sum, r) => sum + r.responseTime, 0) / results.length),
@@ -1405,24 +1358,10 @@ export async function testPromptsParallel(request, reply) {
       totalExecutionTime: totalTime,
       parallelismLevel,
       requestDelay,
-      performanceImprovement: `~${Math.round((18 * 22126 + 17 * 800) / totalTime)}x faster`,
     };
 
-    // Статистика по промптам
-    const promptStats = {};
-    Object.keys(AI_FOOD_GENERATION_PROMPTS).forEach((promptKey) => {
-      const promptResults = results.filter((r) => r.promptKey === promptKey);
-      promptStats[promptKey] = {
-        total: promptResults.length,
-        successful: promptResults.filter((r) => r.success).length,
-        successRate: Math.round((promptResults.filter((r) => r.success).length / promptResults.length) * 100),
-        avgResponseTime: Math.round(promptResults.reduce((sum, r) => sum + r.responseTime, 0) / promptResults.length),
-      };
-    });
-
-    // Статистика по моделям
     const modelStats = {};
-    AI_FOOD_TEST_MODELS.forEach((model) => {
+    AI_FOOD_DESCRIPTION_MODELS.forEach((model) => {
       const modelResults = results.filter((r) => r.model === model);
       modelStats[model] = {
         total: modelResults.length,
@@ -1452,15 +1391,13 @@ export async function testPromptsParallel(request, reply) {
         originalInput,
       },
       matrixConfig: {
-        prompts: Object.keys(AI_FOOD_GENERATION_PROMPTS),
-        models: AI_FOOD_TEST_MODELS,
-        systemPrompt: AI_FOOD_GENERATION_SYSTEM_PROMPT.substring(0, 100) + '...',
+        models: AI_FOOD_DESCRIPTION_MODELS,
+        systemPrompt: AI_FOOD_DESCRIPTION_GEN_SYSTEM_PROMPT.substring(0, 100) + '...',
         parallelismLevel,
         requestDelay,
         useStaggered,
       },
       summary,
-      promptStats,
       modelStats,
       results,
       saveInfo: saveResult,
@@ -1485,13 +1422,13 @@ async function executeTasksInParallel(tasks, parallelismLevel, requestDelay, use
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
 
-    console.log(`\n🔄 Test ${task.testNumber}/${tasks.length}: ${task.promptKey} on ${task.model}`);
+    console.log(`\n🔄 Test ${task.testNumber}/${tasks.length}: ${task.model}`);
     const startTime = Date.now();
 
     try {
       const llmResult = await callOpenRouterAPI({
         model: task.model,
-        systemPrompt: AI_FOOD_GENERATION_SYSTEM_PROMPT,
+        systemPrompt: AI_FOOD_DESCRIPTION_GEN_SYSTEM_PROMPT,
         userPrompt: task.userPrompt,
       });
 
@@ -1513,8 +1450,6 @@ async function executeTasksInParallel(tasks, parallelismLevel, requestDelay, use
 
         const result = {
           testNumber: task.testNumber,
-          promptKey: task.promptKey,
-          promptDescription: task.promptDescription,
           model: task.model,
           success: !parseError,
           responseTime,
@@ -1535,8 +1470,6 @@ async function executeTasksInParallel(tasks, parallelismLevel, requestDelay, use
       } else {
         const result = {
           testNumber: task.testNumber,
-          promptKey: task.promptKey,
-          promptDescription: task.promptDescription,
           model: task.model,
           success: false,
           responseTime,
@@ -1554,8 +1487,6 @@ async function executeTasksInParallel(tasks, parallelismLevel, requestDelay, use
       const responseTime = Date.now() - startTime;
       const result = {
         testNumber: task.testNumber,
-        promptKey: task.promptKey,
-        promptDescription: task.promptDescription,
         model: task.model,
         success: false,
         responseTime,
@@ -1713,17 +1644,11 @@ export async function getCatalogueSample(request, reply) {
 export async function getTestConfig(request, reply) {
   try {
     const config = {
-      systemPrompt: AI_FOOD_GENERATION_SYSTEM_PROMPT,
-      prompts: Object.entries(AI_FOOD_GENERATION_PROMPTS).map(([key, value]) => ({
-        key,
-        description: value.description,
-        userPrompt: value.userPrompt.substring(0, 150) + '...',
-      })),
-      models: AI_FOOD_TEST_MODELS,
+      systemPrompt: AI_FOOD_DESCRIPTION_GEN_SYSTEM_PROMPT,
+      models: AI_FOOD_DESCRIPTION_MODELS,
       matrixSize: {
-        totalPrompts: Object.keys(AI_FOOD_GENERATION_PROMPTS).length,
-        totalModels: AI_FOOD_TEST_MODELS.length,
-        totalTests: Object.keys(AI_FOOD_GENERATION_PROMPTS).length * AI_FOOD_TEST_MODELS.length,
+        totalModels: AI_FOOD_DESCRIPTION_MODELS.length,
+        totalTests: AI_FOOD_DESCRIPTION_MODELS.length,
       },
     };
 
@@ -1878,18 +1803,18 @@ async function enrichSingleCatalogueName(catalogueEntry) {
     }`;
     console.log(`📝 Original input: "${originalInput}"`);
 
-    const promptConfig = AI_FOOD_GENERATION_PROMPTS['ULTIMATE-1'];
-    const userPrompt = promptConfig.userPrompt
-      .replace('{originalName}', catalogueEntry.name)
-      .replace('{originalDescription}', catalogueEntry.descriptionForEmbedding || '');
+    const userPrompt = AI_FOOD_DESCRIPTION_USER_PROMPT.replace('{originalName}', catalogueEntry.name).replace(
+      '{originalDescription}',
+      catalogueEntry.descriptionForEmbedding || ''
+    );
 
-    for (const model of AI_FOOD_TEST_MODELS) {
+    for (const model of AI_FOOD_DESCRIPTION_MODELS) {
       console.log(`🤖 Trying model: ${model}`);
 
       const startTime = Date.now();
       const llmResult = await callOpenRouterAPI({
         model: model,
-        systemPrompt: AI_FOOD_GENERATION_SYSTEM_PROMPT,
+        systemPrompt: AI_FOOD_DESCRIPTION_GEN_SYSTEM_PROMPT,
         userPrompt: userPrompt,
       });
       const responseTime = Date.now() - startTime;

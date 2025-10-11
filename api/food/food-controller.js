@@ -78,7 +78,7 @@ export async function createDiaryEntry(request, reply) {
       updateUserDataLastModified(userId);
       request.server.scheduleStatsRecalculation(userId);
       const clientId = request.server.getClientId(request);
-      request.server.broadcast(
+      request.server.broadcastToUser(
         userId,
         {
           type: WS_MESSAGE_TYPES.DIARY_ENTRY_CREATED,
@@ -111,7 +111,7 @@ export async function editDiaryEntry(request, reply) {
     updateUserDataLastModified(userId);
     request.server.scheduleStatsRecalculation(userId);
     const clientId = request.server.getClientId(request);
-    request.server.broadcast(
+    request.server.broadcastToUser(
       userId,
       {
         type: WS_MESSAGE_TYPES.DIARY_ENTRY_UPDATED,
@@ -139,7 +139,7 @@ export async function deleteDiaryEntry(request, reply) {
       updateUserDataLastModified(userId);
       request.server.scheduleStatsRecalculation(userId);
       const clientId = request.server.getClientId(request);
-      request.server.broadcast(
+      request.server.broadcastToUser(
         userId,
         {
           type: WS_MESSAGE_TYPES.DIARY_ENTRY_DELETED,
@@ -245,10 +245,14 @@ export async function saveProduct(request, reply) {
     if (result.success) {
       updateUserDataLastModified(userId);
 
-      request.server.broadcast(userId, {
-        type: WS_MESSAGE_TYPES.CATALOGUE_ENTRY_SAVED,
-        payload: result.data.catalogueEntry,
-      });
+      const clientId = request.server.getClientId(request);
+      request.server.broadcastToAllUsers(
+        {
+          type: WS_MESSAGE_TYPES.CATALOGUE_ENTRY_SAVED,
+          payload: result.data.catalogueEntry,
+        },
+        clientId
+      );
 
       const statusCode = id ? 200 : 201;
       return reply.code(statusCode).send({
@@ -414,7 +418,7 @@ export async function processWeight(request, reply) {
       updateUserDataLastModified(userId);
       request.server.scheduleStatsRecalculation(userId);
       const clientId = request.server.getClientId(request);
-      request.server.broadcast(
+      request.server.broadcastToUser(
         userId,
         {
           type: WS_MESSAGE_TYPES.BODY_WEIGHT_UPDATED,

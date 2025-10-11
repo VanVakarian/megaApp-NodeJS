@@ -1,8 +1,8 @@
 import OpenAI from 'openai';
 import {
-  AI_FOOD_GENERATION_PROMPTS,
-  AI_FOOD_GENERATION_SYSTEM_PROMPT,
-  AI_FOOD_TEST_MODELS,
+  AI_FOOD_DESCRIPTION_GEN_SYSTEM_PROMPT,
+  AI_FOOD_DESCRIPTION_MODELS,
+  AI_FOOD_DESCRIPTION_USER_PROMPT,
   AI_PROMPTS,
   AI_PROVIDERS,
 } from '../../env.js';
@@ -61,18 +61,12 @@ const FOOD_NUTRITION_SCHEMA = {
       type: 'number',
       description: 'Содержание клетчатки в граммах на 100 г продукта',
     },
-    confidence: {
-      type: 'number',
-      minimum: 0,
-      maximum: 1,
-      description: 'Уверенность модели в правильности данных (от 0 до 1)',
-    },
     descriptionForEmbedding: {
       type: 'string',
       description: 'Краткое описание продукта для векторного поиска (без брендов, без маркетинга)',
     },
   },
-  required: ['generalizedName', 'kcals', 'protein', 'fat', 'carbs', 'fiber', 'confidence', 'descriptionForEmbedding'],
+  required: ['generalizedName', 'kcals', 'protein', 'fat', 'carbs', 'fiber', 'descriptionForEmbedding'],
   additionalProperties: false,
 };
 
@@ -81,16 +75,7 @@ function isNutritionDataValid(data) {
     return false;
   }
 
-  const requiredFields = [
-    'generalizedName',
-    'kcals',
-    'protein',
-    'fat',
-    'carbs',
-    'fiber',
-    'confidence',
-    'descriptionForEmbedding',
-  ];
+  const requiredFields = ['generalizedName', 'kcals', 'protein', 'fat', 'carbs', 'fiber', 'descriptionForEmbedding'];
 
   for (const field of requiredFields) {
     if (!(field in data)) {
@@ -102,15 +87,11 @@ function isNutritionDataValid(data) {
     return false;
   }
 
-  const numericFields = ['kcals', 'protein', 'fat', 'carbs', 'fiber', 'confidence'];
+  const numericFields = ['kcals', 'protein', 'fat', 'carbs', 'fiber'];
   for (const field of numericFields) {
     if (typeof data[field] !== 'number' || isNaN(data[field]) || data[field] < 0) {
       return false;
     }
-  }
-
-  if (data.confidence > 1) {
-    return false;
   }
 
   if (data.kcals > 1000 || data.protein > 100 || data.fat > 100 || data.carbs > 100 || data.fiber > 50) {
@@ -459,16 +440,16 @@ export async function generateGeneralizedProduct(description) {
       throw new Error('Chat provider is disabled');
     }
 
-    const promptConfig = AI_FOOD_GENERATION_PROMPTS['ULTIMATE-1'];
-    const userPrompt = promptConfig.userPrompt
-      .replace('{originalName}', description)
-      .replace('{originalDescription}', '');
+    const userPrompt = AI_FOOD_DESCRIPTION_USER_PROMPT.replace('{originalName}', description).replace(
+      '{originalDescription}',
+      ''
+    );
 
-    for (const model of AI_FOOD_TEST_MODELS) {
+    for (const model of AI_FOOD_DESCRIPTION_MODELS) {
       const startTime = Date.now();
       const llmResult = await callOpenRouterDirectly({
         model: model,
-        systemPrompt: AI_FOOD_GENERATION_SYSTEM_PROMPT,
+        systemPrompt: AI_FOOD_DESCRIPTION_GEN_SYSTEM_PROMPT,
         userPrompt: userPrompt,
       });
       const responseTime = Date.now() - startTime;
@@ -486,12 +467,11 @@ export async function generateGeneralizedProduct(description) {
       if (parsedResult.data.name && parsedResult.data.description) {
         const nutritionData = {
           generalizedName: parsedResult.data.name,
-          kcals: parsedResult.data.kcals || 0,
-          protein: parsedResult.data.protein || 0,
-          fat: parsedResult.data.fat || 0,
-          carbs: parsedResult.data.carbs || 0,
-          fiber: parsedResult.data.fiber || 0,
-          confidence: parsedResult.data.confidence || 0.5,
+          kcals: parsedResult.data.kcals,
+          protein: parsedResult.data.protein,
+          fat: parsedResult.data.fat,
+          carbs: parsedResult.data.carbs,
+          fiber: parsedResult.data.fiber,
           descriptionForEmbedding: parsedResult.data.description,
         };
 
@@ -610,11 +590,11 @@ export async function analyzeImage(imageData, mimeType) {
 
     const result = await callVisionModelsInParallel(messages, responseFormat);
 
-    if (!result.data.generalizedName || result.data.confidence < 0.5) {
+    if (!result.data.generalizedName) {
       return {
         success: true,
         data: null,
-        reason: 'Low confidence or no food detected',
+        reason: 'No food detected',
       };
     }
 
@@ -661,11 +641,11 @@ export async function analyzeVoiceTranscript(transcript) {
 
     const result = await callModelsInParallel(messages, responseFormat);
 
-    if (!result.data.generalizedName || result.data.confidence < 0.6) {
+    if (!result.data.generalizedName) {
       return {
         success: true,
         data: null,
-        reason: 'Low confidence or no food detected in transcript',
+        reason: 'No food detected in transcript',
       };
     }
 

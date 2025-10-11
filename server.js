@@ -15,7 +15,13 @@ import { initCache } from './api/food/stats-cache.js';
 import { moneyRoutes } from './api/money/money-routes.js';
 import { settingsRoutes } from './api/settings/settings-routes.js';
 import { websocketRoutes } from './api/ws/ws-routes.js';
-import { broadcast, closeAllWebSocketConnections, getClientId, startWebSocketHeartbeat } from './api/ws/ws-setup.js';
+import {
+  broadcastToAllUsers,
+  broadcastToUser,
+  closeAllWebSocketConnections,
+  getClientId,
+  startWebSocketHeartbeat,
+} from './api/ws/ws-setup.js';
 import { startCoefficientsCalculation } from './coefficients/coeffs-service.js';
 import { initDatabase } from './db/init.js';
 import { APP_IP, APP_PORT, CRON_SCHEDULE, DEV_MODE, JWT_SECRET } from './env.js';
@@ -44,7 +50,8 @@ export const userDataLastModified = new Map();
 
 setupEventHandlers(server);
 
-server.decorate('broadcast', broadcast);
+server.decorate('broadcastToUser', broadcastToUser);
+server.decorate('broadcastToAllUsers', broadcastToAllUsers);
 server.decorate('getClientId', getClientId);
 
 startWebSocketHeartbeat();

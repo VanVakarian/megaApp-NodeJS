@@ -98,7 +98,7 @@ export async function closeAllWebSocketConnections() {
  *   excluding a specific client if provided.
  * Removes dead or failed sockets from the set.
  */
-export function broadcast(userId, payload, excludeClientId = null) {
+export function broadcastToUser(userId, payload, excludeClientId = null) {
   const userSockets = wsClients.get(userId);
   if (!userSockets) return;
 
@@ -130,6 +130,17 @@ export function broadcast(userId, payload, excludeClientId = null) {
   // Removing empty user socket sets
   if (userSockets.size === 0) {
     wsClients.delete(userId);
+  }
+}
+
+/**
+ * Broadcasts a message payload to all WebSocket clients of all users,
+ *   excluding a specific client if provided.
+ * Used for shared data updates that affect all users (e.g., shared catalogue entries).
+ */
+export function broadcastToAllUsers(payload, excludeClientId = null) {
+  for (const [userId] of wsClients.entries()) {
+    broadcastToUser(userId, payload, excludeClientId);
   }
 }
 

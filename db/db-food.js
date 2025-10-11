@@ -174,11 +174,11 @@ export async function addFoodCatalogueEntry(foodName, foodKcals) {
   try {
     const query = `
       INSERT INTO
-        foodCatalogue (name, kcals)
+        foodCatalogue (name, kcals, legacyName)
       VALUES
-        (?, ?);
+        (?, ?, ?);
     `;
-    const result = await connection.run(query, [foodName, foodKcals]);
+    const result = await connection.run(query, [foodName, foodKcals, foodName]);
     return result.lastID;
   } catch (error) {
     console.error(error);
@@ -193,19 +193,29 @@ export async function createCatalogueEntryWithFullNutrition(foodName, nutritionD
 
     const query = `
       INSERT INTO
-        foodCatalogue (name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding)
+        foodCatalogue (name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding, legacyName)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(name) DO UPDATE SET
         kcals = excluded.kcals,
         protein = excluded.protein,
         fat = excluded.fat,
         carbs = excluded.carbs,
         fiber = excluded.fiber,
-        descriptionForEmbedding = excluded.descriptionForEmbedding;
+        descriptionForEmbedding = excluded.descriptionForEmbedding,
+        legacyName = excluded.legacyName;
     `;
 
-    const result = await connection.run(query, [foodName, kcals, protein, fat, carbs, fiber, descriptionForEmbedding]);
+    const result = await connection.run(query, [
+      foodName,
+      kcals,
+      protein,
+      fat,
+      carbs,
+      fiber,
+      descriptionForEmbedding,
+      foodName,
+    ]);
 
     if (result.lastID) {
       return result.lastID;
@@ -310,11 +320,11 @@ export async function updateFoodCatalogueEntry(foodId, foodName, foodKcals) {
       UPDATE
         foodCatalogue
       SET
-        name = ?, kcals = ?
+        name = ?, kcals = ?, legacyName = ?
       WHERE
         id = ?;
     `;
-    await connection.run(query, [foodName, foodKcals, foodId]);
+    await connection.run(query, [foodName, foodKcals, foodName, foodId]);
     return true;
   } catch (error) {
     console.error(error);
@@ -370,11 +380,11 @@ export async function updateCatalogueEntryNameAndDescription(foodId, name, descr
       UPDATE
         foodCatalogue
       SET
-        name = ?, descriptionForEmbedding = ?, embedding = 'enriched'
+        name = ?, descriptionForEmbedding = ?, legacyName = ?, embedding = 'enriched'
       WHERE
         id = ?;
     `;
-    await connection.run(query, [name, description, foodId]);
+    await connection.run(query, [name, description, name, foodId]);
     return { success: true };
   } catch (error) {
     console.error(error);
@@ -478,15 +488,15 @@ export async function importFoodCatalogueEntries(entries) {
   try {
     const insertQuery = `
       INSERT INTO foodCatalogue
-        (name, descriptionForEmbedding)
+        (name, descriptionForEmbedding, legacyName)
       VALUES
-        (?, ?);
+        (?, ?, ?);
     `;
 
     let insertedCount = 0;
     for (const entry of entries) {
       try {
-        await connection.run(insertQuery, [entry.name, entry.descriptionForEmbedding || null]);
+        await connection.run(insertQuery, [entry.name, entry.descriptionForEmbedding || null, entry.name]);
         insertedCount++;
       } catch (entryError) {
         console.error(`Failed to insert entry "${entry.name}":`, entryError);
