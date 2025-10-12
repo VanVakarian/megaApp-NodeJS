@@ -404,10 +404,6 @@ function prepareStats(allDates, weights, avgWeights, dailySumKcals, targetKcalsA
  */
 export async function searchCatalogueEntries(query) {
   try {
-    if (!aiService.isAiEnabled()) {
-      return [];
-    }
-
     const embeddingResult = await aiService.generateEmbedding(query);
     if (!embeddingResult.success) {
       console.error('Failed to generate embedding for search:', embeddingResult.error);
@@ -435,13 +431,6 @@ export async function searchCatalogueEntries(query) {
  */
 export async function generateProductPreviewData(description) {
   try {
-    if (!aiService.isAiEnabled()) {
-      return {
-        success: false,
-        error: 'LLM service is disabled',
-      };
-    }
-
     const llmResult = await aiService.generateGeneralizedProduct(description);
 
     if (!llmResult.success) {
@@ -648,13 +637,6 @@ export async function saveProductData(id, productData) {
 
 export async function createGeneralizedCatalogueEntry(description) {
   try {
-    if (!aiService.isAiEnabled()) {
-      return {
-        success: false,
-        error: 'LLM service is disabled',
-      };
-    }
-
     const llmResult = await aiService.generateGeneralizedProduct(description);
     if (!llmResult.success) {
       return {
@@ -731,14 +713,7 @@ export async function createGeneralizedCatalogueEntry(description) {
  */
 export async function analyzeImageForCatalogueEntry(imageBuffer, mimeType) {
   try {
-    if (!aiService.isAiEnabled()) {
-      return {
-        success: false,
-        error: 'LLM service is disabled',
-      };
-    }
-
-    const recognitionResult = await aiService.simpleImageRecognition(imageBuffer, mimeType);
+    const analysisResult = await aiService.simpleImageRecognition(imageBuffer, mimeType);
     if (!recognitionResult.success) {
       return {
         success: false,
@@ -782,13 +757,6 @@ export async function analyzeImageForCatalogueEntry(imageBuffer, mimeType) {
  */
 export async function analyzeVoiceForCatalogueEntry(transcript) {
   try {
-    if (!aiService.isAiEnabled()) {
-      return {
-        success: false,
-        error: 'LLM service is disabled',
-      };
-    }
-
     const analysisResult = await aiService.analyzeVoiceTranscript(transcript);
     if (!analysisResult.success) {
       return {
@@ -832,10 +800,6 @@ export async function analyzeVoiceForCatalogueEntry(transcript) {
  */
 export async function searchCatalogueEntriesRealtime(query) {
   try {
-    if (!aiService.isAiEnabled()) {
-      return [];
-    }
-
     if (!query || query.trim() === '') {
       return [];
     }

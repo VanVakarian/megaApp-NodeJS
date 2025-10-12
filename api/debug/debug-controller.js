@@ -2,9 +2,121 @@ import { execSync } from 'child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import * as dbFood from '../../db/db-food.js';
-import { AI_FOOD_DESCRIPTION_GEN_SYSTEM_PROMPT, AI_FOOD_DESCRIPTION_MODELS, AI_PROVIDERS } from '../../env.js';
+import {
+  AI_FOOD_DESCRIPTION_GEN_SYSTEM_PROMPT,
+  AI_FOOD_DESCRIPTION_MODELS,
+  AI_PROMPTS,
+  AI_PROVIDERS,
+} from '../../env.js';
 import * as aiService from '../ai/ai-service.js';
 import * as debugService from './debug-service.js';
+
+export async function testImageGeneration(request, reply) {
+  try {
+    const catalogueId = parseInt(request.params.id);
+    const provider = request.query.provider;
+
+    if (!catalogueId || isNaN(catalogueId)) {
+      return reply.code(400).send({
+        result: false,
+        error: 'Invalid catalogue ID',
+      });
+    }
+
+    if (!provider || !['openrouter', 'naga'].includes(provider)) {
+      return reply.code(400).send({
+        result: false,
+        error: 'Invalid provider. Must be "openrouter" or "naga"',
+      });
+    }
+
+    const allEntries = await dbFood.getAllFoodCatalogueEntries();
+    const entry = allEntries.find((e) => e.id === catalogueId);
+
+    if (!entry) {
+      return reply.code(404).send({
+        result: false,
+        error: 'Catalogue entry not found',
+      });
+    }
+
+    console.log(`🧪 Testing image generation for entry ${catalogueId}: "${entry.name}"`);
+
+    const foodName = entry.name;
+    const foodDescription = entry.descriptionForEmbedding || '';
+
+    const prompt = AI_PROMPTS.IMAGE_GENERATION_BASE.replace('{foodName}', foodName).replace(
+      '{foodDescription}',
+      foodDescription
+    );
+
+    console.log(`📝 Generated prompt: "${prompt}"`);
+    console.log(`🎨 Using provider: ${provider}`);
+
+    const startTime = Date.now();
+    let imageResult;
+
+    if (provider === 'openrouter') {
+      imageResult = await aiService.generateImageOpenRouter(prompt);
+    } else {
+      imageResult = await aiService.generateImageNaga(prompt);
+    }
+
+    const generationTime = Date.now() - startTime;
+
+    if (!imageResult.success) {
+      console.log(`❌ Image generation failed: ${imageResult.error}`);
+      return reply.code(500).send({
+        result: false,
+        catalogueEntry: {
+          id: entry.id,
+          name: entry.name,
+          description: entry.descriptionForEmbedding,
+        },
+        provider,
+        prompt,
+        error: imageResult.error,
+        generationTime,
+      });
+    }
+
+    console.log(`✅ Image generated successfully in ${generationTime}ms`);
+
+    const imagesDir = join(process.cwd(), 'public', 'images', 'food');
+    if (!existsSync(imagesDir)) {
+      mkdirSync(imagesDir, { recursive: true });
+      console.log(`📁 Created images directory: ${imagesDir}`);
+    }
+
+    const randomId = Math.random().toString(36).substring(2, 10);
+    const filename = `${randomId}.${imageResult.data.format}`;
+    const filePath = join(imagesDir, filename);
+
+    writeFileSync(filePath, imageResult.data.imageBuffer);
+    console.log(`💾 Image saved to: public/images/food/${filename}`);
+
+    return reply.send({
+      result: true,
+      catalogueEntry: {
+        id: entry.id,
+        name: entry.name,
+        description: entry.descriptionForEmbedding,
+      },
+      provider,
+      model: imageResult.metadata.model,
+      prompt,
+      imageFilePath: `public/images/food/${filename}`,
+      relativeUrl: `/images/food/${filename}`,
+      generationTime,
+    });
+  } catch (error) {
+    console.error('❌ Debug testImageGeneration error:', error);
+    return reply.code(500).send({
+      result: false,
+      error: error.message,
+    });
+  }
+}
 
 function filterOutliersByMAD(results, outlierThreshold = 75) {
   if (results.length < 3) {
@@ -133,13 +245,6 @@ export async function latestCommitInfo(request, reply) {
 
 export async function testLlm(request, reply) {
   try {
-    if (!aiService.isAiEnabled()) {
-      return reply.code(503).send({
-        result: false,
-        error: 'LLM service is disabled',
-      });
-    }
-
     const testDescription = request.query.description || 'домашний творог с медом';
 
     const result = await aiService.generateGeneralizedProduct(testDescription);
@@ -168,8 +273,6 @@ export async function testLlm(request, reply) {
 
 export async function enrichCatalogueEntries(request, reply) {
   try {
-    if (!aiService.isAiEnabled()) return;
-
     const threshold = request.query.threshold || 75;
     const count = Math.min(request.query.count || 1, 100); // Limit to a maximum of 100 entries
 
@@ -462,7 +565,7 @@ export async function checkRateLimits(request, reply) {
     const response = await fetch('https://openrouter.ai/api/v1/auth/key', {
       method: 'GET',
       headers: {
-        Authorization: `Bearer ${AI_PROVIDERS.TEXT_GEN.API_KEY}`,
+        Authorization: `Bearer ${AI_PROVIDERS.TEXT_GENERATION_OPENROUTER.API_KEY}`,
       },
     });
 
@@ -489,13 +592,6 @@ export async function checkRateLimits(request, reply) {
 
 export async function enrichCatalogueEmbeddings(request, reply) {
   try {
-    if (!aiService.isAiEnabled()) {
-      return reply.code(503).send({
-        result: false,
-        error: 'AI service is disabled',
-      });
-    }
-
     const count = Math.min(request.query.count || 1, 50);
 
     if (request.params.id) {
@@ -719,13 +815,6 @@ function saveEmbeddingResult(catalogueEntry, embeddingResult) {
 
 export async function searchByEmbedding(request, reply) {
   try {
-    if (!aiService.isAiEnabled()) {
-      return reply.code(503).send({
-        result: false,
-        error: 'AI service is disabled',
-      });
-    }
-
     const query = request.query.query;
     if (!query || query.trim().length === 0) {
       return reply.code(400).send({
@@ -947,13 +1036,6 @@ export async function importCatalogueFromBackup(request, reply) {
 
 export async function testPrompts(request, reply) {
   try {
-    if (!aiService.isAiEnabled()) {
-      return reply.code(503).send({
-        result: false,
-        error: 'AI service is disabled',
-      });
-    }
-
     const catalogueId = parseInt(request.params.id);
     if (!catalogueId || isNaN(catalogueId)) {
       return reply.code(400).send({
@@ -1183,11 +1265,11 @@ function parseJSONWithFallback(rawResponse) {
 
 async function callOpenRouterAPI({ model, systemPrompt, userPrompt }) {
   try {
-    const response = await fetch(AI_PROVIDERS.TEXT_GEN.BASE_URL + '/chat/completions', {
+    const response = await fetch(AI_PROVIDERS.TEXT_GENERATION_OPENROUTER.BASE_URL + '/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${AI_PROVIDERS.TEXT_GEN.API_KEY}`,
+        Authorization: `Bearer ${AI_PROVIDERS.TEXT_GENERATION_OPENROUTER.API_KEY}`,
       },
       body: JSON.stringify({
         model: model,
@@ -1195,8 +1277,8 @@ async function callOpenRouterAPI({ model, systemPrompt, userPrompt }) {
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
         ],
-        max_tokens: AI_PROVIDERS.TEXT_GEN.MAX_TOKENS,
-        temperature: AI_PROVIDERS.TEXT_GEN.TEMPERATURE,
+        max_tokens: AI_PROVIDERS.TEXT_GENERATION_OPENROUTER.MAX_TOKENS,
+        temperature: AI_PROVIDERS.TEXT_GENERATION_OPENROUTER.TEMPERATURE,
       }),
     });
 
@@ -1289,13 +1371,6 @@ function savePromptTestResults(catalogueEntry, originalInput, results, testingMo
 
 export async function testPromptsParallel(request, reply) {
   try {
-    if (!aiService.isAiEnabled()) {
-      return reply.code(503).send({
-        result: false,
-        error: 'AI service is disabled',
-      });
-    }
-
     const catalogueId = parseInt(request.params.id);
     if (!catalogueId || isNaN(catalogueId)) {
       return reply.code(400).send({
@@ -1671,13 +1746,6 @@ export async function getTestConfig(request, reply) {
 
 export async function enrichCatalogueNames(request, reply) {
   try {
-    if (!aiService.isAiEnabled()) {
-      return reply.code(503).send({
-        result: false,
-        error: 'AI service is disabled',
-      });
-    }
-
     const count = Math.min(request.query.count || 1, 100);
     const results = [];
     let processed = 0;
@@ -1741,13 +1809,6 @@ export async function enrichCatalogueNames(request, reply) {
 
 export async function enrichCatalogueNameById(request, reply) {
   try {
-    if (!aiService.isAiEnabled()) {
-      return reply.code(503).send({
-        result: false,
-        error: 'AI service is disabled',
-      });
-    }
-
     const catalogueId = parseInt(request.params.id);
     if (!catalogueId || isNaN(catalogueId)) {
       return reply.code(400).send({

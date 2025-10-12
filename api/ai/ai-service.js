@@ -8,8 +8,8 @@ import {
 } from '../../env.js';
 
 const clients = {
-  TEXT_GEN: null,
-  IMAGE_RECOGNITION: null,
+  TEXT_GENERATION_OPENROUTER: null,
+  IMAGE_RECOGNITION_OPENROUTER: null,
   EMBEDDINGS: null,
   EMBEDDINGS_NAGA: null,
   EMBEDDINGS_OPENAI: null,
@@ -19,8 +19,8 @@ const clients = {
 function getClient(operationType) {
   const config = AI_PROVIDERS[operationType];
 
-  if (!config?.ENABLED) {
-    throw new Error(`${operationType} provider is disabled`);
+  if (!config) {
+    throw new Error(`${operationType} provider config not found`);
   }
 
   if (!clients[operationType]) {
@@ -106,8 +106,8 @@ function isNutritionDataValid(data) {
 }
 
 async function callModelsInParallel(messages, responseFormat) {
-  const client = getClient('TEXT_GEN');
-  const config = AI_PROVIDERS.TEXT_GEN;
+  const client = getClient('TEXT_GENERATION_OPENROUTER');
+  const config = AI_PROVIDERS.TEXT_GENERATION_OPENROUTER;
 
   if (!client) throw new Error('Chat provider is disabled');
 
@@ -173,8 +173,8 @@ async function callModelsInParallel(messages, responseFormat) {
 }
 
 async function callVisionModelsInParallel(messages, responseFormat) {
-  const client = getClient('IMAGE_RECOGNITION');
-  const config = AI_PROVIDERS.IMAGE_RECOGNITION;
+  const client = getClient('IMAGE_RECOGNITION_OPENROUTER');
+  const config = AI_PROVIDERS.IMAGE_RECOGNITION_OPENROUTER;
 
   if (!client) throw new Error('Image recognition provider is disabled');
 
@@ -240,8 +240,8 @@ async function callVisionModelsInParallel(messages, responseFormat) {
 }
 
 async function callSimpleVisionModels(messages) {
-  const client = getClient('IMAGE_RECOGNITION');
-  const config = AI_PROVIDERS.IMAGE_RECOGNITION;
+  const client = getClient('IMAGE_RECOGNITION_OPENROUTER');
+  const config = AI_PROVIDERS.IMAGE_RECOGNITION_OPENROUTER;
 
   if (!client) throw new Error('Image recognition provider is disabled');
 
@@ -385,7 +385,7 @@ function parseJSONWithMultipleStrategies(rawResponse) {
 
 async function callOpenRouterDirectly({ model, systemPrompt, userPrompt }) {
   try {
-    const config = AI_PROVIDERS.TEXT_GEN;
+    const config = AI_PROVIDERS.TEXT_GENERATION_OPENROUTER;
 
     const response = await fetch(config.BASE_URL + '/chat/completions', {
       method: 'POST',
@@ -434,11 +434,7 @@ async function callOpenRouterDirectly({ model, systemPrompt, userPrompt }) {
 
 export async function generateGeneralizedProduct(description) {
   try {
-    const config = AI_PROVIDERS.TEXT_GEN;
-
-    if (!config.ENABLED) {
-      throw new Error('Chat provider is disabled');
-    }
+    const config = AI_PROVIDERS.TEXT_GENERATION_OPENROUTER;
 
     const userPrompt = AI_FOOD_DESCRIPTION_USER_PROMPT.replace('{originalName}', description).replace(
       '{originalDescription}',
@@ -505,14 +501,7 @@ export async function generateGeneralizedProduct(description) {
 
 export async function simpleImageRecognition(imageData, mimeType) {
   try {
-    const config = AI_PROVIDERS.IMAGE_RECOGNITION;
-
-    if (!config.ENABLED) {
-      return {
-        success: false,
-        error: 'Image recognition provider is disabled',
-      };
-    }
+    const config = AI_PROVIDERS.IMAGE_RECOGNITION_OPENROUTER;
 
     const base64Image = Buffer.from(imageData).toString('base64');
     const imageUrl = `data:${mimeType};base64,${base64Image}`;
@@ -552,11 +541,7 @@ export async function simpleImageRecognition(imageData, mimeType) {
 
 export async function analyzeImage(imageData, mimeType) {
   try {
-    const config = AI_PROVIDERS.IMAGE_RECOGNITION;
-
-    if (!config.ENABLED) {
-      throw new Error('Vision provider is disabled');
-    }
+    const config = AI_PROVIDERS.IMAGE_RECOGNITION_OPENROUTER;
 
     const base64Image = Buffer.from(imageData).toString('base64');
     const imageUrl = `data:${mimeType};base64,${base64Image}`;
@@ -618,11 +603,7 @@ export async function analyzeImage(imageData, mimeType) {
 
 export async function analyzeVoiceTranscript(transcript) {
   try {
-    const config = AI_PROVIDERS.TEXT_GEN;
-
-    if (!config.ENABLED) {
-      throw new Error('Chat provider is disabled');
-    }
+    const config = AI_PROVIDERS.TEXT_GENERATION_OPENROUTER;
 
     const messages = [
       {
@@ -671,10 +652,6 @@ export async function generateEmbedding(text) {
   try {
     const config = AI_PROVIDERS.EMBEDDINGS_OPENAI;
 
-    if (!config.ENABLED) {
-      throw new Error('Embeddings provider is disabled');
-    }
-
     const client = getClient('EMBEDDINGS_OPENAI');
 
     const response = await client.embeddings.create({
@@ -708,10 +685,6 @@ export async function generateEmbeddingOpenAI(text) {
   try {
     const config = AI_PROVIDERS.EMBEDDINGS_OPENAI;
 
-    if (!config.ENABLED) {
-      throw new Error('OpenAI embeddings provider is disabled');
-    }
-
     const client = getClient('EMBEDDINGS_OPENAI');
 
     const response = await client.embeddings.create({
@@ -741,19 +714,14 @@ export async function generateEmbeddingOpenAI(text) {
   }
 }
 
-export function isAiEnabled() {
-  return AI_PROVIDERS.TEXT_GEN.ENABLED;
-}
-
 export function getAiConfig() {
   return {
-    enabled: AI_PROVIDERS.TEXT_GEN.ENABLED,
-    chatProvider: AI_PROVIDERS.TEXT_GEN.PROVIDER,
+    chatProvider: AI_PROVIDERS.TEXT_GENERATION_OPENROUTER.PROVIDER,
     embeddingProvider: AI_PROVIDERS.EMBEDDINGS_OPENAI.PROVIDER, // Primary embedding provider
     embeddingProviderNaga: AI_PROVIDERS.EMBEDDINGS_NAGA.PROVIDER,
     embeddingProviderOpenAI: AI_PROVIDERS.EMBEDDINGS_OPENAI.PROVIDER,
     sttProvider: AI_PROVIDERS.STT.PROVIDER,
-    models: AI_PROVIDERS.TEXT_GEN.MODELS,
+    models: AI_PROVIDERS.TEXT_GENERATION_OPENROUTER.MODELS,
     embeddingModel: AI_PROVIDERS.EMBEDDINGS_OPENAI.MODEL, // Primary embedding model
     embeddingModelNaga: AI_PROVIDERS.EMBEDDINGS_NAGA.MODEL,
     embeddingModelOpenAI: AI_PROVIDERS.EMBEDDINGS_OPENAI.MODEL,
@@ -765,13 +733,9 @@ export function getAiConfig() {
 
 export async function runMultipleModels(description) {
   try {
-    const config = AI_PROVIDERS.TEXT_GEN;
+    const config = AI_PROVIDERS.TEXT_GENERATION_OPENROUTER;
 
-    if (!config.ENABLED) {
-      throw new Error('Chat provider is disabled');
-    }
-
-    const client = getClient('TEXT_GEN');
+    const client = getClient('TEXT_GENERATION_OPENROUTER');
 
     const messages = [
       { role: 'system', content: AI_PROMPTS.SYSTEM_PROMPT_NUTRITIONAL_VALUES },
@@ -868,6 +832,147 @@ export async function runMultipleModels(description) {
     };
   } catch (error) {
     console.error('LLM testMultipleModels error:', error);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+}
+
+export async function generateImageOpenRouter(prompt) {
+  try {
+    const config = AI_PROVIDERS.IMAGE_GENERATION_OPENROUTER;
+
+    if (!config || !config.MODELS || config.MODELS.length === 0) {
+      throw new Error('OpenRouter image generation config not found or no models configured');
+    }
+
+    const model = config.MODELS[0];
+    console.log(`🎨 Generating image via OpenRouter with model: ${model}`);
+
+    const response = await fetch(config.BASE_URL + '/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        modalities: ['image', 'text'],
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.text();
+      throw new Error(`OpenRouter API error (${response.status}): ${errorData}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.choices || !data.choices[0]?.message?.images || data.choices[0].message.images.length === 0) {
+      throw new Error('No image data in OpenRouter response');
+    }
+
+    const imageUrl = data.choices[0].message.images[0].image_url.url;
+
+    if (!imageUrl.startsWith('data:image')) {
+      throw new Error('Invalid image URL format from OpenRouter');
+    }
+
+    const base64Match = imageUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+    if (!base64Match) {
+      throw new Error('Failed to parse base64 image data from OpenRouter');
+    }
+
+    const imageBuffer = Buffer.from(base64Match[2], 'base64');
+
+    return {
+      success: true,
+      data: {
+        imageBuffer,
+        format: base64Match[1],
+      },
+      metadata: {
+        model,
+        provider: config.PROVIDER,
+        usage: data.usage,
+      },
+    };
+  } catch (error) {
+    console.error('OpenRouter generateImage error:', error);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+}
+
+export async function generateImageNaga(prompt) {
+  try {
+    const config = AI_PROVIDERS.IMAGE_GENERATION_NAGA;
+
+    if (!config || !config.MODELS || config.MODELS.length === 0) {
+      throw new Error('Naga image generation config not found or no models configured');
+    }
+
+    const model = config.MODELS[0];
+    console.log(`🎨 Generating image via Naga with model: ${model}`);
+
+    const response = await fetch(config.BASE_URL + '/images/generations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: model,
+        prompt: prompt,
+        n: 1,
+        size: '1024x1024',
+        response_format: 'url',
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.text();
+      throw new Error(`Naga API error (${response.status}): ${errorData}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.data || data.data.length === 0 || !data.data[0].url) {
+      throw new Error('No image URL in Naga response');
+    }
+
+    const imageUrl = data.data[0].url;
+    console.log(`📥 Downloading image from: ${imageUrl}`);
+
+    const imageResponse = await fetch(imageUrl);
+    if (!imageResponse.ok) {
+      throw new Error(`Failed to download image: ${imageResponse.status}`);
+    }
+
+    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+
+    return {
+      success: true,
+      data: {
+        imageBuffer,
+        format: 'png',
+      },
+      metadata: {
+        model,
+        provider: config.PROVIDER,
+      },
+    };
+  } catch (error) {
+    console.error('Naga generateImage error:', error);
     return {
       success: false,
       error: error.message,
