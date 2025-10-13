@@ -2,11 +2,13 @@ import fastifyCompress from '@fastify/compress';
 import fastifyCors from '@fastify/cors';
 import fastifyJwt from '@fastify/jwt';
 import fastifyMultipart from '@fastify/multipart';
+import fastifyStatic from '@fastify/static';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import fastifyWebSocket from '@fastify/websocket';
 import Fastify from 'fastify';
 import cron from 'node-cron';
+import { join } from 'path';
 import { authRoutes } from './api/auth/auth-routes.js';
 import { debugRoutes } from './api/debug/debug-routes.js';
 import { setupEventHandlers } from './api/food/event-handlers.js';
@@ -76,6 +78,12 @@ server.register(moneyRoutes, { prefix: '/api/money' });
 server.register(debugRoutes, { prefix: '/api/debug' });
 server.register(settingsRoutes, { prefix: '/api/settings' });
 server.register(websocketRoutes, { prefix: '/api/ws' });
+
+server.register(fastifyStatic, {
+  root: join(process.cwd(), 'public'),
+  prefix: '/api',
+  decorateReply: false,
+});
 
 server.listen({ port: APP_PORT, host: APP_IP }, (err, address) => {
   if (err) {

@@ -261,7 +261,7 @@ export async function getCatalogueEntryById(catalogueId) {
   try {
     const query = `
       SELECT
-        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding
+        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding, legacyName, embedding, imageUrl
       FROM
         foodCatalogue
       WHERE
@@ -270,7 +270,7 @@ export async function getCatalogueEntryById(catalogueId) {
     const result = await connection.get(query, [catalogueId]);
     return result || null;
   } catch (error) {
-    console.error('Error getting catalogue entry by id:', error);
+    console.error('Error getting catalogue entry by ID:', error);
     return null;
   }
 }
@@ -438,7 +438,7 @@ export async function getAllFoodCatalogueEntries() {
   try {
     const query = `
       SELECT
-        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding, legacyName, embedding
+        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding, legacyName, embedding, imageUrl
       FROM
         foodCatalogue
       ORDER BY
@@ -457,7 +457,7 @@ export async function getAllFoodCatalogueEntriesForAPI() {
   try {
     const query = `
       SELECT
-        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding as description, legacyName
+        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding as description, legacyName, imageUrl
       FROM
         foodCatalogue
       ORDER BY
@@ -733,7 +733,7 @@ export async function searchCatalogueEntriesByEmbedding(embeddingArray) {
 
     const query = `
       SELECT
-        fc.id, fc.name, fc.kcals, fc.protein, fc.fat, fc.carbs, fc.fiber, fc.embedding
+        fc.id, fc.name, fc.kcals, fc.protein, fc.fat, fc.carbs, fc.fiber, fc.embedding, fc.imageUrl
       FROM
         foodCatalogue fc
       WHERE
@@ -756,6 +756,7 @@ export async function searchCatalogueEntriesByEmbedding(embeddingArray) {
           fat: row.fat,
           carbs: row.carbs,
           fiber: row.fiber,
+          imageUrl: row.imageUrl,
           distance: distance,
         };
       })
@@ -796,7 +797,7 @@ export async function updateCatalogueEntryEmbedding(catalogueId, embeddingArray)
   }
 }
 
-// ===================================================================================== SEARCH QUERY EMBEDDING CACHE ===
+// ==================================================================================== SEARCH QUERY EMBEDDING CACHE ===
 
 /**
  * Retrieves cached embedding for search query and updates usage statistics
@@ -877,6 +878,57 @@ export async function updateQueryUsage(query) {
     return result.changes > 0;
   } catch (error) {
     console.error('Error updating query usage:', error);
+    return false;
+  }
+}
+
+// ====================================================================================================== IMAGE URLS ===
+
+/**
+ * Updates image URL for a catalogue entry
+ * @param {number} catalogueId - Catalogue entry ID
+ * @param {string} imageUrl - Image URL (thumbnail path)
+ * @returns {Promise<boolean>} Success status
+ */
+export async function updateCatalogueImageUrl(catalogueId, imageUrl) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      UPDATE
+        foodCatalogue
+      SET
+        imageUrl = ?
+      WHERE
+        id = ?;
+    `;
+    const result = await connection.run(query, [imageUrl, catalogueId]);
+    return result.changes > 0;
+  } catch (error) {
+    console.error('Error updating catalogue image URL:', error);
+    return false;
+  }
+}
+
+/**
+ * Clears image URL for a catalogue entry (when file is missing)
+ * @param {number} catalogueId - Catalogue entry ID
+ * @returns {Promise<boolean>} Success status
+ */
+export async function clearCatalogueImageUrl(catalogueId) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      UPDATE
+        foodCatalogue
+      SET
+        imageUrl = NULL
+      WHERE
+        id = ?;
+    `;
+    const result = await connection.run(query, [catalogueId]);
+    return result.changes > 0;
+  } catch (error) {
+    console.error('Error clearing catalogue image URL:', error);
     return false;
   }
 }

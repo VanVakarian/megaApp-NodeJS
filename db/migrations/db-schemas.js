@@ -238,7 +238,8 @@ const dbVersion003 = [
     fiber REAL DEFAULT NULL,
     descriptionForEmbedding TEXT DEFAULT NULL,
     embedding BLOB DEFAULT NULL,
-    legacyName TEXT
+    legacyName TEXT DEFAULT NULL,
+    imageUrl TEXT DEFAULT NULL
   );
   `,
 
@@ -252,6 +253,7 @@ const dbVersion003 = [
     height INTEGER,
     useCoeffs BOOLEAN,
     coefficients TEXT,
+    imagePrompt TEXT DEFAULT NULL,
     usersId INTEGER
   );
   `,
@@ -262,6 +264,20 @@ const dbVersion003 = [
     dateISO TEXT,
     weight NUMERIC,
     usersId INTEGER
+  );
+  `,
+
+  `
+  CREATE TABLE IF NOT EXISTS foodImages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER NOT NULL,
+    foodCatalogueId INTEGER NOT NULL,
+    imageUrl TEXT NOT NULL,
+    promptHash TEXT NOT NULL,
+    createdAt INTEGER NOT NULL,
+    UNIQUE(userId, foodCatalogueId),
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (foodCatalogueId) REFERENCES foodCatalogue(id) ON DELETE CASCADE
   );
   `,
 

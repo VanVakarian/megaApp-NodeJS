@@ -1,6 +1,7 @@
 import { execSync } from 'child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import sharp from 'sharp';
 import * as dbFood from '../../db/db-food.js';
 import {
   AI_FOOD_DESCRIPTION_GEN_SYSTEM_PROMPT,
@@ -89,11 +90,21 @@ export async function testImageGeneration(request, reply) {
     }
 
     const randomId = Math.random().toString(36).substring(2, 10);
-    const filename = `${randomId}.${imageResult.data.format}`;
-    const filePath = join(imagesDir, filename);
+    const originalFilename = `${randomId}-original.${imageResult.data.format}`;
+    const originalFilePath = join(imagesDir, originalFilename);
+    const thumbFilename = `${randomId}-thumb.webp`;
+    const thumbFilePath = join(imagesDir, thumbFilename);
 
-    writeFileSync(filePath, imageResult.data.imageBuffer);
-    console.log(`💾 Image saved to: public/images/food/${filename}`);
+    writeFileSync(originalFilePath, imageResult.data.imageBuffer);
+    console.log(`💾 Original image saved to: public/images/food/${originalFilename}`);
+
+    const thumbStartTime = Date.now();
+    await sharp(imageResult.data.imageBuffer)
+      .resize(256, 256, { fit: 'cover' })
+      .webp({ quality: 80 })
+      .toFile(thumbFilePath);
+    const thumbTime = Date.now() - thumbStartTime;
+    console.log(`🖼️  Thumbnail (256x256 WebP) created in ${thumbTime}ms: public/images/food/${thumbFilename}`);
 
     return reply.send({
       result: true,
@@ -105,8 +116,20 @@ export async function testImageGeneration(request, reply) {
       provider,
       model: imageResult.metadata.model,
       prompt,
-      imageFilePath: `public/images/food/${filename}`,
-      relativeUrl: `/images/food/${filename}`,
+      images: {
+        original: {
+          path: `public/images/food/${originalFilename}`,
+          url: `/images/food/${originalFilename}`,
+          format: imageResult.data.format,
+        },
+        thumbnail: {
+          path: `public/images/food/${thumbFilename}`,
+          url: `/images/food/${thumbFilename}`,
+          size: '256x256',
+          format: 'webp',
+          generationTime: thumbTime,
+        },
+      },
       generationTime,
     });
   } catch (error) {

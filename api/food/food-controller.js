@@ -1,8 +1,10 @@
+import { existsSync } from 'fs';
 import fs from 'fs/promises';
-import path from 'path';
+import path, { join } from 'path';
 import * as coefficientsService from '../../coefficients/coeffs-service.js';
 import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
+import * as imageService from '../ai/image-service.js';
 import { updateUserDataLastModified } from '../ws/sync-state.js';
 import * as foodService from './food-service.js';
 
@@ -19,6 +21,7 @@ export const WS_MESSAGE_TYPES = {
   SEARCH_QUERY: 'SEARCH_QUERY',
   SEARCH_RESULTS: 'SEARCH_RESULTS',
   CATALOGUE_ENTRY_SAVED: 'CATALOGUE_ENTRY_SAVED',
+  CATALOGUE_IMAGE_GENERATED: 'CATALOGUE_IMAGE_GENERATED',
 };
 
 // ===================================================================================================== FULL UPDATE ===
@@ -476,6 +479,29 @@ export async function handleSearchQuery(socket, message) {
     };
 
     socket.send(JSON.stringify(response));
+
+    if (catalogueIds.length > 0) {
+      const allEntries = await dbFood.getAllFoodCatalogueEntries();
+
+      for (const entryId of catalogueIds) {
+        const entry = allEntries.find((e) => e.id === entryId);
+        if (!entry) continue;
+
+        if (entry.imageUrl === null) {
+          imageService
+            .generateProductImage(entry.id, entry.name, entry.descriptionForEmbedding)
+            .catch((err) => console.error(`Image generation failed for product ${entry.id}:`, err));
+        } else {
+          const thumbPath = join(process.cwd(), 'public', 'images', 'food', entry.imageUrl);
+          if (!existsSync(thumbPath)) {
+            await dbFood.clearCatalogueImageUrl(entry.id);
+            imageService
+              .generateProductImage(entry.id, entry.name, entry.descriptionForEmbedding)
+              .catch((err) => console.error(`Image regeneration failed for product ${entry.id}:`, err));
+          }
+        }
+      }
+    }
   } catch (error) {
     console.error('Error handling search query:', error);
   }
