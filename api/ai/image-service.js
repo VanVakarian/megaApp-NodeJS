@@ -9,6 +9,7 @@ import * as aiService from './ai-service.js';
 const generatingImages = new Set();
 
 export async function generateProductImage(catalogueId, productName, productDescription = '') {
+  return { success: false, error: 'Image generation temporarily disabled' };
   if (generatingImages.has(catalogueId)) {
     console.log(`⏭️  Image generation already in progress for product ${catalogueId}, skipping...`);
     return { success: false, error: 'Generation already in progress' };
@@ -63,7 +64,7 @@ export async function generateProductImage(catalogueId, productName, productDesc
     const thumbTime = Date.now() - thumbStartTime;
     console.log(`🖼️  Thumbnail created in ${thumbTime}ms: ${thumbFilename}`);
 
-    const updateResult = await dbFood.updateCatalogueImageUrl(catalogueId, thumbFilename);
+    const updateResult = await dbFood.updateCatalogueImageFileName(catalogueId, thumbFilename);
 
     if (!updateResult) {
       console.log(`❌ Failed to update database with image filename for product ${catalogueId}`);

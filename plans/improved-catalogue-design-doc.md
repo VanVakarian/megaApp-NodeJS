@@ -102,10 +102,11 @@
   - `{id}-thumb.webp` - 256x256px для карточек (основное использование)
   - `{id}-original.png` - оригинальное разрешение для full-view и будущего использования
 - Отдача через `@fastify/static` с `prefix: '/api'`
-- URL в БД: только имя файла (например: `398-thumb.webp`)
+- БД хранит только имя файла (например: `398-thumb.webp`) в поле `imageFileName` таблицы `foodCatalogue`
 - Формирование URL: фронтенд добавляет `/api/images/food/` к имени файла
 - **Dev:** Angular proxy перенаправляет `/api/*` → `http://localhost:3000`
 - **Production:** Nginx может отдавать `/api/images/*` напрямую или через Fastify
+- **Один глобальный промпт** из `env.js` для всех пользователей (MVP подход)
 
 **Генерация:**
 - Асинхронная, по требованию при первом поиске
@@ -113,7 +114,7 @@
   1. Получение оригинала от AI API (обычно 1024x1024)
   2. Сохранение оригинала в PNG
   3. Автоматическое создание thumbnail через sharp: 256x256 WebP с качеством 80
-  4. Обновление БД с именем файла (только `{id}-thumb.webp`)
+  4. Обновление БД с именем файла в поле `imageFileName` (только `{id}-thumb.webp`)
 - WebSocket уведомление `CATALOGUE_IMAGE_GENERATED` при готовности
 
 **Конфигурация (env.js):**
@@ -207,30 +208,9 @@
 - `descriptionForEmbedding` (TEXT) - описание для векторизации
 - `embedding` (BLOB) - векторное представление для поиска
 - `legacyName` (TEXT) - исходное название для Legacy текстового поиска
+- `imageFileName` (TEXT) - имя файла изображения продукта (например: `398-thumb.webp`)
 
 Добавить уникальное ограничение на поле `name`.
-
-**Новая таблица `foodImages` (создать СЕЙЧАС):**
-```sql
-CREATE TABLE IF NOT EXISTS foodImages (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  userId INTEGER NOT NULL,
-  foodCatalogueId INTEGER NOT NULL,
-  imageUrl TEXT NOT NULL,
-  promptHash TEXT NOT NULL,
-  createdAt INTEGER NOT NULL,
-  UNIQUE(userId, foodCatalogueId),
-  FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (foodCatalogueId) REFERENCES foodCatalogue(id) ON DELETE CASCADE
-);
-```
-- **MVP**: все пользователи получают одинаковые картинки (один глобальный промпт из env.js)
-- **Будущее**: каждый пользователь получает свои картинки (промпт из `foodSettings.imagePrompt`)
-- Никаких миграций при переходе - просто начинаем использовать персональные промпты!
-
-**Расширение таблицы `foodSettings`:**
-Добавить поле для будущей персонализации изображений:
-- `imagePrompt` (TEXT, nullable) - кастомный промпт пользователя (пусто для MVP, заполним потом)
 
 **Векторное хранение:**
 Векторные представления сохраняются в поле `embedding` (BLOB) основной таблицы `foodCatalogue`. Поиск по векторам производится на уровне JavaScript с использованием косинусного расстояния.
@@ -326,10 +306,10 @@ CREATE TABLE IF NOT EXISTS foodImages (
 - Payload содержит полную запись каталога для синхронизации localStorage на всех клиентах
 
 **Обработка изображений:**
-- При поиске: если `imageUrl === null`, асинхронно запускается генерация
-- При поиске: если `imageUrl !== null`, проверяется существование файла (`fs.existsSync`)
-  - Если файл отсутствует: обнуляется `imageUrl` в БД → запускается генерация заново
-  - Если файл существует: ничего не делается (отдается существующий URL)
+- При поиске: если `imageFileName === null`, асинхронно запускается генерация
+- При поиске: если `imageFileName !== null`, проверяется существование файла (`fs.existsSync`)
+  - Если файл отсутствует: обнуляется `imageFileName` в БД → запускается генерация заново
+  - Если файл существует: ничего не делается (отдается существующее имя файла)
 - При завершении генерации: broadcast всем пользователям (для MVP все видят одни картинки)
 - Frontend обновляет localStorage и UI автоматически через Signals
 - Frontend fallback: `<img @error>` показывает placeholder при 404 (дополнительная защита)
@@ -359,7 +339,7 @@ CREATE TABLE IF NOT EXISTS foodImages (
 ### 3.5. UX‑потоки
 
 - **Успешный поиск:** Ввод текста/фото/голос → Бэкенд находит "Яблоко" → Открывается "Блок Ввода Граммов" для "Яблока".
-- **Изображения в поиске:** Карточки с `imageUrl` показывают картинку, без `imageUrl` — placeholder. Backend генерирует отсутствующие изображения асинхронно, WebSocket `CATALOGUE_IMAGE_GENERATED` обновляет карточку.
+- **Изображения в поиске:** Карточки с `imageFileName` показывают картинку, без `imageFileName` — placeholder. Backend генерирует отсутствующие изображения асинхронно, WebSocket `CATALOGUE_IMAGE_GENERATED` обновляет карточку.
 - **Неуспешный поиск:** Ввод "экзотический фрукт дуриан" → Бэкенд не находит аналогов → На UI появляется кнопка "Добавить как новую еду".
 - **Редактирование продукта:**
   - Поиск продукта → выбор → открытие формы ввода граммов
@@ -468,11 +448,11 @@ CREATE TABLE IF NOT EXISTS foodImages (
 - ✅ Включить `legacyName` в ответы `GET /api/food/catalogue` и других эндпоинтов
 
 ### Этап 2.5: Изображения продуктов - инфраструктура ✅
-- ✅ Обновить миграцию 003: создать таблицу `foodImages`, добавить `imagePrompt` в `foodSettings`
 - ✅ **Backend**: Настроить `@fastify/static` с `prefix: '/api'` для отдачи статики из `public/`
 - ✅ Создать папку `public/images/food/`
 - ✅ Добавить в `env.js`: `AI_IMAGE_GEN_API_KEY`, `AI_IMAGE_GEN_MODEL`, `AI_IMAGE_GEN_PROMPT`
 - ✅ Установить зависимость: `npm install sharp@0.34.4` для обработки изображений
+- ✅ Добавить поле `imageFileName` в таблицу `foodCatalogue` для хранения имени файла
 - ✅ **Frontend**: Метод `getImageUrl()` формирует путь `/api/images/food/{filename}`
 - ✅ Обновить `.gitignore`: исключить `public/images/food/*.{png,webp}`
 
@@ -498,13 +478,13 @@ CREATE TABLE IF NOT EXISTS foodImages (
   - ✅ WebSocket broadcast всем пользователям
 - ✅ Настроить `@fastify/static` с `prefix: '/api'` для отдачи файлов
 - ✅ Обновить `db/db-food.js`:
-  - ✅ Добавить `updateCatalogueImageUrl()` с поддержкой thumbnails
-  - ✅ Добавить `clearCatalogueImageUrl()`
-  - ✅ Включить `imageUrl` в SELECT запросы (возвращает имя файла)
+  - ✅ Добавить `updateCatalogueImageFileName()` с поддержкой thumbnails
+  - ✅ Добавить `clearCatalogueImageFileName()`
+  - ✅ Включить `imageFileName` в SELECT запросы (возвращает имя файла)
 - ✅ Интегрировать в `food-controller.js -> handleSearchQuery`:
-  - ✅ Проверка существования thumbnail файла для продуктов с `imageUrl !== null`
-  - ✅ Обнуление `imageUrl` и запуск генерации если thumbnail отсутствует
-  - ✅ Запуск генерации для продуктов с `imageUrl === null`
+  - ✅ Проверка существования thumbnail файла для продуктов с `imageFileName !== null`
+  - ✅ Обнуление `imageFileName` и запуск генерации если thumbnail отсутствует
+  - ✅ Запуск генерации для продуктов с `imageFileName === null`
   - ✅ Race condition защита через in-memory Set
 - ✅ Добавить WebSocket тип `CATALOGUE_IMAGE_GENERATED` в `food-controller.js`
 - ✅ **Debug endpoint**: `GET /api/debug/test-image-generation/:id?provider=naga` генерирует original + thumb
@@ -549,7 +529,7 @@ CREATE TABLE IF NOT EXISTS foodImages (
 ### Этап 5.3: Фронтенд интеграция - изображения ✅
 
 **Интерфейс продукта:**
-- ✅ Добавлено опциональное поле `imageUrl?: string` в `CatalogueEntry`
+- ✅ Добавлено опциональное поле `imageFileName?: string` в `CatalogueEntry`
 
 **WebSocket события:**
 - ✅ Добавлен новый тип `CATALOGUE_IMAGE_GENERATED` в `WebSocketMessageType`
@@ -557,7 +537,7 @@ CREATE TABLE IF NOT EXISTS foodImages (
 - ✅ Обновлен union type `IncomingWsMessage`
 
 **Карточка продукта в результатах поиска:**
-- ✅ Использует thumbnail URL (`{id}-thumb.webp`) из `imageUrl`
+- ✅ Использует thumbnail имя файла (`{id}-thumb.webp`) из `imageFileName`
 - ✅ Показывает пульсирующий placeholder-иконку Restaurant если картинки нет
 - ✅ Фиксированная высота блока (120px) с `overflow: hidden`
 - ✅ Картинка с `object-fit: cover` для заполнения блока
@@ -702,7 +682,7 @@ CREATE TABLE IF NOT EXISTS foodImages (
 **WebSocket события:**
 - `CATALOGUE_ENTRY_SAVED` - универсальное событие при создании или обновлении продукта через `/save-product`
 - `CATALOGUE_IMAGE_GENERATED` - уведомление о готовности изображения продукта
-- Полезная нагрузка: полные данные записи каталога (id, name, kcals, protein, fat, carbs, fiber, description, legacyName, embedding, imageUrl)
+- Полезная нагрузка: полные данные записи каталога (id, name, kcals, protein, fat, carbs, fiber, description, legacyName, embedding, imageFileName)
 - Назначение: синхронизация localStorage каталога на всех клиентах для корректной работы поиска и отображения обновленных данных
 - Клиент проверяет наличие записи с данным ID в локальном каталоге для определения создания/обновления
 
@@ -720,7 +700,7 @@ CREATE TABLE IF NOT EXISTS foodImages (
 - SEARCH_RESULTS - получение результатов поиска
 
 **Расширенный интерфейс продукта:**
-Включает все поля КБЖУ: калории, белки, жиры, углеводы, клетчатка, описание для embedding, legacy название для текстового поиска, URL изображения продукта
+Включает все поля КБЖУ: калории, белки, жиры, углеводы, клетчатка, описание для embedding, legacy название для текстового поиска, имя файла изображения продукта
 
 ### A.3. Примеры API запросов/ответов
 
@@ -789,20 +769,55 @@ Real-time поиск возвращает только массив ID для м
 
 **Идея:** Каждый пользователь может задать свой промпт для стиля изображений.
 
-**Готовность БД (уже сделано):**
-- Таблица `foodImages` уже создана
-- Поле `imagePrompt` в `foodSettings` уже добавлено
-- Для включения: просто позволяем пользователям заполнять `foodSettings.imagePrompt`
-- При генерации: проверяем `foodSettings.imagePrompt`, если пусто - используем глобальный из env.js
-- **Файлы**:
-  - `public/images/food/{userId}-{catalogueId}-{hash}-original.png`
-  - `public/images/food/{userId}-{catalogueId}-{hash}-thumb.webp` (256x256)
-- **Никаких миграций не требуется!**
+**Текущее состояние (MVP):**
+- Все пользователи получают одинаковые изображения продуктов
+- Используется единый глобальный промпт из `env.js` (`AI_IMAGE_GEN_PROMPT`)
+- Файлы хранятся в `public/images/food/{id}-thumb.webp` и `{id}-original.png`
+- Имя файла хранится в поле `imageFileName` таблицы `foodCatalogue`
+
+**Будущая реализация:**
+
+**Таблица `foodImages` для персонализации:**
+```sql
+CREATE TABLE IF NOT EXISTS foodImages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId INTEGER NOT NULL,
+  foodCatalogueId INTEGER NOT NULL,
+  imageFileName TEXT NOT NULL,
+  promptHash TEXT NOT NULL,
+  createdAt INTEGER NOT NULL,
+  UNIQUE(userId, foodCatalogueId),
+  FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (foodCatalogueId) REFERENCES foodCatalogue(id) ON DELETE CASCADE
+);
+```
+
+**Поле `imagePrompt` в таблице `foodSettings`:**
+- Добавить поле `imagePrompt` (TEXT, nullable) для кастомного промпта пользователя
+- По умолчанию пусто - используется глобальный промпт
+- Пользователь может задать свой промпт через настройки
+
+**Файловая структура:**
+- `public/images/food/{userId}-{catalogueId}-{hash}-original.png` - персональные оригиналы
+- `public/images/food/{userId}-{catalogueId}-{hash}-thumb.webp` - персональные thumbnails (256x256)
+- `{hash}` - хеш промпта для инвалидации кэша при изменении промпта
+
+**Логика генерации:**
+1. При поиске проверяем наличие записи в `foodImages` для текущего пользователя
+2. Если запись есть и `promptHash` совпадает с текущим промптом - используем существующий файл
+3. Если запись отсутствует или промпт изменился - генерируем новое изображение
+4. Обновляем `foodImages` с новым `imageFileName` и `promptHash`
+5. WebSocket broadcast изменений только для данного пользователя
+
+**Миграция:**
+- Никаких миграций данных не требуется!
+- Просто создаем таблицу `foodImages` и добавляем поле `imagePrompt` в `foodSettings`
+- Старые изображения из `foodCatalogue.imageFileName` продолжают работать как fallback
 
 **Производительность:**
 - Пользователи всегда получают оптимизированные thumbnails
 - Экономия трафика ~98% независимо от персонализации
-- Browser cache работает эффективно
+- Browser cache работает эффективно благодаря предсказуемым URL
 
 ### 7.3. Расширенная категоризация
 Автоматическое определение категорий продуктов (фрукты, овощи, молочные) через LLM с возможностью фильтрации и поиска по категориям.

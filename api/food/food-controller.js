@@ -487,14 +487,14 @@ export async function handleSearchQuery(socket, message) {
         const entry = allEntries.find((e) => e.id === entryId);
         if (!entry) continue;
 
-        if (entry.imageUrl === null) {
+        if (entry.imageFileName === null) {
           imageService
             .generateProductImage(entry.id, entry.name, entry.descriptionForEmbedding)
             .catch((err) => console.error(`Image generation failed for product ${entry.id}:`, err));
         } else {
-          const thumbPath = join(process.cwd(), 'public', 'images', 'food', entry.imageUrl);
+          const thumbPath = join(process.cwd(), 'public', 'images', 'food', entry.imageFileName);
           if (!existsSync(thumbPath)) {
-            await dbFood.clearCatalogueImageUrl(entry.id);
+            await dbFood.clearCatalogueImageFileName(entry.id);
             imageService
               .generateProductImage(entry.id, entry.name, entry.descriptionForEmbedding)
               .catch((err) => console.error(`Image regeneration failed for product ${entry.id}:`, err));
