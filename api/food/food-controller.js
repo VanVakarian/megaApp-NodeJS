@@ -488,16 +488,12 @@ export async function handleSearchQuery(socket, message) {
         if (!entry) continue;
 
         if (entry.imageFileName === null) {
-          imageService
-            .generateProductImage(entry.id, entry.name, entry.descriptionForEmbedding)
-            .catch((err) => console.error(`Image generation failed for product ${entry.id}:`, err));
+          imageService.requestProductImageGeneration(entry.id, entry.name, entry.descriptionForEmbedding);
         } else {
           const thumbPath = join(process.cwd(), 'public', 'images', 'food', entry.imageFileName);
           if (!existsSync(thumbPath)) {
             await dbFood.clearCatalogueImageFileName(entry.id);
-            imageService
-              .generateProductImage(entry.id, entry.name, entry.descriptionForEmbedding)
-              .catch((err) => console.error(`Image regeneration failed for product ${entry.id}:`, err));
+            imageService.requestProductImageGeneration(entry.id, entry.name, entry.descriptionForEmbedding);
           }
         }
       }
