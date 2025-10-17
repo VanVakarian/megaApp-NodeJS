@@ -7,7 +7,6 @@ export const migration002to003 = [
   `ALTER TABLE foodCatalogue ADD COLUMN descriptionForEmbedding TEXT DEFAULT NULL;`,
   `ALTER TABLE foodCatalogue ADD COLUMN embedding BLOB DEFAULT NULL;`,
   `ALTER TABLE foodCatalogue ADD COLUMN legacyName TEXT DEFAULT NULL;`,
-  `ALTER TABLE foodCatalogue ADD COLUMN imageFileName TEXT DEFAULT NULL;`,
 
   // Добавляем уникальное ограничение на поле name
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_foodCatalogue_name ON foodCatalogue(name);`,

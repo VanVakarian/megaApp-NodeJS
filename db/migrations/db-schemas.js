@@ -238,8 +238,7 @@ const dbVersion003 = [
     fiber REAL DEFAULT NULL,
     descriptionForEmbedding TEXT DEFAULT NULL,
     embedding BLOB DEFAULT NULL,
-    legacyName TEXT DEFAULT NULL,
-    imageFileName TEXT DEFAULT NULL
+    legacyName TEXT DEFAULT NULL
   );
   `,
 

@@ -1,6 +1,7 @@
 import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
 import * as aiService from '../ai/ai-service.js';
+import * as imageCache from '../ai/image-cache.js';
 import * as statsCache from './stats-cache.js';
 
 export function getDateRange(dateIso, fetchDaysRangeOffset) {
@@ -65,7 +66,10 @@ export async function formFoodCatalogue() {
 function prepFoodCatalogue(catalogueArray) {
   const catalogueObj = {};
   for (const entry of catalogueArray) {
-    catalogueObj[entry.id] = entry;
+    catalogueObj[entry.id] = {
+      ...entry,
+      hasImage: imageCache.hasImage(entry.id),
+    };
   }
   return catalogueObj;
 }

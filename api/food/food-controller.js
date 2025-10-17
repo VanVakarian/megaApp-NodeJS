@@ -1,9 +1,9 @@
-import { existsSync } from 'fs';
 import fs from 'fs/promises';
-import path, { join } from 'path';
+import path from 'path';
 import * as coefficientsService from '../../coefficients/coeffs-service.js';
 import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
+import * as imageCache from '../ai/image-cache.js';
 import * as imageService from '../ai/image-service.js';
 import { updateUserDataLastModified } from '../ws/sync-state.js';
 import * as foodService from './food-service.js';
@@ -487,14 +487,8 @@ export async function handleSearchQuery(socket, message) {
         const entry = allEntries.find((e) => e.id === entryId);
         if (!entry) continue;
 
-        if (entry.imageFileName === null) {
+        if (!imageCache.hasImage(entry.id)) {
           imageService.requestProductImageGeneration(entry.id, entry.name, entry.descriptionForEmbedding);
-        } else {
-          const thumbPath = join(process.cwd(), 'public', 'images', 'food', entry.imageFileName);
-          if (!existsSync(thumbPath)) {
-            await dbFood.clearCatalogueImageFileName(entry.id);
-            imageService.requestProductImageGeneration(entry.id, entry.name, entry.descriptionForEmbedding);
-          }
         }
       }
     }

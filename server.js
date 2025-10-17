@@ -9,6 +9,7 @@ import fastifyWebSocket from '@fastify/websocket';
 import Fastify from 'fastify';
 import cron from 'node-cron';
 import { join } from 'path';
+import { initializeImageCache } from './api/ai/image-cache.js';
 import { authRoutes } from './api/auth/auth-routes.js';
 import { debugRoutes } from './api/debug/debug-routes.js';
 import { setupEventHandlers } from './api/food/event-handlers.js';
@@ -36,6 +37,7 @@ if (DEV_MODE) {
 }
 
 await initCache();
+initializeImageCache();
 
 cron.schedule(CRON_SCHEDULE.COEFFS, async () => {
   await startCoefficientsCalculation();

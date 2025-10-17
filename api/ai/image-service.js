@@ -1,7 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import sharp from 'sharp';
-import * as dbFood from '../../db/db-food.js';
 import {
   AI_IMAGE_GEN_PROMPT,
   AI_PROVIDERS,
@@ -12,6 +11,7 @@ import {
 } from '../../env.js';
 import { broadcastToAllUsers } from '../ws/ws-setup.js';
 import * as aiService from './ai-service.js';
+import * as imageCache from './image-cache.js';
 
 const AI_IMAGE_GEN_MODEL = AI_PROVIDERS.IMAGE_GENERATION_NAGA.MODELS[0];
 
@@ -159,10 +159,7 @@ const imageQueue = new ImageGenerationQueue({
 });
 
 export function requestProductImageGeneration(catalogueId, productName, description = '') {
-  const thumbFilename = `${catalogueId}-thumb.webp`;
-  const thumbPath = join(process.cwd(), 'public', 'images', 'food', thumbFilename);
-
-  if (existsSync(thumbPath)) {
+  if (imageCache.hasImage(catalogueId)) {
     return { success: false, reason: 'Image already exists' };
   }
 
@@ -221,26 +218,14 @@ async function generateProductImageInternal(catalogueId, productName, productDes
     const thumbTime = Date.now() - thumbStartTime;
     console.log(`🖼️  Thumbnail created in ${thumbTime}ms: ${thumbFilename}`);
 
-    const updateResult = await dbFood.updateCatalogueImageFileName(catalogueId, thumbFilename);
+    imageCache.setImageExists(catalogueId);
+    console.log(`💾 Image cache updated for product ${catalogueId}`);
 
-    if (!updateResult) {
-      console.log(`❌ Failed to update database with image filename for product ${catalogueId}`);
-      return {
-        success: false,
-        error: 'Database update failed',
-      };
-    }
-
-    console.log(`✅ Database updated with thumbnail filename: ${thumbFilename}`);
-
-    const updatedEntry = await dbFood.getCatalogueEntryById(catalogueId);
-    if (updatedEntry) {
-      broadcastToAllUsers({
-        type: 'CATALOGUE_IMAGE_GENERATED',
-        payload: updatedEntry,
-      });
-      console.log(`📡 Broadcasted CATALOGUE_IMAGE_GENERATED event for product ${catalogueId}`);
-    }
+    broadcastToAllUsers({
+      type: 'CATALOGUE_IMAGE_GENERATED',
+      payload: { catalogueId },
+    });
+    console.log(`📡 Broadcasted CATALOGUE_IMAGE_GENERATED event for product ${catalogueId}`);
 
     return {
       success: true,

@@ -261,7 +261,7 @@ export async function getCatalogueEntryById(catalogueId) {
   try {
     const query = `
       SELECT
-        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding, legacyName, embedding, imageFileName
+        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding, legacyName, embedding
       FROM
         foodCatalogue
       WHERE
@@ -280,7 +280,7 @@ export async function getCatalogueEntryByIdForAPI(catalogueId) {
   try {
     const query = `
       SELECT
-        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding as description, legacyName, imageFileName
+        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding as description, legacyName
       FROM
         foodCatalogue
       WHERE
@@ -289,7 +289,7 @@ export async function getCatalogueEntryByIdForAPI(catalogueId) {
     const result = await connection.get(query, [catalogueId]);
     return result || null;
   } catch (error) {
-    console.error('Error getting catalogue entry by id for API:', error);
+    console.error('Error getting catalogue entry by ID:', error);
     return null;
   }
 }
@@ -299,7 +299,7 @@ export async function getCatalogueEntryByNameForAPI(foodName) {
   try {
     const query = `
       SELECT
-        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding as description, imageFileName
+        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding as description
       FROM
         foodCatalogue
       WHERE
@@ -438,7 +438,7 @@ export async function getAllFoodCatalogueEntries() {
   try {
     const query = `
       SELECT
-        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding, legacyName, embedding, imageFileName
+        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding, legacyName, embedding
       FROM
         foodCatalogue
       ORDER BY
@@ -457,7 +457,7 @@ export async function getAllFoodCatalogueEntriesForAPI() {
   try {
     const query = `
       SELECT
-        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding as description, legacyName, imageFileName
+        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding as description, legacyName
       FROM
         foodCatalogue
       ORDER BY
@@ -733,7 +733,7 @@ export async function searchCatalogueEntriesByEmbedding(embeddingArray) {
 
     const query = `
       SELECT
-        fc.id, fc.name, fc.kcals, fc.protein, fc.fat, fc.carbs, fc.fiber, fc.embedding, fc.imageFileName
+        fc.id, fc.name, fc.kcals, fc.protein, fc.fat, fc.carbs, fc.fiber, fc.embedding
       FROM
         foodCatalogue fc
       WHERE
@@ -756,7 +756,6 @@ export async function searchCatalogueEntriesByEmbedding(embeddingArray) {
           fat: row.fat,
           carbs: row.carbs,
           fiber: row.fiber,
-          imageFileName: row.imageFileName,
           distance: distance,
         };
       })
@@ -878,57 +877,6 @@ export async function updateQueryUsage(query) {
     return result.changes > 0;
   } catch (error) {
     console.error('Error updating query usage:', error);
-    return false;
-  }
-}
-
-// ====================================================================================================== IMAGE URLS ===
-
-/**
- * Updates image filename for a catalogue entry
- * @param {number} catalogueId - Catalogue entry ID
- * @param {string} imageFileName - Image filename (thumbnail path)
- * @returns {Promise<boolean>} Success status
- */
-export async function updateCatalogueImageFileName(catalogueId, imageFileName) {
-  const connection = await getConnection();
-  try {
-    const query = `
-      UPDATE
-        foodCatalogue
-      SET
-        imageFileName = ?
-      WHERE
-        id = ?;
-    `;
-    const result = await connection.run(query, [imageFileName, catalogueId]);
-    return result.changes > 0;
-  } catch (error) {
-    console.error('Error updating catalogue image filename:', error);
-    return false;
-  }
-}
-
-/**
- * Clears image filename for a catalogue entry (when file is missing)
- * @param {number} catalogueId - Catalogue entry ID
- * @returns {Promise<boolean>} Success status
- */
-export async function clearCatalogueImageFileName(catalogueId) {
-  const connection = await getConnection();
-  try {
-    const query = `
-      UPDATE
-        foodCatalogue
-      SET
-        imageFileName = NULL
-      WHERE
-        id = ?;
-    `;
-    const result = await connection.run(query, [catalogueId]);
-    return result.changes > 0;
-  } catch (error) {
-    console.error('Error clearing catalogue image filename:', error);
     return false;
   }
 }
