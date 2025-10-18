@@ -4,10 +4,14 @@ import sharp from 'sharp';
 import {
   AI_IMAGE_GEN_PROMPT,
   AI_PROVIDERS,
+  IMAGE_GEN_QUEUE_ERROR_BACKOFF_BASE_SEC,
+  IMAGE_GEN_QUEUE_ERROR_BACKOFF_INCREMENT_SEC,
+  IMAGE_GEN_QUEUE_ERROR_BACKOFF_MAX_SEC,
   IMAGE_GEN_QUEUE_MAX_ATTEMPTS,
   IMAGE_GEN_QUEUE_MAX_CONCURRENT,
+  IMAGE_GEN_QUEUE_MAX_SIZE,
   IMAGE_GEN_QUEUE_POLL_INTERVAL_MS,
-  IMAGE_GEN_QUEUE_RATE_LIMIT_MS,
+  IMAGE_GEN_QUEUE_RATE_LIMIT_SEC,
 } from '../../env.js';
 import { broadcastToAllUsers } from '../ws/ws-setup.js';
 import * as aiService from './ai-service.js';
@@ -19,17 +23,26 @@ class ImageGenerationQueue {
   constructor(options = {}) {
     this.queue = new Map();
     this.maxConcurrent = options.maxConcurrent || 10;
-    this.rateLimitMs = options.rateLimitMs || 1000;
+    this.maxSize = options.maxSize || 24;
+    this.rateLimitSec = options.rateLimitSec || 1;
     this.maxAttempts = options.maxAttempts || 5;
     this.pollIntervalMs = options.pollIntervalMs || 100;
     this.lastGenerationTime = 0;
     this.processingCount = 0;
     this.processingInterval = null;
+    this.errorBackoffBaseSec = options.errorBackoffBaseSec || 1;
+    this.errorBackoffIncrementSec = options.errorBackoffIncrementSec || 5;
+    this.errorBackoffMaxSec = options.errorBackoffMaxSec || 3600;
+    this.currentErrorBackoffSec = 0;
   }
 
   enqueue(catalogueId, productName, description) {
     if (this.queue.has(catalogueId)) {
       return { success: false, reason: 'Already in queue' };
+    }
+
+    if (this.queue.size >= this.maxSize) {
+      return { success: false, reason: `Queue is full (max ${this.maxSize} items)` };
     }
 
     this.queue.set(catalogueId, {
@@ -61,8 +74,9 @@ class ImageGenerationQueue {
 
     const now = Date.now();
     const timeSinceLastGen = now - this.lastGenerationTime;
+    const effectiveRateLimit = Math.max(this.rateLimitSec * 1000, this.currentErrorBackoffSec * 1000);
 
-    if (timeSinceLastGen < this.rateLimitMs) {
+    if (timeSinceLastGen < effectiveRateLimit) {
       return;
     }
 
@@ -99,6 +113,7 @@ class ImageGenerationQueue {
       if (result.success) {
         this.queue.delete(task.catalogueId);
         this.processingCount--;
+        this.resetErrorBackoff();
       } else {
         this.handleFailedTask(task, result.error);
       }
@@ -110,10 +125,11 @@ class ImageGenerationQueue {
   handleFailedTask(task, error) {
     task.attempts++;
     this.processingCount--;
+    this.increaseErrorBackoff();
 
     if (task.attempts >= this.maxAttempts) {
       console.error(
-        `❌ Giving up on image generation for product ${task.catalogueId} after ${this.maxAttempts} attempts`
+        `❌ Giving up on image generation for product ${task.catalogueId} after ${this.maxAttempts} attempts. Global backoff: ${this.currentErrorBackoffSec}s`
       );
       this.queue.delete(task.catalogueId);
       return;
@@ -124,7 +140,7 @@ class ImageGenerationQueue {
     task.availableAt = Date.now() + delayMs;
 
     console.log(
-      `🔄 Retrying image generation for product ${task.catalogueId} in ${delayMs}ms (attempt ${task.attempts}): ${error}`
+      `🔄 Retrying image generation for product ${task.catalogueId} in ${delayMs}ms (attempt ${task.attempts}). Global backoff: ${this.currentErrorBackoffSec}s. Error: ${error}`
     );
   }
 
@@ -139,6 +155,21 @@ class ImageGenerationQueue {
     return this.queue.has(catalogueId);
   }
 
+  increaseErrorBackoff() {
+    this.currentErrorBackoffSec = Math.min(
+      this.currentErrorBackoffSec + this.errorBackoffIncrementSec,
+      this.errorBackoffMaxSec
+    );
+    console.log(`⏱️  Error backoff increased to ${this.currentErrorBackoffSec}s`);
+  }
+
+  resetErrorBackoff() {
+    if (this.currentErrorBackoffSec > 0) {
+      console.log(`✅ Error backoff reset from ${this.currentErrorBackoffSec}s to 0s`);
+      this.currentErrorBackoffSec = 0;
+    }
+  }
+
   getStats() {
     const pending = Array.from(this.queue.values()).filter((t) => t.status === 'pending').length;
 
@@ -147,15 +178,20 @@ class ImageGenerationQueue {
       pending,
       processing: this.processingCount,
       isRunning: this.processingInterval !== null,
+      currentErrorBackoffSec: this.currentErrorBackoffSec,
     };
   }
 }
 
 const imageQueue = new ImageGenerationQueue({
   maxConcurrent: IMAGE_GEN_QUEUE_MAX_CONCURRENT,
-  rateLimitMs: IMAGE_GEN_QUEUE_RATE_LIMIT_MS,
+  maxSize: IMAGE_GEN_QUEUE_MAX_SIZE,
+  rateLimitSec: IMAGE_GEN_QUEUE_RATE_LIMIT_SEC,
   maxAttempts: IMAGE_GEN_QUEUE_MAX_ATTEMPTS,
   pollIntervalMs: IMAGE_GEN_QUEUE_POLL_INTERVAL_MS,
+  errorBackoffBaseSec: IMAGE_GEN_QUEUE_ERROR_BACKOFF_BASE_SEC,
+  errorBackoffIncrementSec: IMAGE_GEN_QUEUE_ERROR_BACKOFF_INCREMENT_SEC,
+  errorBackoffMaxSec: IMAGE_GEN_QUEUE_ERROR_BACKOFF_MAX_SEC,
 });
 
 export function requestProductImageGeneration(catalogueId, productName, description = '') {

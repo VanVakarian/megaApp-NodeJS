@@ -6,7 +6,7 @@ import * as dbFood from '../../db/db-food.js';
 import {
   AI_FOOD_DESCRIPTION_GEN_SYSTEM_PROMPT,
   AI_FOOD_DESCRIPTION_MODELS,
-  AI_PROMPTS,
+  AI_IMAGE_GEN_PROMPT,
   AI_PROVIDERS,
 } from '../../env.js';
 import * as aiService from '../ai/ai-service.js';
@@ -46,10 +46,7 @@ export async function testImageGeneration(request, reply) {
     const foodName = entry.name;
     const foodDescription = entry.descriptionForEmbedding || '';
 
-    const prompt = AI_PROMPTS.IMAGE_GENERATION_BASE.replace('{foodName}', foodName).replace(
-      '{foodDescription}',
-      foodDescription
-    );
+    const prompt = AI_IMAGE_GEN_PROMPT.replace('{productName}', foodName).replace('{foodDescription}', foodDescription);
 
     console.log(`📝 Generated prompt: "${prompt}"`);
     console.log(`🎨 Using provider: ${provider}`);
