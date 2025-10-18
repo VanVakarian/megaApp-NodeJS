@@ -1,7 +1,7 @@
 import { APP_IP, APP_PORT } from './env.js';
 
 export const swaggerConfig = {
-  routePrefix: '/docs',
+  routePrefix: '/swagger',
   openapi: {
     openapi: '3.0.3',
     info: {
@@ -33,14 +33,21 @@ export const swaggerConfig = {
 };
 
 export const swaggerUiConfig = {
-  routePrefix: '/docs',
+  routePrefix: '/swagger',
   uiConfig: {
     deepLinking: true,
   },
-  staticCSP: true,
+  staticCSP: false,
   transformStaticCSP: (header) => header,
   transformSpecification: (swaggerObject, request, reply) => {
     return swaggerObject;
   },
   transformSpecificationClone: true,
+};
+
+export const swaggerCorsConfig = {
+  origin: true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
 };

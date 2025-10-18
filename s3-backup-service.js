@@ -14,11 +14,6 @@ const s3Client = new S3Client({
 });
 
 export async function performBackup() {
-  if (!S3_CONFIG.ENABLED) {
-    console.log('S3 backup is disabled');
-    return;
-  }
-
   console.log('Starting S3 backup process...');
   console.time('S3 backup completed in');
 

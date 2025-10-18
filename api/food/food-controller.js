@@ -1,6 +1,10 @@
+import fs from 'fs/promises';
+import path from 'path';
 import * as coefficientsService from '../../coefficients/coeffs-service.js';
 import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
+import * as imageCache from '../ai/image-cache.js';
+import * as imageService from '../ai/image-service.js';
 import { updateUserDataLastModified } from '../ws/sync-state.js';
 import * as foodService from './food-service.js';
 
@@ -10,6 +14,14 @@ export const WS_MESSAGE_TYPES = {
   DIARY_ENTRY_UPDATED: 'DIARY_ENTRY_UPDATED',
   DIARY_ENTRY_DELETED: 'DIARY_ENTRY_DELETED',
   BODY_WEIGHT_UPDATED: 'BODY_WEIGHT_UPDATED',
+  START_VOICE_RECORDING: 'START_VOICE_RECORDING',
+  STOP_VOICE_RECORDING: 'STOP_VOICE_RECORDING',
+  AUDIO_CHUNK: 'AUDIO_CHUNK',
+  VOICE_SEARCH_RESULTS: 'VOICE_SEARCH_RESULTS',
+  SEARCH_QUERY: 'SEARCH_QUERY',
+  SEARCH_RESULTS: 'SEARCH_RESULTS',
+  CATALOGUE_ENTRY_SAVED: 'CATALOGUE_ENTRY_SAVED',
+  CATALOGUE_IMAGE_GENERATED: 'CATALOGUE_IMAGE_GENERATED',
 };
 
 // ===================================================================================================== FULL UPDATE ===
@@ -69,7 +81,7 @@ export async function createDiaryEntry(request, reply) {
       updateUserDataLastModified(userId);
       request.server.scheduleStatsRecalculation(userId);
       const clientId = request.server.getClientId(request);
-      request.server.broadcast(
+      request.server.broadcastToUser(
         userId,
         {
           type: WS_MESSAGE_TYPES.DIARY_ENTRY_CREATED,
@@ -102,7 +114,7 @@ export async function editDiaryEntry(request, reply) {
     updateUserDataLastModified(userId);
     request.server.scheduleStatsRecalculation(userId);
     const clientId = request.server.getClientId(request);
-    request.server.broadcast(
+    request.server.broadcastToUser(
       userId,
       {
         type: WS_MESSAGE_TYPES.DIARY_ENTRY_UPDATED,
@@ -130,7 +142,7 @@ export async function deleteDiaryEntry(request, reply) {
       updateUserDataLastModified(userId);
       request.server.scheduleStatsRecalculation(userId);
       const clientId = request.server.getClientId(request);
-      request.server.broadcast(
+      request.server.broadcastToUser(
         userId,
         {
           type: WS_MESSAGE_TYPES.DIARY_ENTRY_DELETED,
@@ -159,12 +171,196 @@ export async function createCatalogueEntry(request, reply) {
   const userId = request.user.id;
   const newFoodId = await dbFood.addFoodCatalogueEntry(foodName, foodKcals);
   if (newFoodId) {
-    const result = await addToUserCatalogue(userId, newFoodId);
-    if (result) {
+    const result = await foodService.addCatalogueEntryToUserVisibility(userId, newFoodId);
+    if (result.success) {
+      updateUserDataLastModified(userId);
       return reply.code(200).send({ result: true, id: newFoodId });
     }
   }
   return reply.code(400).send({ result: false, error: 'Catalogue entry not created' });
+}
+
+// ============================================================================================= NEW SEMANTIC SEARCH ===
+
+/**
+ * Generates product preview data using LLM without creating database entry
+ * @param {Object} request - Fastify request object with description in body
+ * @param {Object} reply - Fastify reply object
+ * @returns {Promise<Object>} Generated product data with KBJU values
+ */
+export async function generateProductPreview(request, reply) {
+  const { description } = request.body;
+
+  if (!description || description.trim() === '') {
+    return reply.code(400).send({ result: false, error: 'Description is required' });
+  }
+
+  try {
+    const result = await foodService.generateProductPreviewData(description.trim());
+
+    if (result.success) {
+      return reply.code(200).send({
+        result: true,
+        data: result.data,
+      });
+    }
+
+    return reply.code(400).send({ result: false, error: result.error });
+  } catch (error) {
+    console.error('Error in generateProductPreview:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
+}
+
+/**
+ * Universal endpoint for creating or updating catalogue entries
+ * @param {Object} request - Fastify request object with optional id and full product data in body
+ * @param {Object} reply - Fastify reply object
+ * @returns {Promise<Object>} Created/updated catalogue entry with broadcast to all clients
+ */
+export async function saveProduct(request, reply) {
+  const { id, name, kcals, protein, fat, carbs, fiber, description } = request.body;
+  const userId = request.user.id;
+
+  if (
+    !name ||
+    kcals === undefined ||
+    protein === undefined ||
+    fat === undefined ||
+    carbs === undefined ||
+    fiber === undefined ||
+    !description
+  ) {
+    return reply.code(400).send({ result: false, error: 'All fields are required' });
+  }
+
+  try {
+    const result = await foodService.saveProductData(id || null, {
+      name: name.trim(),
+      kcals: parseFloat(kcals),
+      protein: parseFloat(protein),
+      fat: parseFloat(fat),
+      carbs: parseFloat(carbs),
+      fiber: parseFloat(fiber),
+      description: description.trim(),
+    });
+
+    if (result.success) {
+      updateUserDataLastModified(userId);
+
+      const clientId = request.server.getClientId(request);
+      request.server.broadcastToAllUsers(
+        {
+          type: WS_MESSAGE_TYPES.CATALOGUE_ENTRY_SAVED,
+          payload: result.data.catalogueEntry,
+        },
+        clientId
+      );
+
+      const statusCode = id ? 200 : 201;
+      return reply.code(statusCode).send({
+        result: true,
+        data: result.data,
+      });
+    }
+
+    if (result.error === 'Product not found') {
+      return reply.code(404).send({ result: false, error: result.error });
+    }
+
+    return reply.code(400).send({ result: false, error: result.error });
+  } catch (error) {
+    console.error('Error in saveProduct:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
+}
+
+export async function searchCatalogueEntries(request, reply) {
+  const { query } = request.query;
+
+  if (!query || query.trim() === '') {
+    return reply.code(400).send({ result: false, error: 'Query parameter is required' });
+  }
+
+  try {
+    const searchResults = await foodService.searchCatalogueEntries(query.trim());
+    return reply.code(200).send({
+      result: true,
+      data: searchResults,
+    });
+  } catch (error) {
+    console.error('Error in search controller:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
+}
+
+// ============================================================================================= MULTIMODAL ANALYSIS ===
+
+export async function analyzeImage(request, reply) {
+  const userId = request.user.id;
+
+  try {
+    const data = await request.file();
+
+    if (!data) {
+      return reply.code(400).send({ result: false, error: 'No image file provided' });
+    }
+
+    const buffer = await data.toBuffer();
+    const mimeType = data.mimetype;
+
+    if (!mimeType.startsWith('image/')) {
+      return reply.code(400).send({ result: false, error: 'File must be an image' });
+    }
+
+    // For debugging purposes: save uploaded image to backups folder
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const fileExtension = mimeType.split('/')[1] || 'jpg';
+    const fileName = `image-${userId}-${timestamp}.${fileExtension}`;
+    const backupsDir = path.resolve(process.cwd(), 'backups');
+    const filePath = path.join(backupsDir, fileName);
+    await fs.writeFile(filePath, buffer);
+    console.log(`Image saved to: ${filePath}`);
+    return;
+
+    const result = await foodService.analyzeImageForCatalogueEntry(buffer, mimeType);
+
+    if (result.success) {
+      return reply.code(200).send({ result: true, data: result.data });
+    }
+
+    return reply.code(500).send({ result: false, error: result.error });
+  } catch (error) {
+    console.error('Error analyzing image:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
+}
+
+/**
+ * Analyzes voice transcript using AI to detect mentioned food products
+ * @param {Object} request - Fastify request object with transcript in body
+ * @param {Object} reply - Fastify reply object
+ * @returns {Promise<Object>} Detected food product data and search suggestions
+ */
+export async function analyzeVoice(request, reply) {
+  const { transcript } = request.body;
+
+  if (!transcript || transcript.trim() === '') {
+    return reply.code(400).send({ result: false, error: 'Transcript is required' });
+  }
+
+  try {
+    const result = await foodService.analyzeVoiceForCatalogueEntry(transcript.trim());
+
+    if (result.success) {
+      return reply.code(200).send({ result: true, data: result.data });
+    }
+
+    return reply.code(500).send({ result: false, error: result.error });
+  } catch (error) {
+    console.error('Error analyzing voice:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
 }
 
 export async function editCatalogueEntry(request, reply) {
@@ -172,64 +368,6 @@ export async function editCatalogueEntry(request, reply) {
   const result = await dbFood.updateFoodCatalogueEntry(foodId, foodName, foodKcals);
   if (result) {
     return reply.code(200).send({ result: true, id: foodId, name: foodName, kcals: foodKcals });
-  }
-  return reply.code(400).send({ result: false, error: 'Catalogue entry not found' });
-}
-
-// ================================================================================================== USER CATALOGUE ===
-
-export async function getMyCatalogue(request, reply) {
-  const userId = request.user.id;
-  const catalogueIdsRaw = await dbFood.getUsersFoodCatalogueIds(userId);
-  const catalogueIdsParsed = catalogueIdsRaw[0] ? JSON.parse(catalogueIdsRaw[0].selectedCatalogueIds) : [];
-  return reply.code(200).send(JSON.stringify(catalogueIdsParsed));
-}
-
-export async function pickUserCatalogueEntry(request, reply) {
-  const { foodId } = request.body;
-  const userId = request.user.id;
-
-  try {
-    const result = await addToUserCatalogue(userId, parseInt(foodId));
-    if (result) {
-      return reply.code(200).send({ result: true });
-    }
-    return reply.code(400).send({ result: false, error: 'Catalogue entry not found' });
-  } catch (error) {
-    console.error('Error in pickUserCatalogueEntry:', error);
-    return reply.code(500).send({ result: false, error: 'Internal server error' });
-  }
-}
-
-async function addToUserCatalogue(userId, foodId) {
-  const catalogueIdsRaw = await dbFood.getUsersFoodCatalogueIds(userId);
-  const catalogueIds = catalogueIdsRaw[0] ? JSON.parse(catalogueIdsRaw[0].selectedCatalogueIds) : [];
-  if (!catalogueIds.includes(foodId)) {
-    catalogueIds.push(foodId);
-    catalogueIds.sort((a, b) => a - b);
-    const updateResult = await dbFood.updateUsersFoodCatalogueIdsList(JSON.stringify(catalogueIds), userId);
-    updateUserDataLastModified(userId);
-    return updateResult;
-  }
-  // If the ID is already in the list, consider the operation successful
-  return true;
-}
-
-export async function dismissUserCatalogueEntry(request, reply) {
-  const { foodId } = request.body;
-  const userId = request.user.id;
-  const catalogueIdsRaw = await dbFood.getUsersFoodCatalogueIds(userId);
-  if (catalogueIdsRaw && catalogueIdsRaw[0]) {
-    const catalogueIds = JSON.parse(catalogueIdsRaw[0].selectedCatalogueIds);
-    const index = catalogueIds.indexOf(parseInt(foodId));
-    if (index > -1) {
-      catalogueIds.splice(index, 1);
-      const result = await dbFood.updateUsersFoodCatalogueIdsList(JSON.stringify(catalogueIds), userId);
-      if (result) {
-        updateUserDataLastModified(userId);
-        return reply.code(200).send({ result: true });
-      }
-    }
   }
   return reply.code(400).send({ result: false, error: 'Catalogue entry not found' });
 }
@@ -283,7 +421,7 @@ export async function processWeight(request, reply) {
       updateUserDataLastModified(userId);
       request.server.scheduleStatsRecalculation(userId);
       const clientId = request.server.getClientId(request);
-      request.server.broadcast(
+      request.server.broadcastToUser(
         userId,
         {
           type: WS_MESSAGE_TYPES.BODY_WEIGHT_UPDATED,
@@ -312,5 +450,49 @@ export async function getStats(request, reply) {
   } catch (error) {
     console.error(error);
     return reply.code(500).send({ error: 'Failed to get stats' });
+  }
+}
+
+// ======================================================================================================= WS SEARCH ===
+
+/**
+ * Handles real-time search queries via WebSocket for unified catalogue
+ * @param {Object} socket - WebSocket connection
+ * @param {Object} message - Incoming message with query
+ */
+export async function handleSearchQuery(socket, message) {
+  try {
+    const { query } = message;
+    if (!query || typeof query !== 'string') {
+      return;
+    }
+
+    const catalogueIds = await foodService.searchCatalogueEntriesRealtime(query.trim());
+
+    const response = {
+      type: WS_MESSAGE_TYPES.SEARCH_RESULTS,
+      payload: {
+        query: query.trim(),
+        catalogueIds: catalogueIds,
+        timestamp: Date.now(),
+      },
+    };
+
+    socket.send(JSON.stringify(response));
+
+    if (catalogueIds.length > 0) {
+      const allEntries = await dbFood.getAllFoodCatalogueEntries();
+
+      for (const entryId of catalogueIds) {
+        const entry = allEntries.find((e) => e.id === entryId);
+        if (!entry) continue;
+
+        if (!imageCache.hasImage(entry.id)) {
+          imageService.requestProductImageGeneration(entry.id, entry.name, entry.descriptionForEmbedding);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error handling search query:', error);
   }
 }

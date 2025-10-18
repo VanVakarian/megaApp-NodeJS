@@ -1,4 +1,6 @@
+import { WS_MESSAGE_TYPES } from '../food/food-controller.js';
 import * as wsService from './ws-service.js';
+import { processMessage, setupMessageHandlers } from './ws-setup.js';
 
 export async function websocketRoutes(fastify) {
   fastify.addHook('preValidation', async (request, reply) => {
@@ -24,12 +26,48 @@ export async function websocketRoutes(fastify) {
 
     socket.isAlive = true;
 
+    const messageHandlers = setupMessageHandlers();
+
     socket.on('message', async (message) => {
       try {
         const incomingMessage = JSON.parse(message.toString());
 
-        if (incomingMessage.type === 'PONG') {
-          socket.isAlive = true;
+        switch (incomingMessage.type) {
+          case 'PONG':
+            socket.isAlive = true;
+            break;
+
+          case WS_MESSAGE_TYPES.START_VOICE_RECORDING:
+            fastify.log.info(`Voice recording started for user ${socket.userId}`);
+            console.log('Voice recording session started:', {
+              userId: socket.userId,
+              clientId: socket.clientId,
+              timestamp: new Date().toISOString(),
+            });
+            break;
+
+          case WS_MESSAGE_TYPES.STOP_VOICE_RECORDING:
+            fastify.log.info(`Voice recording stopped for user ${socket.userId}`);
+            console.log('Voice recording session stopped:', {
+              userId: socket.userId,
+              clientId: socket.clientId,
+              timestamp: new Date().toISOString(),
+            });
+            break;
+
+          case WS_MESSAGE_TYPES.AUDIO_CHUNK:
+            console.log('Audio chunk received:', {
+              userId: socket.userId,
+              clientId: socket.clientId,
+              chunkSize: incomingMessage.data ? incomingMessage.data.length : 0,
+              sequence: incomingMessage.sequence || 'unknown',
+              timestamp: new Date().toISOString(),
+            });
+            break;
+
+          default:
+            await processMessage(messageHandlers, socket, incomingMessage, fastify);
+            break;
         }
       } catch (error) {
         fastify.log.error('Error processing WebSocket message:', error);

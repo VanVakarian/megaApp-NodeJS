@@ -1,5 +1,6 @@
 import { HEARTBEAT_INTERVAL } from '../../env.js';
 import { wsClients } from '../../server.js';
+import { foodWebSocketHandlers } from '../food/food-routes.js';
 
 let heartbeatInterval = null;
 
@@ -97,7 +98,7 @@ export async function closeAllWebSocketConnections() {
  *   excluding a specific client if provided.
  * Removes dead or failed sockets from the set.
  */
-export function broadcast(userId, payload, excludeClientId = null) {
+export function broadcastToUser(userId, payload, excludeClientId = null) {
   const userSockets = wsClients.get(userId);
   if (!userSockets) return;
 
@@ -132,6 +133,63 @@ export function broadcast(userId, payload, excludeClientId = null) {
   }
 }
 
+/**
+ * Broadcasts a message payload to all WebSocket clients of all users,
+ *   excluding a specific client if provided.
+ * Used for shared data updates that affect all users (e.g., shared catalogue entries).
+ */
+export function broadcastToAllUsers(payload, excludeClientId = null) {
+  for (const [userId] of wsClients.entries()) {
+    broadcastToUser(userId, payload, excludeClientId);
+  }
+}
+
 export function getClientId(request) {
   return request.headers['x-client-id'] || null;
+}
+
+// ========================================================================================== MESSAGE HANDLER SYSTEM ===
+
+/**
+ * Central WebSocket message handler registration system
+ * Collects all WebSocket handlers from different modules
+ */
+export function setupMessageHandlers() {
+  const handlers = new Map();
+
+  Object.entries(foodWebSocketHandlers).forEach(([messageType, handler]) => {
+    handlers.set(messageType, handler);
+  });
+
+  // Future: Add other module handlers here
+  // Object.entries(voiceWebSocketHandlers).forEach(([messageType, handler]) => {
+  //   handlers.set(messageType, handler);
+  // });
+  // Object.entries(moneyWebSocketHandlers).forEach(([messageType, handler]) => {
+  //   handlers.set(messageType, handler);
+  // });
+
+  return handlers;
+}
+
+/**
+ * Processes incoming WebSocket message using registered handlers
+ * @param {Map} handlers - Map of message handlers
+ * @param {WebSocket} socket - WebSocket connection
+ * @param {Object} message - Parsed incoming message
+ * @param {Object} fastify - Fastify instance for logging
+ */
+export async function processMessage(handlers, socket, message, fastify) {
+  try {
+    const handler = handlers.get(message.type);
+
+    if (handler) {
+      await handler(socket, message);
+    } else {
+      fastify.log.warn(`Unknown WebSocket message type: ${message.type}`);
+    }
+  } catch (error) {
+    fastify.log.error('Error processing WebSocket message:', error);
+    console.error('WebSocket message processing error:', error);
+  }
 }
