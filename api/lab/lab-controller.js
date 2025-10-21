@@ -88,3 +88,48 @@ export async function generateProduct(request, reply) {
     });
   }
 }
+
+export async function generateEmbeddings(request, reply) {
+  const { count } = request.query;
+
+  if (!count) {
+    return reply.code(400).send({
+      result: false,
+      error: 'count query parameter is required',
+    });
+  }
+
+  const entriesCount = parseInt(count);
+
+  if (isNaN(entriesCount) || entriesCount < 1 || entriesCount > 100) {
+    return reply.code(400).send({
+      result: false,
+      error: 'count must be a number between 1 and 100',
+    });
+  }
+
+  try {
+    const result = await labService.generateEmbeddings(entriesCount);
+
+    if (result.success) {
+      return reply.code(200).send({
+        result: true,
+        data: result.data,
+        batchInfo: result.batchInfo,
+      });
+    }
+
+    return reply.code(400).send({
+      result: false,
+      error: result.error,
+      data: result.data,
+      batchInfo: result.batchInfo,
+    });
+  } catch (error) {
+    console.error('Error in generateEmbeddings:', error);
+    return reply.code(500).send({
+      result: false,
+      error: 'Internal server error',
+    });
+  }
+}

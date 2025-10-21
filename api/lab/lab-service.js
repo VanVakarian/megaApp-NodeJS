@@ -349,3 +349,161 @@ export async function generateBatch(batchSize, useKcals = false, saveToDb = fals
     };
   }
 }
+
+export async function generateEmbeddings(count) {
+  try {
+    console.log(`🎯 Starting embeddings generation: ${count} entries`);
+
+    const entries = await dbFood.getCatalogueEntriesWithoutEmbeddings(count);
+
+    if (!entries || entries.length === 0) {
+      console.log('⚠️ No entries found without embeddings');
+      return {
+        success: false,
+        error: 'No catalogue entries without embeddings found',
+        data: [],
+        batchInfo: {
+          totalRequested: count,
+          totalProcessed: 0,
+          successCount: 0,
+          failedCount: 0,
+        },
+      };
+    }
+
+    console.log(`📦 Found ${entries.length} entries to process`);
+
+    const results = [];
+    let successCount = 0;
+    let failedCount = 0;
+
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      console.log(`⏳ [${i + 1}/${entries.length}] Processing: "${entry.name}" (ID: ${entry.id})`);
+
+      try {
+        let nameEmbedding = null;
+        let descriptionEmbedding = null;
+        let nameEmbeddingResult = null;
+        let descriptionEmbeddingResult = null;
+
+        if (!entry.nameVec && entry.name) {
+          console.log(`📝 Generating name embedding: "${entry.name}"`);
+          nameEmbeddingResult = await aiService.generateEmbedding(entry.name);
+
+          if (nameEmbeddingResult.success) {
+            nameEmbedding = nameEmbeddingResult.data.embedding;
+            console.log(`✅ Name embedding generated: ${nameEmbeddingResult.data.dimensions} dimensions`);
+          } else {
+            console.log(`❌ Failed to generate name embedding: ${nameEmbeddingResult.error}`);
+          }
+        }
+
+        if (!entry.descriptionVec && entry.description && entry.description.trim().length > 0) {
+          console.log(`📝 Generating description embedding: "${entry.description}"`);
+          descriptionEmbeddingResult = await aiService.generateEmbedding(entry.description);
+
+          if (descriptionEmbeddingResult.success) {
+            descriptionEmbedding = descriptionEmbeddingResult.data.embedding;
+            console.log(`✅ Description embedding generated: ${descriptionEmbeddingResult.data.dimensions} dimensions`);
+          } else {
+            console.log(`❌ Failed to generate description embedding: ${descriptionEmbeddingResult.error}`);
+          }
+        }
+
+        if (!nameEmbedding && !descriptionEmbedding) {
+          console.log(`❌ [${i + 1}/${entries.length}] No embeddings generated`);
+          results.push({
+            id: entry.id,
+            name: entry.name,
+            nameEmbedding: null,
+            descriptionEmbedding: null,
+            saved: false,
+            error: 'Failed to generate any embeddings',
+          });
+          failedCount++;
+          continue;
+        }
+
+        const updateResult = await dbFood.updateCatalogueEntryEmbedding(entry.id, nameEmbedding, descriptionEmbedding);
+
+        if (!updateResult) {
+          console.log(`❌ [${i + 1}/${entries.length}] DB save failed`);
+          results.push({
+            id: entry.id,
+            name: entry.name,
+            nameEmbedding: nameEmbedding ? { dimensions: nameEmbeddingResult.data.dimensions } : null,
+            descriptionEmbedding: descriptionEmbedding
+              ? { dimensions: descriptionEmbeddingResult.data.dimensions }
+              : null,
+            saved: false,
+            error: 'Failed to save embeddings to database',
+          });
+          failedCount++;
+          continue;
+        }
+
+        console.log(`✅ [${i + 1}/${entries.length}] Success: embeddings saved to DB`);
+        results.push({
+          id: entry.id,
+          name: entry.name,
+          nameEmbedding: nameEmbedding
+            ? {
+                dimensions: nameEmbeddingResult.data.dimensions,
+                model: nameEmbeddingResult.metadata.model,
+                provider: nameEmbeddingResult.metadata.provider,
+              }
+            : null,
+          descriptionEmbedding: descriptionEmbedding
+            ? {
+                dimensions: descriptionEmbeddingResult.data.dimensions,
+                model: descriptionEmbeddingResult.metadata.model,
+                provider: descriptionEmbeddingResult.metadata.provider,
+              }
+            : null,
+          saved: true,
+        });
+        successCount++;
+      } catch (error) {
+        console.error(`💥 [${i + 1}/${entries.length}] Exception: ${error.message}`);
+        results.push({
+          id: entry.id,
+          name: entry.name,
+          nameEmbedding: null,
+          descriptionEmbedding: null,
+          saved: false,
+          error: error.message,
+        });
+        failedCount++;
+      }
+    }
+
+    console.log(
+      `🏁 Embeddings generation complete: ✅ ${successCount} success | ❌ ${failedCount} failed | 📊 ${entries.length} total`
+    );
+
+    return {
+      success: true,
+      data: results,
+      batchInfo: {
+        totalRequested: count,
+        totalProcessed: entries.length,
+        successCount,
+        failedCount,
+      },
+    };
+  } catch (error) {
+    console.error('💥 Embeddings generation fatal error:', error);
+    return {
+      success: false,
+      error: 'Internal server error',
+      data: [],
+      batchInfo: {
+        totalRequested: count,
+        totalProcessed: 0,
+        successCount: 0,
+        failedCount: 0,
+      },
+    };
+  }
+}

@@ -113,4 +113,70 @@ export async function labRoutes(fastify) {
     },
     handler: labController.generateProduct,
   });
+
+  fastify.get('/generate-embeddings', {
+    schema: {
+      tags: ['lab'],
+      description:
+        'Generate embeddings (vectors) for catalogue entries without them. Generates both name and description embeddings.',
+      querystring: {
+        type: 'object',
+        properties: {
+          count: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 100,
+            description: 'Number of entries to generate embeddings for (default: 10, max: 100)',
+          },
+        },
+        required: ['count'],
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            result: { type: 'boolean' },
+            data: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'number' },
+                  name: { type: 'string' },
+                  nameEmbedding: {
+                    type: 'object',
+                    properties: {
+                      dimensions: { type: 'number' },
+                      model: { type: 'string' },
+                      provider: { type: 'string' },
+                    },
+                  },
+                  descriptionEmbedding: {
+                    type: 'object',
+                    properties: {
+                      dimensions: { type: 'number' },
+                      model: { type: 'string' },
+                      provider: { type: 'string' },
+                    },
+                  },
+                  saved: { type: 'boolean' },
+                  error: { type: 'string' },
+                },
+              },
+            },
+            batchInfo: {
+              type: 'object',
+              properties: {
+                totalRequested: { type: 'number' },
+                totalProcessed: { type: 'number' },
+                successCount: { type: 'number' },
+                failedCount: { type: 'number' },
+              },
+            },
+          },
+        },
+      },
+    },
+    handler: labController.generateEmbeddings,
+  });
 }

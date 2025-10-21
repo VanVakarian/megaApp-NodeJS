@@ -914,3 +914,25 @@ export async function getCatalogueEntriesWithoutDescription(limit = 10) {
     return [];
   }
 }
+
+export async function getCatalogueEntriesWithoutEmbeddings(limit = 10) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      SELECT
+        id, name, kcals, protein, fat, carbs, fiber, description, legacyName, nameVec, descriptionVec
+      FROM
+        foodCatalogue
+      WHERE
+        nameVec IS NULL OR descriptionVec IS NULL
+      ORDER BY
+        id ASC
+      LIMIT ?;
+    `;
+    const results = await connection.all(query, [limit]);
+    return results || [];
+  } catch (error) {
+    console.error('Error getting catalogue entries without embeddings:', error);
+    return [];
+  }
+}
