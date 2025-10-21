@@ -2,7 +2,6 @@ import fs from 'fs';
 import path from 'path';
 import { open } from 'sqlite';
 import sqlite3 from 'sqlite3';
-import { DB_ENV, DB_FILE_NAME, DB_NAME } from '../../env.js';
 import { migration001to002 } from './001-to-002.js';
 import { migration002to001 } from './002-to-001.js';
 import { migration002to003 } from './002-to-003.js';
@@ -35,21 +34,115 @@ const availableMigrations = {
   },
 };
 
-async function createBackup(migrationKey) {
-  const backupsDir = path.join(path.dirname(import.meta.url.replace('file://', '')), 'backups');
+/**
+ * Parse database filename to extract components
+ * Expected format: {name}-{env}-{version}.db or {name}-{env}-{version}
+ * Example: megaapp-prod-002.db or megaapp-test-003
+ */
+function parseDbFileName(fileName) {
+  // Remove .db extension if present
+  const nameWithoutExt = fileName.endsWith('.db') ? fileName.slice(0, -3) : fileName;
+
+  const parts = nameWithoutExt.split('-');
+
+  if (parts.length < 3) {
+    throw new Error(`Invalid database filename format: "${fileName}". Expected format: {name}-{env}-{version}.db`);
+  }
+
+  // Last part is version (digits only)
+  const version = parts[parts.length - 1];
+  if (!/^\d+$/.test(version)) {
+    throw new Error(`Invalid version in filename "${fileName}". Version must be numeric (e.g., "002", "003")`);
+  }
+
+  // Second-to-last part is environment
+  const env = parts[parts.length - 2];
+
+  // Everything before env is the database name (can contain hyphens)
+  const name = parts.slice(0, -2).join('-');
+
+  return { name, env, version };
+}
+
+/**
+ * Find database file by partial name in current directory
+ * Can search by full name or partial name (without .db extension)
+ */
+function findDatabaseFile(searchPattern, currentDir = '.') {
+  try {
+    const files = fs.readdirSync(currentDir);
+    const dbFiles = files.filter((f) => f.endsWith('.db'));
+
+    if (dbFiles.length === 0) {
+      throw new Error(`No database files (.db) found in directory: ${currentDir}`);
+    }
+
+    // Try exact match first (with or without .db)
+    const searchWithoutExt = searchPattern.endsWith('.db') ? searchPattern.slice(0, -3) : searchPattern;
+    const exactMatch = dbFiles.find(
+      (f) => f === searchPattern || f === `${searchPattern}.db` || f.slice(0, -3) === searchWithoutExt
+    );
+
+    if (exactMatch) {
+      return path.join(currentDir, exactMatch);
+    }
+
+    // If search pattern contains env (e.g., "megaapp-prod"), find all matching
+    const matches = dbFiles.filter((f) => f.includes(searchWithoutExt));
+
+    if (matches.length === 1) {
+      return path.join(currentDir, matches[0]);
+    }
+
+    if (matches.length > 1) {
+      console.error(`Multiple database files match "${searchPattern}":`);
+      matches.forEach((m) => console.error(`  - ${m}`));
+      throw new Error('Please be more specific with the database filename');
+    }
+
+    console.error(`Available database files in ${currentDir}:`);
+    dbFiles.forEach((f) => console.error(`  - ${f}`));
+    throw new Error(`Database file "${searchPattern}" not found`);
+  } catch (error) {
+    if (error.message.includes('not found') || error.message.includes('No database')) {
+      throw error;
+    }
+    throw new Error(`Error searching for database file: ${error.message}`);
+  }
+}
+
+/**
+ * Validate that migration matches the source database version
+ */
+function validateMigrationVersion(migration, sourceDbVersion) {
+  if (migration.sourceVersion !== sourceDbVersion) {
+    throw new Error(
+      `Migration version mismatch: source database is version ${sourceDbVersion}, ` +
+        `but migration ${migration.sourceVersion}→${migration.targetVersion} expects version ${migration.sourceVersion}`
+    );
+  }
+}
+
+/**
+ * Create backup of source database before migration
+ */
+async function createBackup(sourceFilePath) {
+  const sourceDir = path.dirname(sourceFilePath);
+  const backupsDir = path.join(sourceDir, 'backups');
 
   if (!fs.existsSync(backupsDir)) {
     fs.mkdirSync(backupsDir, { recursive: true });
   }
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const backupFileName = `backup-before-migration-${migrationKey}-${timestamp}.db`;
+  const sourceFileName = path.basename(sourceFilePath);
+  const backupFileName = `backup-${sourceFileName.slice(0, -3)}-${timestamp}.db`;
   const backupPath = path.join(backupsDir, backupFileName);
 
   try {
     console.log(`Creating backup: ${backupFileName}`);
-    fs.copyFileSync(DB_FILE_NAME, backupPath);
-    console.log(`Backup created successfully at: ${backupPath}`);
+    fs.copyFileSync(sourceFilePath, backupPath);
+    console.log(`✓ Backup created: ${backupPath}`);
     return backupPath;
   } catch (error) {
     console.error('Error creating backup:', error);
@@ -57,100 +150,142 @@ async function createBackup(migrationKey) {
   }
 }
 
-async function runMigration(migrationKey) {
+/**
+ * Main migration function
+ */
+async function runMigration(migrationKey, sourceDbPattern) {
+  // Validate migration key
   if (!migrationKey) {
-    console.error('Please specify migration to run');
-    console.log('Available migrations:');
+    console.error('Error: Please specify migration to run using --migration=<key>');
+    console.log('\nAvailable migrations:');
     Object.keys(availableMigrations).forEach((key) => {
-      console.log(`  - ${key}: ${availableMigrations[key].name}`);
+      const m = availableMigrations[key];
+      console.log(`  --migration=${key}`);
+      console.log(`    ${m.name}`);
     });
     process.exit(1);
   }
 
   const migration = availableMigrations[migrationKey];
   if (!migration) {
-    console.error(`Migration "${migrationKey}" not found`);
-    console.log('Available migrations:');
+    console.error(`Error: Migration "${migrationKey}" not found`);
+    console.log('\nAvailable migrations:');
     Object.keys(availableMigrations).forEach((key) => {
-      console.log(`  - ${key}: ${availableMigrations[key].name}`);
+      const m = availableMigrations[key];
+      console.log(`  --migration=${key}`);
+      console.log(`    ${m.name}`);
     });
     process.exit(1);
   }
 
-  try {
-    await createBackup(migrationKey);
-  } catch (error) {
-    console.error('Failed to create backup. Migration aborted.');
-    throw error;
-  }
-
-  console.log(`Starting ${migration.name}...`);
-
-  const sourceFileName = `${DB_NAME}-${DB_ENV}-${migration.sourceVersion}.db`;
-  const targetFileName = `${DB_NAME}-${DB_ENV}-${migration.targetVersion}.db`;
-
-  if (!fs.existsSync(sourceFileName)) {
-    console.error(`Source database file ${sourceFileName} not found`);
+  // Validate source database parameter
+  if (!sourceDbPattern) {
+    console.error('Error: Please specify source database using --source=<filename>');
+    console.log('\nExamples:');
+    console.log('  node db/migrations/run-migration.js --migration=002to003 --source=megaapp-prod-002.db');
+    console.log('  node db/migrations/run-migration.js --migration=002to003 --source=megaapp-prod-002');
     process.exit(1);
   }
 
-  if (fs.existsSync(targetFileName)) {
-    console.log(`Target database file ${targetFileName} already exists, overwriting...`);
-    fs.unlinkSync(targetFileName);
-  }
-
-  console.log(`Copying ${sourceFileName} to ${targetFileName}`);
-  fs.copyFileSync(sourceFileName, targetFileName);
-
-  const connection = await open({
-    filename: targetFileName,
-    driver: sqlite3.Database,
-  });
-
   try {
-    for (const query of migration.queries) {
-      await connection.exec(query);
+    // Find source database file
+    console.log(`\nSearching for source database: ${sourceDbPattern}`);
+    const sourceFilePath = findDatabaseFile(sourceDbPattern);
+    const sourceFileName = path.basename(sourceFilePath);
+
+    // Parse source database filename
+    const sourceParsed = parseDbFileName(sourceFileName);
+    console.log(`✓ Found: ${sourceFileName}`);
+    console.log(`  Name: ${sourceParsed.name}, Environment: ${sourceParsed.env}, Version: ${sourceParsed.version}`);
+
+    // Validate migration version matches source version
+    validateMigrationVersion(migration, sourceParsed.version);
+    console.log(`✓ Migration version matches source database version: ${sourceParsed.version}`);
+
+    // Construct target filename
+    const targetFileName = `${sourceParsed.name}-${sourceParsed.env}-${migration.targetVersion}.db`;
+    const sourceDir = path.dirname(sourceFilePath);
+    const targetFilePath = path.join(sourceDir, targetFileName);
+
+    // Check if target already exists
+    if (fs.existsSync(targetFilePath)) {
+      console.log(`\nWarning: Target database already exists: ${targetFileName}`);
+      console.log('It will be overwritten.');
     }
-    await connection.close();
-    console.log(`${migration.name} completed successfully`);
-  } catch (error) {
-    console.error(`Error running ${migration.name}:`, error);
+
+    // Create backup
+    console.log(`\nCreating backup before migration...`);
+    await createBackup(sourceFilePath);
+
+    // Copy source to target
+    console.log(`\nCopying ${sourceFileName} → ${targetFileName}`);
+    fs.copyFileSync(sourceFilePath, targetFilePath);
+    console.log(`✓ Database copied`);
+
+    // Open and run migration
+    console.log(`\nRunning migration: ${migration.name}...`);
+    const connection = await open({
+      filename: targetFilePath,
+      driver: sqlite3.Database,
+    });
 
     try {
+      for (let i = 0; i < migration.queries.length; i++) {
+        const query = migration.queries[i];
+        await connection.exec(query);
+        console.log(`  [${i + 1}/${migration.queries.length}] ✓`);
+      }
       await connection.close();
-    } catch (closeError) {
-      console.error('Error closing connection:', closeError);
-    }
+      console.log(`\n✓ Migration completed successfully!`);
+      console.log(`\nResult: ${targetFileName}`);
+    } catch (error) {
+      console.error(`\nError running migration:`, error);
 
-    if (fs.existsSync(targetFileName)) {
-      console.log(`Cleaning up failed migration file: ${targetFileName}`);
-      fs.unlinkSync(targetFileName);
-    }
+      try {
+        await connection.close();
+      } catch (closeError) {
+        console.error('Error closing connection:', closeError);
+      }
 
-    throw error;
+      if (fs.existsSync(targetFilePath)) {
+        console.log(`\nCleaning up failed migration file: ${targetFileName}`);
+        fs.unlinkSync(targetFilePath);
+      }
+
+      throw error;
+    }
+  } catch (error) {
+    console.error(`\nMigration failed: ${error.message}`);
+    process.exit(1);
   }
 }
 
+/**
+ * Parse command line arguments
+ */
 function parseCliArguments() {
   const args = process.argv.slice(2);
+  const result = {};
 
   for (const arg of args) {
     if (arg.startsWith('--migration=')) {
-      return arg.split('=')[1];
+      result.migration = arg.split('=')[1];
+    } else if (arg.startsWith('--source=')) {
+      result.source = arg.split('=')[1];
     }
   }
 
-  return null;
+  return result;
 }
 
-const migrationKey = parseCliArguments();
+// Main execution
+const { migration, source } = parseCliArguments();
 
-runMigration(migrationKey)
+runMigration(migration, source)
   .then(() => {
-    console.log('Migration finished successfully');
     process.exit(0);
   })
   .catch((error) => {
-    console.error('Migration failed:', error);
+    console.error('Fatal error:', error);
     process.exit(1);
   });

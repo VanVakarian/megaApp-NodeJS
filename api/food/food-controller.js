@@ -488,7 +488,7 @@ export async function handleSearchQuery(socket, message) {
         if (!entry) continue;
 
         if (!imageCache.hasImage(entry.id)) {
-          imageService.requestProductImageGeneration(entry.id, entry.name, entry.descriptionForEmbedding);
+          imageService.requestProductImageGeneration(entry.id, entry.name, entry.description);
         }
       }
     }

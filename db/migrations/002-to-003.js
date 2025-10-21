@@ -1,11 +1,12 @@
 export const migration002to003 = [
   // Добавляем новые поля в таблицу foodCatalogue
-  `ALTER TABLE foodCatalogue ADD COLUMN protein REAL DEFAULT 0;`,
-  `ALTER TABLE foodCatalogue ADD COLUMN fat REAL DEFAULT 0;`,
-  `ALTER TABLE foodCatalogue ADD COLUMN carbs REAL DEFAULT 0;`,
+  `ALTER TABLE foodCatalogue ADD COLUMN protein REAL DEFAULT NULL;`,
+  `ALTER TABLE foodCatalogue ADD COLUMN fat REAL DEFAULT NULL;`,
+  `ALTER TABLE foodCatalogue ADD COLUMN carbs REAL DEFAULT NULL;`,
   `ALTER TABLE foodCatalogue ADD COLUMN fiber REAL DEFAULT NULL;`,
-  `ALTER TABLE foodCatalogue ADD COLUMN descriptionForEmbedding TEXT DEFAULT NULL;`,
-  `ALTER TABLE foodCatalogue ADD COLUMN embedding BLOB DEFAULT NULL;`,
+  `ALTER TABLE foodCatalogue ADD COLUMN description TEXT DEFAULT NULL;`,
+  `ALTER TABLE foodCatalogue ADD COLUMN nameVec BLOB DEFAULT NULL;`,
+  `ALTER TABLE foodCatalogue ADD COLUMN descriptionVec BLOB DEFAULT NULL;`,
   `ALTER TABLE foodCatalogue ADD COLUMN legacyName TEXT DEFAULT NULL;`,
 
   // Добавляем уникальное ограничение на поле name

@@ -10,8 +10,9 @@ export const migration003to002 = [
   `ALTER TABLE foodCatalogue DROP COLUMN fat;`,
   `ALTER TABLE foodCatalogue DROP COLUMN carbs;`,
   `ALTER TABLE foodCatalogue DROP COLUMN fiber;`,
-  `ALTER TABLE foodCatalogue DROP COLUMN descriptionForEmbedding;`,
-  `ALTER TABLE foodCatalogue DROP COLUMN embedding;`,
+  `ALTER TABLE foodCatalogue DROP COLUMN description;`,
+  `ALTER TABLE foodCatalogue DROP COLUMN nameVec;`,
+  `ALTER TABLE foodCatalogue DROP COLUMN descriptionVec;`,
   `ALTER TABLE foodCatalogue DROP COLUMN legacyName;`,
 
   // Удаляем индекс

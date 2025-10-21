@@ -189,11 +189,11 @@ export async function addFoodCatalogueEntry(foodName, foodKcals) {
 export async function createCatalogueEntryWithFullNutrition(foodName, nutritionData) {
   const connection = await getConnection();
   try {
-    const { kcals, protein, fat, carbs, fiber, descriptionForEmbedding } = nutritionData;
+    const { kcals, protein, fat, carbs, fiber, description } = nutritionData;
 
     const query = `
       INSERT INTO
-        foodCatalogue (name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding, legacyName)
+        foodCatalogue (name, kcals, protein, fat, carbs, fiber, description, legacyName)
       VALUES
         (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(name) DO UPDATE SET
@@ -202,20 +202,11 @@ export async function createCatalogueEntryWithFullNutrition(foodName, nutritionD
         fat = excluded.fat,
         carbs = excluded.carbs,
         fiber = excluded.fiber,
-        descriptionForEmbedding = excluded.descriptionForEmbedding,
+        description = excluded.description,
         legacyName = excluded.legacyName;
     `;
 
-    const result = await connection.run(query, [
-      foodName,
-      kcals,
-      protein,
-      fat,
-      carbs,
-      fiber,
-      descriptionForEmbedding,
-      foodName,
-    ]);
+    const result = await connection.run(query, [foodName, kcals, protein, fat, carbs, fiber, description, foodName]);
 
     if (result.lastID) {
       return result.lastID;
@@ -242,7 +233,7 @@ export async function getCatalogueEntryByName(foodName) {
   try {
     const query = `
       SELECT
-        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding
+        id, name, kcals, protein, fat, carbs, fiber, description
       FROM
         foodCatalogue
       WHERE
@@ -261,7 +252,7 @@ export async function getCatalogueEntryById(catalogueId) {
   try {
     const query = `
       SELECT
-        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding, legacyName, embedding
+        id, name, kcals, protein, fat, carbs, fiber, description, legacyName, nameVec, descriptionVec
       FROM
         foodCatalogue
       WHERE
@@ -280,7 +271,7 @@ export async function getCatalogueEntryByIdForAPI(catalogueId) {
   try {
     const query = `
       SELECT
-        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding as description, legacyName
+        id, name, kcals, protein, fat, carbs, fiber, description, legacyName
       FROM
         foodCatalogue
       WHERE
@@ -299,7 +290,7 @@ export async function getCatalogueEntryByNameForAPI(foodName) {
   try {
     const query = `
       SELECT
-        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding as description
+        id, name, kcals, protein, fat, carbs, fiber, description
       FROM
         foodCatalogue
       WHERE
@@ -339,7 +330,7 @@ export async function updateFoodCatalogueNutrition(foodId, kcals, protein, fat, 
       UPDATE
         foodCatalogue
       SET
-        kcals = ?, protein = ?, fat = ?, carbs = ?, fiber = ?, descriptionForEmbedding = ?
+        kcals = ?, protein = ?, fat = ?, carbs = ?, fiber = ?, description = ?
       WHERE
         id = ?;
     `;
@@ -353,24 +344,53 @@ export async function updateFoodCatalogueNutrition(foodId, kcals, protein, fat, 
 
 export async function updateCatalogueEntryFull(foodId, name, kcals, protein, fat, carbs, fiber, description) {
   const connection = await getConnection();
-  try {
-    const query = `
-      UPDATE
-        foodCatalogue
-      SET
-        name = ?, kcals = ?, protein = ?, fat = ?, carbs = ?, fiber = ?, descriptionForEmbedding = ?, legacyName = ?
-      WHERE
-        id = ?;
-    `;
-    await connection.run(query, [name, kcals, protein, fat, carbs, fiber, description, name, foodId]);
-    return true;
-  } catch (error) {
-    console.error('Error updating catalogue entry:', error);
-    if (error.code === 'SQLITE_CONSTRAINT' && error.message.includes('UNIQUE constraint failed: foodCatalogue.name')) {
-      return { success: false, error: 'DUPLICATE_NAME' };
+
+  let finalName = name;
+  let attempt = 0;
+  const maxAttempts = 10;
+
+  while (attempt < maxAttempts) {
+    try {
+      const query = `
+        UPDATE
+          foodCatalogue
+        SET
+          name = ?,
+          kcals = ?,
+          protein = ?,
+          fat = ?,
+          carbs = ?,
+          fiber = ?,
+          description = ?,
+          legacyName = COALESCE(legacyName, (SELECT name FROM foodCatalogue WHERE id = ?))
+        WHERE
+          id = ?;
+      `;
+      await connection.run(query, [finalName, kcals, protein, fat, carbs, fiber, description, foodId, foodId]);
+      return true;
+    } catch (error) {
+      if (
+        error.code === 'SQLITE_CONSTRAINT' &&
+        error.message.includes('UNIQUE constraint failed: foodCatalogue.name')
+      ) {
+        attempt++;
+        if (attempt === 1) {
+          finalName = name + ' ';
+        } else if (attempt === 2) {
+          finalName = name + '_' + attempt;
+        } else {
+          finalName = name + '_' + attempt;
+        }
+        console.log(`⚠️ Name conflict, retrying with: "${finalName}" (attempt ${attempt}/${maxAttempts})`);
+        continue;
+      }
+      console.error('Error updating catalogue entry:', error);
+      return false;
     }
-    return false;
   }
+
+  console.error(`❌ Failed to update after ${maxAttempts} attempts due to name conflicts`);
+  return { success: false, error: 'DUPLICATE_NAME_MAX_ATTEMPTS' };
 }
 
 export async function updateCatalogueEntryNameAndDescription(foodId, name, description) {
@@ -380,7 +400,7 @@ export async function updateCatalogueEntryNameAndDescription(foodId, name, descr
       UPDATE
         foodCatalogue
       SET
-        name = ?, descriptionForEmbedding = ?, legacyName = ?, embedding = 'enriched'
+        name = ?, description = ?, legacyName = ?, nameVec = 'enriched'
       WHERE
         id = ?;
     `;
@@ -394,25 +414,6 @@ export async function updateCatalogueEntryNameAndDescription(foodId, name, descr
     }
 
     return { success: false, error: 'DATABASE_ERROR', sqliteError: error.message };
-  }
-}
-
-export async function markCatalogueEntryAsConflicted(foodId, reason) {
-  const connection = await getConnection();
-  try {
-    const query = `
-      UPDATE
-        foodCatalogue
-      SET
-        embedding = ?
-      WHERE
-        id = ?;
-    `;
-    await connection.run(query, [`conflicted:${reason}`, foodId]);
-    return true;
-  } catch (error) {
-    console.error(error);
-    return false;
   }
 }
 
@@ -438,7 +439,7 @@ export async function getAllFoodCatalogueEntries() {
   try {
     const query = `
       SELECT
-        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding, legacyName, embedding
+        id, name, kcals, protein, fat, carbs, fiber, description, legacyName, nameVec, descriptionVec
       FROM
         foodCatalogue
       ORDER BY
@@ -457,7 +458,7 @@ export async function getAllFoodCatalogueEntriesForAPI() {
   try {
     const query = `
       SELECT
-        id, name, kcals, protein, fat, carbs, fiber, descriptionForEmbedding as description, legacyName
+        id, name, kcals, protein, fat, carbs, fiber, description, legacyName
       FROM
         foodCatalogue
       ORDER BY
@@ -488,7 +489,7 @@ export async function importFoodCatalogueEntries(entries) {
   try {
     const insertQuery = `
       INSERT INTO foodCatalogue
-        (name, descriptionForEmbedding, legacyName)
+        (name, description, legacyName)
       VALUES
         (?, ?, ?);
     `;
@@ -496,7 +497,7 @@ export async function importFoodCatalogueEntries(entries) {
     let insertedCount = 0;
     for (const entry of entries) {
       try {
-        await connection.run(insertQuery, [entry.name, entry.descriptionForEmbedding || null, entry.name]);
+        await connection.run(insertQuery, [entry.name, entry.description || null, entry.name]);
         insertedCount++;
       } catch (entryError) {
         console.error(`Failed to insert entry "${entry.name}":`, entryError);
@@ -720,24 +721,22 @@ function cosineDistance(vecA, vecB) {
   return 1 - dot / normProduct;
 }
 
-/**
- * Performs vector similarity search across all catalogue entries using JavaScript
- * @param {Array|Float32Array} embeddingArray - Query vector for similarity search
- * @param {number} limit - Maximum number of results to return
- * @returns {Promise<Array>} Sorted array of catalogue entries with distance scores
- */
-export async function searchCatalogueEntriesByEmbedding(embeddingArray) {
+export async function searchCatalogueEntriesByEmbedding(
+  nameEmbeddingArray,
+  descriptionEmbeddingArray,
+  nameWeight = 0.5,
+  descriptionWeight = 0.5
+) {
   const connection = await getConnection();
   try {
-    const queryVector = new Float32Array(embeddingArray);
+    const queryNameVector = new Float32Array(nameEmbeddingArray);
+    const queryDescriptionVector = new Float32Array(descriptionEmbeddingArray);
 
     const query = `
       SELECT
-        fc.id, fc.name, fc.kcals, fc.protein, fc.fat, fc.carbs, fc.fiber, fc.embedding
+        fc.id, fc.name, fc.kcals, fc.protein, fc.fat, fc.carbs, fc.fiber, fc.nameVec, fc.descriptionVec
       FROM
         foodCatalogue fc
-      WHERE
-        fc.embedding IS NOT NULL
       ORDER BY
         fc.name ASC;
     `;
@@ -746,8 +745,23 @@ export async function searchCatalogueEntriesByEmbedding(embeddingArray) {
 
     const results = rows
       .map((row) => {
-        const embedding = row.embedding ? new Float32Array(row.embedding.buffer) : null;
-        const distance = embedding ? cosineDistance(queryVector, embedding) : 1;
+        const nameEmbedding = row.nameVec ? new Float32Array(row.nameVec.buffer) : null;
+        const descriptionEmbedding = row.descriptionVec ? new Float32Array(row.descriptionVec.buffer) : null;
+
+        let distance = 1;
+
+        if (!nameEmbedding && !descriptionEmbedding) {
+          distance = 999;
+        } else if (nameEmbedding && descriptionEmbedding) {
+          const nameDistance = cosineDistance(queryNameVector, nameEmbedding);
+          const descriptionDistance = cosineDistance(queryDescriptionVector, descriptionEmbedding);
+          distance = nameDistance * nameWeight + descriptionDistance * descriptionWeight;
+        } else if (nameEmbedding) {
+          distance = cosineDistance(queryNameVector, nameEmbedding);
+        } else if (descriptionEmbedding) {
+          distance = cosineDistance(queryDescriptionVector, descriptionEmbedding);
+        }
+
         return {
           id: row.id,
           name: row.name,
@@ -769,29 +783,27 @@ export async function searchCatalogueEntriesByEmbedding(embeddingArray) {
   }
 }
 
-/**
- * Updates catalogue entry with new vector embedding for semantic search
- * @param {number} catalogueId - Catalogue entry ID to update
- * @param {Array|Float32Array} embeddingArray - Vector embedding data
- * @returns {Promise<boolean>} Success status of the update operation
- */
-export async function updateCatalogueEntryEmbedding(catalogueId, embeddingArray) {
+export async function updateCatalogueEntryEmbedding(catalogueId, nameEmbeddingArray, descriptionEmbeddingArray) {
   const connection = await getConnection();
   try {
-    const buffer = Buffer.from(new Float32Array(embeddingArray).buffer);
+    const nameBuffer = nameEmbeddingArray ? Buffer.from(new Float32Array(nameEmbeddingArray).buffer) : null;
+    const descriptionBuffer = descriptionEmbeddingArray
+      ? Buffer.from(new Float32Array(descriptionEmbeddingArray).buffer)
+      : null;
 
     const updateQuery = `
       UPDATE
         foodCatalogue
       SET
-        embedding = ?
+        nameVec = ?,
+        descriptionVec = ?
       WHERE
         id = ?;
     `;
-    const result = await connection.run(updateQuery, [buffer, catalogueId]);
+    const result = await connection.run(updateQuery, [nameBuffer, descriptionBuffer, catalogueId]);
     return result.changes > 0;
   } catch (error) {
-    console.error('Error updating embedding:', error);
+    console.error('Error updating embeddings:', error);
     return false;
   }
 }
@@ -878,5 +890,27 @@ export async function updateQueryUsage(query) {
   } catch (error) {
     console.error('Error updating query usage:', error);
     return false;
+  }
+}
+
+export async function getCatalogueEntriesWithoutDescription(limit = 10) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      SELECT
+        id, name, kcals, protein, fat, carbs, fiber, description, legacyName, nameVec, descriptionVec
+      FROM
+        foodCatalogue
+      WHERE
+        description IS NULL OR description = '' OR TRIM(description) = ''
+      ORDER BY
+        id ASC
+      LIMIT ?;
+    `;
+    const results = await connection.all(query, [limit]);
+    return results || [];
+  } catch (error) {
+    console.error('Error getting catalogue entries without description:', error);
+    return [];
   }
 }

@@ -1,4 +1,5 @@
 import * as dbFood from '../../db/db-food.js';
+import { FOOD_SEARCH_DESCRIPTION_WEIGHT, FOOD_SEARCH_NAME_WEIGHT } from '../../env.js';
 import * as utils from '../../utils/utils.js';
 import * as aiService from '../ai/ai-service.js';
 import * as imageCache from '../ai/image-cache.js';
@@ -414,7 +415,12 @@ export async function searchCatalogueEntries(query) {
       return [];
     }
 
-    const searchResults = await dbFood.searchCatalogueEntriesByEmbedding(embeddingResult.data.embedding);
+    const searchResults = await dbFood.searchCatalogueEntriesByEmbedding(
+      embeddingResult.data.embedding,
+      embeddingResult.data.embedding,
+      FOOD_SEARCH_NAME_WEIGHT,
+      FOOD_SEARCH_DESCRIPTION_WEIGHT
+    );
 
     return searchResults.map((result) => ({
       ...result,
@@ -453,7 +459,7 @@ export async function generateProductPreviewData(description) {
         fat: llmResult.data.fat,
         carbs: llmResult.data.carbs,
         fiber: llmResult.data.fiber,
-        descriptionForEmbedding: llmResult.data.descriptionForEmbedding,
+        description: llmResult.data.description,
       },
     };
   } catch (error) {
@@ -547,7 +553,7 @@ export async function saveProductData(id, productData) {
         fat,
         carbs,
         fiber,
-        descriptionForEmbedding: description,
+        description,
       });
 
       if (!catalogueId) {
@@ -557,9 +563,15 @@ export async function saveProductData(id, productData) {
         };
       }
 
-      const embeddingResult = await aiService.generateEmbedding(description);
-      if (embeddingResult.success) {
-        await dbFood.updateCatalogueEntryEmbedding(catalogueId, embeddingResult.data.embedding);
+      const embeddingNameResult = await aiService.generateEmbedding(name);
+      const embeddingDescriptionResult = description ? await aiService.generateEmbedding(description) : null;
+
+      if (embeddingNameResult.success) {
+        await dbFood.updateCatalogueEntryEmbedding(
+          catalogueId,
+          embeddingNameResult.data.embedding,
+          embeddingDescriptionResult?.success ? embeddingDescriptionResult.data.embedding : null
+        );
       }
 
       const createdEntry = await dbFood.getCatalogueEntryByIdForAPI(catalogueId);
@@ -612,12 +624,18 @@ export async function saveProductData(id, productData) {
         };
       }
 
-      const needsEmbeddingUpdate = existingEntry.name !== name || existingEntry.descriptionForEmbedding !== description;
+      const needsEmbeddingUpdate = existingEntry.name !== name || existingEntry.description !== description;
 
       if (needsEmbeddingUpdate) {
-        const embeddingResult = await aiService.generateEmbedding(description);
-        if (embeddingResult.success) {
-          await dbFood.updateCatalogueEntryEmbedding(id, embeddingResult.data.embedding);
+        const embeddingNameResult = await aiService.generateEmbedding(name);
+        const embeddingDescriptionResult = description ? await aiService.generateEmbedding(description) : null;
+
+        if (embeddingNameResult.success) {
+          await dbFood.updateCatalogueEntryEmbedding(
+            id,
+            embeddingNameResult.data.embedding,
+            embeddingDescriptionResult?.success ? embeddingDescriptionResult.data.embedding : null
+          );
         }
       }
 
@@ -665,7 +683,7 @@ export async function createGeneralizedCatalogueEntry(description) {
         fat: productData.fat,
         carbs: productData.carbs,
         fiber: productData.fiber,
-        descriptionForEmbedding: productData.descriptionForEmbedding,
+        description: productData.description,
       });
 
       if (!catalogueId) {
@@ -677,18 +695,26 @@ export async function createGeneralizedCatalogueEntry(description) {
 
       isNew = true;
 
-      const embeddingResult = await aiService.generateEmbedding(productData.descriptionForEmbedding || generalizedName);
-      if (embeddingResult.success) {
-        await dbFood.updateCatalogueEntryEmbedding(catalogueId, embeddingResult.data.embedding);
+      const embeddingNameResult = await aiService.generateEmbedding(generalizedName);
+      const embeddingDescriptionResult = productData.description
+        ? await aiService.generateEmbedding(productData.description)
+        : null;
+
+      if (embeddingNameResult.success) {
+        await dbFood.updateCatalogueEntryEmbedding(
+          catalogueId,
+          embeddingNameResult.data.embedding,
+          embeddingDescriptionResult?.success ? embeddingDescriptionResult.data.embedding : null
+        );
       }
     }
 
     const fullEntry = existingEntry
-      ? { ...existingEntry, description: existingEntry.descriptionForEmbedding }
+      ? { ...existingEntry }
       : await dbFood.getCatalogueEntryByNameForAPI(generalizedName);
 
-    if (fullEntry && fullEntry.descriptionForEmbedding) {
-      delete fullEntry.descriptionForEmbedding;
+    if (fullEntry && fullEntry.description) {
+      delete fullEntry.description;
     }
 
     return {
@@ -824,7 +850,12 @@ export async function searchCatalogueEntriesRealtime(query) {
       await dbFood.saveQueryEmbedding(trimmedQuery, queryEmbedding);
     }
 
-    const searchResults = await dbFood.searchCatalogueEntriesByEmbedding(queryEmbedding);
+    const searchResults = await dbFood.searchCatalogueEntriesByEmbedding(
+      queryEmbedding,
+      queryEmbedding,
+      FOOD_SEARCH_NAME_WEIGHT,
+      FOOD_SEARCH_DESCRIPTION_WEIGHT
+    );
 
     return searchResults.map((result) => result.id);
   } catch (error) {
