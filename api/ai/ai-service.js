@@ -651,11 +651,14 @@ export async function generateEmbedding(text) {
 
     const client = getClient('EMBEDDINGS_OPENAI');
 
+    const t0 = performance.now();
     const response = await client.embeddings.create({
       model: config.MODEL,
       input: text,
       dimensions: config.DIMENSIONS,
     });
+    const t1 = performance.now();
+    process.stderr.write(`⏱️ [PERF] OpenAI API call: ${(t1 - t0).toFixed(2)}ms | model: ${config.MODEL}\n`);
 
     return {
       success: true,

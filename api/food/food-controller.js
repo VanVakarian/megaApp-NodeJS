@@ -458,11 +458,11 @@ export async function getStats(request, reply) {
 /**
  * Handles real-time search queries via WebSocket for unified catalogue
  * @param {Object} socket - WebSocket connection
- * @param {Object} message - Incoming message with query
+ * @param {Object} message - Incoming message with query and sequenceNumber
  */
 export async function handleSearchQuery(socket, message) {
   try {
-    const { query } = message;
+    const { query, sequenceNumber } = message;
     if (!query || typeof query !== 'string') {
       return;
     }
@@ -475,6 +475,7 @@ export async function handleSearchQuery(socket, message) {
         query: query.trim(),
         catalogueIds: catalogueIds,
         timestamp: Date.now(),
+        sequenceNumber: sequenceNumber || 0,
       },
     };
 

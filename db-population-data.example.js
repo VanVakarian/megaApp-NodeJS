@@ -1,4 +1,4 @@
-// rename this to population-data.js
+// rename this to db-population-data.js
 
 export const INIT_POPULATION_DATA = {
   moneyCurrency: [

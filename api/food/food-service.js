@@ -744,22 +744,22 @@ export async function createGeneralizedCatalogueEntry(description) {
 export async function analyzeImageForCatalogueEntry(imageBuffer, mimeType) {
   try {
     const analysisResult = await aiService.simpleImageRecognition(imageBuffer, mimeType);
-    if (!recognitionResult.success) {
+    if (!analysisResult.success) {
       return {
         success: false,
-        error: recognitionResult.error,
+        error: analysisResult.error,
       };
     }
 
-    if (!recognitionResult.data || !recognitionResult.data.productName) {
+    if (!analysisResult.data || !analysisResult.data.productName) {
       return {
         success: true,
         data: null,
-        reason: recognitionResult.reason || 'No food product detected in image',
+        reason: analysisResult.reason || 'No food product detected in image',
       };
     }
 
-    const productName = recognitionResult.data.productName;
+    const productName = analysisResult.data.productName;
     const searchResults = await searchCatalogueEntries(productName);
 
     return {
@@ -769,7 +769,7 @@ export async function analyzeImageForCatalogueEntry(imageBuffer, mimeType) {
         searchResults: searchResults,
         searchQuery: productName,
       },
-      metadata: recognitionResult.metadata,
+      metadata: analysisResult.metadata,
     };
   } catch (error) {
     console.error('Error analyzing image for catalogue entry:', error);
@@ -829,6 +829,7 @@ export async function analyzeVoiceForCatalogueEntry(transcript) {
  * @returns {Promise<Array>} Array of matching catalogue entry IDs
  */
 export async function searchCatalogueEntriesRealtime(query) {
+  const t0 = performance.now();
   try {
     if (!query || query.trim() === '') {
       return [];
@@ -837,10 +838,17 @@ export async function searchCatalogueEntriesRealtime(query) {
     const trimmedQuery = query.trim().toLowerCase();
     let queryEmbedding = null;
 
+    const t1 = performance.now();
     queryEmbedding = await dbFood.getQueryEmbedding(trimmedQuery);
+    const t2 = performance.now();
+    process.stderr.write(`⏱️ [PERF] Cache lookup: ${(t2 - t1).toFixed(2)}ms | hit: ${!!queryEmbedding}\n`);
 
     if (!queryEmbedding) {
+      const t3 = performance.now();
       const embeddingResult = await aiService.generateEmbedding(trimmedQuery);
+      const t4 = performance.now();
+      process.stderr.write(`⏱️ [PERF] Embedding generation: ${(t4 - t3).toFixed(2)}ms\n`);
+
       if (!embeddingResult.success) {
         console.error('Failed to generate embedding for realtime search:', embeddingResult.error);
         return [];
@@ -850,13 +858,18 @@ export async function searchCatalogueEntriesRealtime(query) {
       await dbFood.saveQueryEmbedding(trimmedQuery, queryEmbedding);
     }
 
+    const t5 = performance.now();
     const searchResults = await dbFood.searchCatalogueEntriesByEmbedding(
       queryEmbedding,
       queryEmbedding,
       FOOD_SEARCH_NAME_WEIGHT,
       FOOD_SEARCH_DESCRIPTION_WEIGHT
     );
+    const t6 = performance.now();
+    process.stderr.write(`⏱️ [PERF] Vector search: ${(t6 - t5).toFixed(2)}ms | results: ${searchResults.length}\n`);
 
+    const t7 = performance.now();
+    process.stderr.write(`⏱️ [PERF] Total search time: ${(t7 - t0).toFixed(2)}ms | query: "${trimmedQuery}"\n`);
     return searchResults.map((result) => result.id);
   } catch (error) {
     console.error('Error in realtime semantic search:', error);

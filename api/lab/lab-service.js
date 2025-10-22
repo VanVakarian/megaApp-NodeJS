@@ -387,27 +387,43 @@ export async function generateEmbeddings(count) {
         let nameEmbeddingResult = null;
         let descriptionEmbeddingResult = null;
 
+        const embeddingPromises = [];
+
         if (!entry.nameVec && entry.name) {
           console.log(`📝 Generating name embedding: "${entry.name}"`);
-          nameEmbeddingResult = await aiService.generateEmbedding(entry.name);
-
-          if (nameEmbeddingResult.success) {
-            nameEmbedding = nameEmbeddingResult.data.embedding;
-            console.log(`✅ Name embedding generated: ${nameEmbeddingResult.data.dimensions} dimensions`);
-          } else {
-            console.log(`❌ Failed to generate name embedding: ${nameEmbeddingResult.error}`);
-          }
+          embeddingPromises.push(
+            aiService.generateEmbedding(entry.name).then((result) => {
+              nameEmbeddingResult = result;
+              return { type: 'name', result };
+            })
+          );
         }
 
         if (!entry.descriptionVec && entry.description && entry.description.trim().length > 0) {
           console.log(`📝 Generating description embedding: "${entry.description}"`);
-          descriptionEmbeddingResult = await aiService.generateEmbedding(entry.description);
+          embeddingPromises.push(
+            aiService.generateEmbedding(entry.description).then((result) => {
+              descriptionEmbeddingResult = result;
+              return { type: 'description', result };
+            })
+          );
+        }
 
-          if (descriptionEmbeddingResult.success) {
-            descriptionEmbedding = descriptionEmbeddingResult.data.embedding;
-            console.log(`✅ Description embedding generated: ${descriptionEmbeddingResult.data.dimensions} dimensions`);
-          } else {
-            console.log(`❌ Failed to generate description embedding: ${descriptionEmbeddingResult.error}`);
+        if (embeddingPromises.length > 0) {
+          const results = await Promise.all(embeddingPromises);
+
+          for (const { type, result } of results) {
+            if (result.success) {
+              if (type === 'name') {
+                nameEmbedding = result.data.embedding;
+                console.log(`✅ Name embedding generated: ${result.data.dimensions} dimensions`);
+              } else if (type === 'description') {
+                descriptionEmbedding = result.data.embedding;
+                console.log(`✅ Description embedding generated: ${result.data.dimensions} dimensions`);
+              }
+            } else {
+              console.log(`❌ Failed to generate ${type} embedding: ${result.error}`);
+            }
           }
         }
 

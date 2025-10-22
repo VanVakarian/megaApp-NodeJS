@@ -349,7 +349,7 @@ export async function updateCatalogueEntryFull(foodId, name, kcals, protein, fat
   let attempt = 0;
   const maxAttempts = 10;
 
-  while (attempt < maxAttempts) {
+  while (attempt <= maxAttempts) {
     try {
       const query = `
         UPDATE
@@ -374,15 +374,11 @@ export async function updateCatalogueEntryFull(foodId, name, kcals, protein, fat
         error.message.includes('UNIQUE constraint failed: foodCatalogue.name')
       ) {
         attempt++;
-        if (attempt === 1) {
-          finalName = name + ' ';
-        } else if (attempt === 2) {
+        if (attempt <= maxAttempts) {
           finalName = name + '_' + attempt;
-        } else {
-          finalName = name + '_' + attempt;
+          console.log(`⚠️ Name conflict, retrying with: "${finalName}" (attempt ${attempt}/${maxAttempts})`);
+          continue;
         }
-        console.log(`⚠️ Name conflict, retrying with: "${finalName}" (attempt ${attempt}/${maxAttempts})`);
-        continue;
       }
       console.error('Error updating catalogue entry:', error);
       return false;
@@ -729,20 +725,29 @@ export async function searchCatalogueEntriesByEmbedding(
 ) {
   const connection = await getConnection();
   try {
+    const t0 = performance.now();
     const queryNameVector = new Float32Array(nameEmbeddingArray);
     const queryDescriptionVector = new Float32Array(descriptionEmbeddingArray);
+    const t1 = performance.now();
+    process.stderr.write(`⏱️ [PERF] Vector conversion: ${(t1 - t0).toFixed(2)}ms\n`);
 
     const query = `
       SELECT
         fc.id, fc.name, fc.kcals, fc.protein, fc.fat, fc.carbs, fc.fiber, fc.nameVec, fc.descriptionVec
       FROM
         foodCatalogue fc
+      WHERE
+        fc.nameVec IS NOT NULL OR fc.descriptionVec IS NOT NULL
       ORDER BY
         fc.name ASC;
     `;
 
+    const t2 = performance.now();
     const rows = await connection.all(query);
+    const t3 = performance.now();
+    process.stderr.write(`⏱️ [PERF] SQL query: ${(t3 - t2).toFixed(2)}ms | rows: ${rows.length}\n`);
 
+    const t4 = performance.now();
     const results = rows
       .map((row) => {
         const nameEmbedding = row.nameVec ? new Float32Array(row.nameVec.buffer) : null;
@@ -750,9 +755,7 @@ export async function searchCatalogueEntriesByEmbedding(
 
         let distance = 1;
 
-        if (!nameEmbedding && !descriptionEmbedding) {
-          distance = 999;
-        } else if (nameEmbedding && descriptionEmbedding) {
+        if (nameEmbedding && descriptionEmbedding) {
           const nameDistance = cosineDistance(queryNameVector, nameEmbedding);
           const descriptionDistance = cosineDistance(queryDescriptionVector, descriptionEmbedding);
           distance = nameDistance * nameWeight + descriptionDistance * descriptionWeight;
@@ -775,6 +778,8 @@ export async function searchCatalogueEntriesByEmbedding(
       })
       .sort((a, b) => a.distance - b.distance)
       .slice(0, FOOD_SEARCH_RESULTS_LIMIT);
+    const t5 = performance.now();
+    process.stderr.write(`⏱️ [PERF] Distance calculation + sort: ${(t5 - t4).toFixed(2)}ms\n`);
 
     return results;
   } catch (error) {
@@ -818,6 +823,7 @@ export async function updateCatalogueEntryEmbedding(catalogueId, nameEmbeddingAr
 export async function getQueryEmbedding(query) {
   const connection = await getConnection();
   try {
+    const t0 = performance.now();
     const selectQuery = `
       SELECT
         embedding
@@ -827,12 +833,15 @@ export async function getQueryEmbedding(query) {
         query = ?;
     `;
     const result = await connection.get(selectQuery, [query]);
+    const t1 = performance.now();
 
     if (result && result.embedding) {
       await updateQueryUsage(query);
+      process.stderr.write(`⏱️ [PERF] Cache read (hit): ${(t1 - t0).toFixed(2)}ms\n`);
       return new Float32Array(result.embedding.buffer);
     }
 
+    process.stderr.write(`⏱️ [PERF] Cache read (miss): ${(t1 - t0).toFixed(2)}ms\n`);
     return null;
   } catch (error) {
     console.error('Error getting query embedding:', error);
@@ -849,6 +858,7 @@ export async function getQueryEmbedding(query) {
 export async function saveQueryEmbedding(query, embeddingArray) {
   const connection = await getConnection();
   try {
+    const t0 = performance.now();
     const buffer = Buffer.from(new Float32Array(embeddingArray).buffer);
     const timestamp = Date.now();
 
@@ -859,6 +869,8 @@ export async function saveQueryEmbedding(query, embeddingArray) {
         (?, ?, 1, ?, ?);
     `;
     const result = await connection.run(insertQuery, [query, buffer, timestamp, timestamp]);
+    const t1 = performance.now();
+    process.stderr.write(`⏱️ [PERF] Cache write: ${(t1 - t0).toFixed(2)}ms\n`);
     return result.changes > 0;
   } catch (error) {
     console.error('Error saving query embedding:', error);
