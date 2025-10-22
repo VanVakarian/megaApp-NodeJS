@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import sharp from 'sharp';
 import {
-  AI_IMAGE_GEN_PROMPT,
+  AI_IMAGE_GENERATION,
   AI_PROVIDERS,
   IMAGE_GEN_QUEUE_ERROR_BACKOFF_BASE_SEC,
   IMAGE_GEN_QUEUE_ERROR_BACKOFF_INCREMENT_SEC,
@@ -210,7 +210,7 @@ async function generateProductImageInternal(catalogueId, productName, productDes
   try {
     console.log(`🎨 Starting image generation for product ${catalogueId}: "${productName}"`);
 
-    const prompt = AI_IMAGE_GEN_PROMPT.replace('{productName}', productName).replace(
+    const prompt = AI_IMAGE_GENERATION.FOOD_PRODUCT_PROMPT.replace('{productName}', productName).replace(
       '{foodDescription}',
       productDescription || ''
     );

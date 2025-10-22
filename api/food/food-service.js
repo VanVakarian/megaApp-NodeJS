@@ -1,4 +1,5 @@
 import * as dbFood from '../../db/db-food.js';
+import { FOOD_SEARCH_DESCRIPTION_WEIGHT, FOOD_SEARCH_NAME_WEIGHT } from '../../env.js';
 import * as utils from '../../utils/utils.js';
 import * as aiService from '../ai/ai-service.js';
 import * as imageCache from '../ai/image-cache.js';
@@ -414,7 +415,12 @@ export async function searchCatalogueEntries(query) {
       return [];
     }
 
-    const searchResults = await dbFood.searchCatalogueEntriesByEmbedding(embeddingResult.data.embedding);
+    const searchResults = await dbFood.searchCatalogueEntriesByEmbedding(
+      embeddingResult.data.embedding,
+      embeddingResult.data.embedding,
+      FOOD_SEARCH_NAME_WEIGHT,
+      FOOD_SEARCH_DESCRIPTION_WEIGHT
+    );
 
     return searchResults.map((result) => ({
       ...result,
@@ -453,7 +459,7 @@ export async function generateProductPreviewData(description) {
         fat: llmResult.data.fat,
         carbs: llmResult.data.carbs,
         fiber: llmResult.data.fiber,
-        descriptionForEmbedding: llmResult.data.descriptionForEmbedding,
+        description: llmResult.data.description,
       },
     };
   } catch (error) {
@@ -547,7 +553,7 @@ export async function saveProductData(id, productData) {
         fat,
         carbs,
         fiber,
-        descriptionForEmbedding: description,
+        description,
       });
 
       if (!catalogueId) {
@@ -557,9 +563,15 @@ export async function saveProductData(id, productData) {
         };
       }
 
-      const embeddingResult = await aiService.generateEmbedding(description);
-      if (embeddingResult.success) {
-        await dbFood.updateCatalogueEntryEmbedding(catalogueId, embeddingResult.data.embedding);
+      const embeddingNameResult = await aiService.generateEmbedding(name);
+      const embeddingDescriptionResult = description ? await aiService.generateEmbedding(description) : null;
+
+      if (embeddingNameResult.success) {
+        await dbFood.updateCatalogueEntryEmbedding(
+          catalogueId,
+          embeddingNameResult.data.embedding,
+          embeddingDescriptionResult?.success ? embeddingDescriptionResult.data.embedding : null
+        );
       }
 
       const createdEntry = await dbFood.getCatalogueEntryByIdForAPI(catalogueId);
@@ -612,12 +624,18 @@ export async function saveProductData(id, productData) {
         };
       }
 
-      const needsEmbeddingUpdate = existingEntry.name !== name || existingEntry.descriptionForEmbedding !== description;
+      const needsEmbeddingUpdate = existingEntry.name !== name || existingEntry.description !== description;
 
       if (needsEmbeddingUpdate) {
-        const embeddingResult = await aiService.generateEmbedding(description);
-        if (embeddingResult.success) {
-          await dbFood.updateCatalogueEntryEmbedding(id, embeddingResult.data.embedding);
+        const embeddingNameResult = await aiService.generateEmbedding(name);
+        const embeddingDescriptionResult = description ? await aiService.generateEmbedding(description) : null;
+
+        if (embeddingNameResult.success) {
+          await dbFood.updateCatalogueEntryEmbedding(
+            id,
+            embeddingNameResult.data.embedding,
+            embeddingDescriptionResult?.success ? embeddingDescriptionResult.data.embedding : null
+          );
         }
       }
 
@@ -665,7 +683,7 @@ export async function createGeneralizedCatalogueEntry(description) {
         fat: productData.fat,
         carbs: productData.carbs,
         fiber: productData.fiber,
-        descriptionForEmbedding: productData.descriptionForEmbedding,
+        description: productData.description,
       });
 
       if (!catalogueId) {
@@ -677,18 +695,26 @@ export async function createGeneralizedCatalogueEntry(description) {
 
       isNew = true;
 
-      const embeddingResult = await aiService.generateEmbedding(productData.descriptionForEmbedding || generalizedName);
-      if (embeddingResult.success) {
-        await dbFood.updateCatalogueEntryEmbedding(catalogueId, embeddingResult.data.embedding);
+      const embeddingNameResult = await aiService.generateEmbedding(generalizedName);
+      const embeddingDescriptionResult = productData.description
+        ? await aiService.generateEmbedding(productData.description)
+        : null;
+
+      if (embeddingNameResult.success) {
+        await dbFood.updateCatalogueEntryEmbedding(
+          catalogueId,
+          embeddingNameResult.data.embedding,
+          embeddingDescriptionResult?.success ? embeddingDescriptionResult.data.embedding : null
+        );
       }
     }
 
     const fullEntry = existingEntry
-      ? { ...existingEntry, description: existingEntry.descriptionForEmbedding }
+      ? { ...existingEntry }
       : await dbFood.getCatalogueEntryByNameForAPI(generalizedName);
 
-    if (fullEntry && fullEntry.descriptionForEmbedding) {
-      delete fullEntry.descriptionForEmbedding;
+    if (fullEntry && fullEntry.description) {
+      delete fullEntry.description;
     }
 
     return {
@@ -718,22 +744,22 @@ export async function createGeneralizedCatalogueEntry(description) {
 export async function analyzeImageForCatalogueEntry(imageBuffer, mimeType) {
   try {
     const analysisResult = await aiService.simpleImageRecognition(imageBuffer, mimeType);
-    if (!recognitionResult.success) {
+    if (!analysisResult.success) {
       return {
         success: false,
-        error: recognitionResult.error,
+        error: analysisResult.error,
       };
     }
 
-    if (!recognitionResult.data || !recognitionResult.data.productName) {
+    if (!analysisResult.data || !analysisResult.data.productName) {
       return {
         success: true,
         data: null,
-        reason: recognitionResult.reason || 'No food product detected in image',
+        reason: analysisResult.reason || 'No food product detected in image',
       };
     }
 
-    const productName = recognitionResult.data.productName;
+    const productName = analysisResult.data.productName;
     const searchResults = await searchCatalogueEntries(productName);
 
     return {
@@ -743,7 +769,7 @@ export async function analyzeImageForCatalogueEntry(imageBuffer, mimeType) {
         searchResults: searchResults,
         searchQuery: productName,
       },
-      metadata: recognitionResult.metadata,
+      metadata: analysisResult.metadata,
     };
   } catch (error) {
     console.error('Error analyzing image for catalogue entry:', error);
@@ -803,6 +829,7 @@ export async function analyzeVoiceForCatalogueEntry(transcript) {
  * @returns {Promise<Array>} Array of matching catalogue entry IDs
  */
 export async function searchCatalogueEntriesRealtime(query) {
+  const t0 = performance.now();
   try {
     if (!query || query.trim() === '') {
       return [];
@@ -811,10 +838,17 @@ export async function searchCatalogueEntriesRealtime(query) {
     const trimmedQuery = query.trim().toLowerCase();
     let queryEmbedding = null;
 
+    const t1 = performance.now();
     queryEmbedding = await dbFood.getQueryEmbedding(trimmedQuery);
+    const t2 = performance.now();
+    process.stderr.write(`⏱️ [PERF] Cache lookup: ${(t2 - t1).toFixed(2)}ms | hit: ${!!queryEmbedding}\n`);
 
     if (!queryEmbedding) {
+      const t3 = performance.now();
       const embeddingResult = await aiService.generateEmbedding(trimmedQuery);
+      const t4 = performance.now();
+      process.stderr.write(`⏱️ [PERF] Embedding generation: ${(t4 - t3).toFixed(2)}ms\n`);
+
       if (!embeddingResult.success) {
         console.error('Failed to generate embedding for realtime search:', embeddingResult.error);
         return [];
@@ -824,8 +858,18 @@ export async function searchCatalogueEntriesRealtime(query) {
       await dbFood.saveQueryEmbedding(trimmedQuery, queryEmbedding);
     }
 
-    const searchResults = await dbFood.searchCatalogueEntriesByEmbedding(queryEmbedding);
+    const t5 = performance.now();
+    const searchResults = await dbFood.searchCatalogueEntriesByEmbedding(
+      queryEmbedding,
+      queryEmbedding,
+      FOOD_SEARCH_NAME_WEIGHT,
+      FOOD_SEARCH_DESCRIPTION_WEIGHT
+    );
+    const t6 = performance.now();
+    process.stderr.write(`⏱️ [PERF] Vector search: ${(t6 - t5).toFixed(2)}ms | results: ${searchResults.length}\n`);
 
+    const t7 = performance.now();
+    process.stderr.write(`⏱️ [PERF] Total search time: ${(t7 - t0).toFixed(2)}ms | query: "${trimmedQuery}"\n`);
     return searchResults.map((result) => result.id);
   } catch (error) {
     console.error('Error in realtime semantic search:', error);

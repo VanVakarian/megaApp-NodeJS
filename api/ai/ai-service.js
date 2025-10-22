@@ -1,9 +1,9 @@
 import OpenAI from 'openai';
 import {
-  AI_FOOD_DESCRIPTION_GEN_SYSTEM_PROMPT,
-  AI_FOOD_DESCRIPTION_MODELS,
-  AI_FOOD_DESCRIPTION_USER_PROMPT,
-  AI_PROMPTS,
+  AI_PROMPTS_DEBUG,
+  AI_PROMPTS_IMAGE_RECOGNITION,
+  AI_PROMPTS_PRODUCT_CREATION,
+  AI_PROMPTS_PRODUCT_GENERATION,
   AI_PROVIDERS,
 } from '../../env.js';
 
@@ -61,12 +61,12 @@ const FOOD_NUTRITION_SCHEMA = {
       type: 'number',
       description: 'Содержание клетчатки в граммах на 100 г продукта',
     },
-    descriptionForEmbedding: {
+    description: {
       type: 'string',
       description: 'Краткое описание продукта для векторного поиска (без брендов, без маркетинга)',
     },
   },
-  required: ['generalizedName', 'kcals', 'protein', 'fat', 'carbs', 'fiber', 'descriptionForEmbedding'],
+  required: ['generalizedName', 'kcals', 'protein', 'fat', 'carbs', 'fiber', 'description'],
   additionalProperties: false,
 };
 
@@ -75,7 +75,7 @@ function isNutritionDataValid(data) {
     return false;
   }
 
-  const requiredFields = ['generalizedName', 'kcals', 'protein', 'fat', 'carbs', 'fiber', 'descriptionForEmbedding'];
+  const requiredFields = ['generalizedName', 'kcals', 'protein', 'fat', 'carbs', 'fiber', 'description'];
 
   for (const field of requiredFields) {
     if (!(field in data)) {
@@ -98,7 +98,7 @@ function isNutritionDataValid(data) {
     return false;
   }
 
-  if (!data.descriptionForEmbedding || typeof data.descriptionForEmbedding !== 'string') {
+  if (!data.description || typeof data.description !== 'string') {
     return false;
   }
 
@@ -111,7 +111,7 @@ async function callModelsInParallel(messages, responseFormat) {
 
   if (!client) throw new Error('Chat provider is disabled');
 
-  const systemPrompt = AI_PROMPTS.SYSTEM_GENERALIZE;
+  const systemPrompt = AI_PROMPTS_PRODUCT_CREATION.FROM_TEXT.SYSTEM;
   const fullMessages = [{ role: 'system', content: systemPrompt }, ...messages];
 
   const calls = config.MODELS.map(async (model) => {
@@ -178,7 +178,7 @@ async function callVisionModelsInParallel(messages, responseFormat) {
 
   if (!client) throw new Error('Image recognition provider is disabled');
 
-  const systemPrompt = AI_PROMPTS.SYSTEM_IMAGE_ANALYSIS;
+  const systemPrompt = AI_PROMPTS_IMAGE_RECOGNITION.FULL_WITH_NUTRITION.SYSTEM;
   const fullMessages = [{ role: 'system', content: systemPrompt }, ...messages];
 
   const calls = config.MODELS.map(async (model) => {
@@ -436,16 +436,13 @@ export async function generateGeneralizedProduct(description) {
   try {
     const config = AI_PROVIDERS.TEXT_GENERATION_OPENROUTER;
 
-    const userPrompt = AI_FOOD_DESCRIPTION_USER_PROMPT.replace('{originalName}', description).replace(
-      '{originalDescription}',
-      ''
-    );
+    const userPrompt = AI_PROMPTS_PRODUCT_GENERATION.USER.replace('{foodDescription}', description);
 
-    for (const model of AI_FOOD_DESCRIPTION_MODELS) {
+    for (const model of AI_PROMPTS_PRODUCT_GENERATION.MODELS) {
       const startTime = Date.now();
       const llmResult = await callOpenRouterDirectly({
         model: model,
-        systemPrompt: AI_FOOD_DESCRIPTION_GEN_SYSTEM_PROMPT,
+        systemPrompt: AI_PROMPTS_PRODUCT_GENERATION.SYSTEM,
         userPrompt: userPrompt,
       });
       const responseTime = Date.now() - startTime;
@@ -468,7 +465,7 @@ export async function generateGeneralizedProduct(description) {
           fat: parsedResult.data.fat,
           carbs: parsedResult.data.carbs,
           fiber: parsedResult.data.fiber,
-          descriptionForEmbedding: parsedResult.data.description,
+          description: parsedResult.data.description,
         };
 
         if (!isNutritionDataValid(nutritionData)) {
@@ -509,14 +506,14 @@ export async function simpleImageRecognition(imageData, mimeType) {
     const messages = [
       {
         role: 'system',
-        content: AI_PROMPTS.SYSTEM_IMAGE_RECOGNITION_MVP,
+        content: AI_PROMPTS_IMAGE_RECOGNITION.SIMPLE_MVP.SYSTEM,
       },
       {
         role: 'user',
         content: [
           {
             type: 'text',
-            text: AI_PROMPTS.USER_IMAGE_RECOGNITION_MVP,
+            text: AI_PROMPTS_IMAGE_RECOGNITION.SIMPLE_MVP.USER,
           },
           {
             type: 'image_url',
@@ -552,7 +549,7 @@ export async function analyzeImage(imageData, mimeType) {
         content: [
           {
             type: 'text',
-            text: AI_PROMPTS.USER_ANALYZE_IMAGE,
+            text: AI_PROMPTS_IMAGE_RECOGNITION.FULL_WITH_NUTRITION.USER,
           },
           {
             type: 'image_url',
@@ -608,7 +605,7 @@ export async function analyzeVoiceTranscript(transcript) {
     const messages = [
       {
         role: 'user',
-        content: AI_PROMPTS.USER_ANALYZE_VOICE.replace('{transcript}', transcript),
+        content: AI_PROMPTS_PRODUCT_CREATION.FROM_VOICE.USER.replace('{transcript}', transcript),
       },
     ];
 
@@ -654,11 +651,14 @@ export async function generateEmbedding(text) {
 
     const client = getClient('EMBEDDINGS_OPENAI');
 
+    const t0 = performance.now();
     const response = await client.embeddings.create({
       model: config.MODEL,
       input: text,
       dimensions: config.DIMENSIONS,
     });
+    const t1 = performance.now();
+    process.stderr.write(`⏱️ [PERF] OpenAI API call: ${(t1 - t0).toFixed(2)}ms | model: ${config.MODEL}\n`);
 
     return {
       success: true,
@@ -738,8 +738,8 @@ export async function runMultipleModels(description) {
     const client = getClient('TEXT_GENERATION_OPENROUTER');
 
     const messages = [
-      { role: 'system', content: AI_PROMPTS.SYSTEM_PROMPT_NUTRITIONAL_VALUES },
-      { role: 'user', content: AI_PROMPTS.USER_PROMPT_NUTRITIONAL_VALUES.replace('{description}', description) },
+      { role: 'system', content: AI_PROMPTS_DEBUG.NUTRITION_ANALYSIS.SYSTEM },
+      { role: 'user', content: AI_PROMPTS_DEBUG.NUTRITION_ANALYSIS.USER.replace('{description}', description) },
     ];
 
     const responseFormat = {

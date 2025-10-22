@@ -15,6 +15,7 @@ import { debugRoutes } from './api/debug/debug-routes.js';
 import { setupEventHandlers } from './api/food/event-handlers.js';
 import { foodRoutes } from './api/food/food-routes.js';
 import { initCache } from './api/food/stats-cache.js';
+import { labRoutes } from './api/lab/lab-routes.js';
 import { moneyRoutes } from './api/money/money-routes.js';
 import { settingsRoutes } from './api/settings/settings-routes.js';
 import { websocketRoutes } from './api/ws/ws-routes.js';
@@ -78,6 +79,7 @@ server.register(authRoutes, { prefix: '/api/auth' });
 server.register(foodRoutes, { prefix: '/api/food' });
 server.register(moneyRoutes, { prefix: '/api/money' });
 server.register(debugRoutes, { prefix: '/api/debug' });
+server.register(labRoutes, { prefix: '/api/lab' });
 server.register(settingsRoutes, { prefix: '/api/settings' });
 server.register(websocketRoutes, { prefix: '/api/ws' });
 

@@ -232,12 +232,13 @@ const dbVersion003 = [
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT,
     kcals INTEGER,
-    protein REAL DEFAULT 0,
-    fat REAL DEFAULT 0,
-    carbs REAL DEFAULT 0,
+    protein REAL DEFAULT NULL,
+    fat REAL DEFAULT NULL,
+    carbs REAL DEFAULT NULL,
     fiber REAL DEFAULT NULL,
-    descriptionForEmbedding TEXT DEFAULT NULL,
-    embedding BLOB DEFAULT NULL,
+    description TEXT DEFAULT NULL,
+    nameVec BLOB DEFAULT NULL,
+    descriptionVec BLOB DEFAULT NULL,
     legacyName TEXT DEFAULT NULL
   );
   `,
