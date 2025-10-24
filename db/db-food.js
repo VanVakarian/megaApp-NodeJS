@@ -1,4 +1,5 @@
 import { FOOD_SEARCH_RESULTS_LIMIT } from '../env.js';
+import { tempPerfLog } from '../perf-logger.js';
 import { getConnection } from './db.js';
 
 // =========================================================================================================== DIARY ===
@@ -729,7 +730,7 @@ export async function searchCatalogueEntriesByEmbedding(
     const queryNameVector = new Float32Array(nameEmbeddingArray);
     const queryDescriptionVector = new Float32Array(descriptionEmbeddingArray);
     const t1 = performance.now();
-    process.stderr.write(`⏱️ [PERF] Vector conversion: ${(t1 - t0).toFixed(2)}ms\n`);
+    tempPerfLog(`Vector conversion: ${(t1 - t0).toFixed(2)}ms`);
 
     const query = `
       SELECT
@@ -745,7 +746,7 @@ export async function searchCatalogueEntriesByEmbedding(
     const t2 = performance.now();
     const rows = await connection.all(query);
     const t3 = performance.now();
-    process.stderr.write(`⏱️ [PERF] SQL query: ${(t3 - t2).toFixed(2)}ms | rows: ${rows.length}\n`);
+    tempPerfLog(`SQL query: ${(t3 - t2).toFixed(2)}ms | rows: ${rows.length}`);
 
     const t4 = performance.now();
     const results = rows
@@ -779,7 +780,7 @@ export async function searchCatalogueEntriesByEmbedding(
       .sort((a, b) => a.distance - b.distance)
       .slice(0, FOOD_SEARCH_RESULTS_LIMIT);
     const t5 = performance.now();
-    process.stderr.write(`⏱️ [PERF] Distance calculation + sort: ${(t5 - t4).toFixed(2)}ms\n`);
+    tempPerfLog(`Distance calculation + sort: ${(t5 - t4).toFixed(2)}ms`);
 
     return results;
   } catch (error) {
@@ -837,11 +838,11 @@ export async function getQueryEmbedding(query) {
 
     if (result && result.embedding) {
       await updateQueryUsage(query);
-      process.stderr.write(`⏱️ [PERF] Cache read (hit): ${(t1 - t0).toFixed(2)}ms\n`);
+      tempPerfLog(`Cache read (hit): ${(t1 - t0).toFixed(2)}ms`);
       return new Float32Array(result.embedding.buffer);
     }
 
-    process.stderr.write(`⏱️ [PERF] Cache read (miss): ${(t1 - t0).toFixed(2)}ms\n`);
+    tempPerfLog(`Cache read (miss): ${(t1 - t0).toFixed(2)}ms`);
     return null;
   } catch (error) {
     console.error('Error getting query embedding:', error);
@@ -870,7 +871,7 @@ export async function saveQueryEmbedding(query, embeddingArray) {
     `;
     const result = await connection.run(insertQuery, [query, buffer, timestamp, timestamp]);
     const t1 = performance.now();
-    process.stderr.write(`⏱️ [PERF] Cache write: ${(t1 - t0).toFixed(2)}ms\n`);
+    tempPerfLog(`Cache write: ${(t1 - t0).toFixed(2)}ms`);
     return result.changes > 0;
   } catch (error) {
     console.error('Error saving query embedding:', error);
