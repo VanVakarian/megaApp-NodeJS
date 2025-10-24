@@ -6,6 +6,7 @@ import {
   AI_PROMPTS_PRODUCT_GENERATION,
   AI_PROVIDERS,
 } from '../../env.js';
+import { tempPerfLog } from '../../perf-logger.js';
 
 const clients = {
   TEXT_GENERATION_OPENROUTER: null,
@@ -658,7 +659,7 @@ export async function generateEmbedding(text) {
       dimensions: config.DIMENSIONS,
     });
     const t1 = performance.now();
-    process.stderr.write(`⏱️ [PERF] OpenAI API call: ${(t1 - t0).toFixed(2)}ms | model: ${config.MODEL}\n`);
+    tempPerfLog(`OpenAI API call: ${(t1 - t0).toFixed(2)}ms | model: ${config.MODEL}`);
 
     return {
       success: true,

@@ -1,5 +1,6 @@
 import * as dbFood from '../../db/db-food.js';
 import { FOOD_SEARCH_DESCRIPTION_WEIGHT, FOOD_SEARCH_NAME_WEIGHT } from '../../env.js';
+import { tempPerfLog } from '../../perf-logger.js';
 import * as utils from '../../utils/utils.js';
 import * as aiService from '../ai/ai-service.js';
 import * as imageCache from '../ai/image-cache.js';
@@ -841,13 +842,13 @@ export async function searchCatalogueEntriesRealtime(query) {
     const t1 = performance.now();
     queryEmbedding = await dbFood.getQueryEmbedding(trimmedQuery);
     const t2 = performance.now();
-    process.stderr.write(`⏱️ [PERF] Cache lookup: ${(t2 - t1).toFixed(2)}ms | hit: ${!!queryEmbedding}\n`);
+    tempPerfLog(`Cache lookup: ${(t2 - t1).toFixed(2)}ms | hit: ${!!queryEmbedding}`);
 
     if (!queryEmbedding) {
       const t3 = performance.now();
       const embeddingResult = await aiService.generateEmbedding(trimmedQuery);
       const t4 = performance.now();
-      process.stderr.write(`⏱️ [PERF] Embedding generation: ${(t4 - t3).toFixed(2)}ms\n`);
+      tempPerfLog(`Embedding generation: ${(t4 - t3).toFixed(2)}ms`);
 
       if (!embeddingResult.success) {
         console.error('Failed to generate embedding for realtime search:', embeddingResult.error);
@@ -866,10 +867,11 @@ export async function searchCatalogueEntriesRealtime(query) {
       FOOD_SEARCH_DESCRIPTION_WEIGHT
     );
     const t6 = performance.now();
-    process.stderr.write(`⏱️ [PERF] Vector search: ${(t6 - t5).toFixed(2)}ms | results: ${searchResults.length}\n`);
+    tempPerfLog(`Vector search: ${(t6 - t5).toFixed(2)}ms | results: ${searchResults.length}`);
 
     const t7 = performance.now();
-    process.stderr.write(`⏱️ [PERF] Total search time: ${(t7 - t0).toFixed(2)}ms | query: "${trimmedQuery}"\n`);
+    tempPerfLog(`Total search time: ${(t7 - t0).toFixed(2)}ms | query: "${trimmedQuery}"`);
+    tempPerfLog(`${'='.repeat(60)}`);
     return searchResults.map((result) => result.id);
   } catch (error) {
     console.error('Error in realtime semantic search:', error);
