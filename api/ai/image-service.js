@@ -195,7 +195,7 @@ const imageQueue = new ImageGenerationQueue({
 });
 
 export function requestProductImageGeneration(catalogueId, productName, description = '') {
-  if (imageCache.hasImage(catalogueId)) {
+  if (imageCache.getImageVersion(catalogueId)) {
     return { success: false, reason: 'Image already exists' };
   }
 
@@ -238,9 +238,12 @@ async function generateProductImageInternal(catalogueId, productName, productDes
       console.log(`📁 Created images directory: ${imagesDir}`);
     }
 
-    const originalFilename = `${catalogueId}-original.${imageResult.data.format}`;
+    const currentVersion = imageCache.getImageVersion(catalogueId) || 0;
+    const newVersion = currentVersion + 1;
+
+    const originalFilename = `${catalogueId}-original-v${newVersion}.${imageResult.data.format}`;
     const originalFilePath = join(imagesDir, originalFilename);
-    const thumbFilename = `${catalogueId}-thumb.webp`;
+    const thumbFilename = `${catalogueId}-thumb-v${newVersion}.webp`;
     const thumbFilePath = join(imagesDir, thumbFilename);
 
     writeFileSync(originalFilePath, imageResult.data.imageBuffer);
@@ -254,14 +257,14 @@ async function generateProductImageInternal(catalogueId, productName, productDes
     const thumbTime = Date.now() - thumbStartTime;
     console.log(`🖼️  Thumbnail created in ${thumbTime}ms: ${thumbFilename}`);
 
-    imageCache.setImageExists(catalogueId);
-    console.log(`💾 Image cache updated for product ${catalogueId}`);
+    imageCache.setImageExists(catalogueId, newVersion);
+    console.log(`💾 Image cache updated for product ${catalogueId} (version ${newVersion})`);
 
     broadcastToAllUsers({
       type: 'CATALOGUE_IMAGE_GENERATED',
-      payload: { catalogueId },
+      payload: { catalogueId, imageVersion: newVersion },
     });
-    console.log(`📡 Broadcasted CATALOGUE_IMAGE_GENERATED event for product ${catalogueId}`);
+    console.log(`📡 Broadcasted CATALOGUE_IMAGE_GENERATED event for product ${catalogueId} (version ${newVersion})`);
 
     return {
       success: true,

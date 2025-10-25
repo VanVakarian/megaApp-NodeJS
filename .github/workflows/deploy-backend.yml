@@ -41,6 +41,7 @@ jobs:
             [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
             nvm use 22
             cd ${{ inputs.server-path }}
+            git reset --hard origin/${{ inputs.branch }}
             git pull origin ${{ inputs.branch }}
             npm ci
             systemctl restart ${{ inputs.service-name }}

@@ -488,7 +488,7 @@ export async function handleSearchQuery(socket, message) {
         const entry = allEntries.find((e) => e.id === entryId);
         if (!entry) continue;
 
-        if (!imageCache.hasImage(entry.id)) {
+        if (!imageCache.getImageVersion(entry.id)) {
           imageService.requestProductImageGeneration(entry.id, entry.name, entry.description);
         }
       }

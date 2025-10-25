@@ -22,13 +22,18 @@ class ImageCache {
 
     try {
       const files = readdirSync(imagesDir);
-      const thumbFiles = files.filter((file) => file.endsWith('-thumb.webp'));
+      const thumbFiles = files.filter((file) => file.match(/-thumb-v\d+\.webp$/));
 
       for (const file of thumbFiles) {
-        const match = file.match(/^(\d+)-thumb\.webp$/);
+        const match = file.match(/^(\d+)-thumb-v(\d+)\.webp$/);
         if (match) {
           const catalogueId = parseInt(match[1]);
-          this.cache.set(catalogueId, true);
+          const version = parseInt(match[2]);
+
+          const existing = this.cache.get(catalogueId);
+          if (!existing || version > existing) {
+            this.cache.set(catalogueId, version);
+          }
         }
       }
 
@@ -41,11 +46,15 @@ class ImageCache {
   }
 
   has(catalogueId) {
-    return this.cache.has(catalogueId) && this.cache.get(catalogueId) === true;
+    return this.cache.has(catalogueId);
   }
 
-  set(catalogueId) {
-    this.cache.set(catalogueId, true);
+  set(catalogueId, version) {
+    this.cache.set(catalogueId, version);
+  }
+
+  getVersion(catalogueId) {
+    return this.cache.get(catalogueId) || null;
   }
 
   delete(catalogueId) {
@@ -54,8 +63,8 @@ class ImageCache {
 
   getAll() {
     const result = {};
-    for (const [id, hasImage] of this.cache.entries()) {
-      result[id] = hasImage;
+    for (const [id, version] of this.cache.entries()) {
+      result[id] = version;
     }
     return result;
   }
@@ -72,12 +81,15 @@ export function initializeImageCache() {
   imageCache.initialize();
 }
 
-export function hasImage(catalogueId) {
-  return imageCache.has(catalogueId);
+export function getImageVersion(catalogueId) {
+  return imageCache.getVersion(catalogueId);
 }
 
-export function setImageExists(catalogueId) {
-  imageCache.set(catalogueId);
+export function setImageExists(catalogueId, version) {
+  if (!version || version < 1) {
+    throw new Error('Image version must be a positive integer');
+  }
+  imageCache.set(catalogueId, version);
 }
 
 export function removeImage(catalogueId) {
