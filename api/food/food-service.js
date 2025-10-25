@@ -70,7 +70,7 @@ function prepFoodCatalogue(catalogueArray) {
   for (const entry of catalogueArray) {
     catalogueObj[entry.id] = {
       ...entry,
-      hasImage: imageCache.hasImage(entry.id),
+      imageVersion: imageCache.getImageVersion(entry.id) || undefined,
     };
   }
   return catalogueObj;
