@@ -2,63 +2,125 @@
 
 ## Database File Naming Convention
 
-Database files must follow this pattern: `{DB_APP_NAME}-{DB_ENV}-{VERSION}.db`
+Database files must follow this pattern: `{DB_NAME}-{ENV}-{VERSION}.db`
 
-- **DB_APP_NAME**: application name from `env.js` (e.g., `dbname`)
-- **DB_ENV**: environment identifier (e.g., `prod`, `test`, `dev`)
-- **VERSION**: 3-digit version number (e.g., `001`, `002`)
+- **DB_NAME**: application name (e.g., `megaapp`)
+- **ENV**: environment identifier (e.g., `prod`, `test`, `dev`)
+- **VERSION**: version number (e.g., `001`, `002`, `003`)
 
 Examples:
-- `dbname-prod-001.db`
-- `dbname-test-002.db`
-- `dbname-dev-003.db`
-
-The migration system uses `DB_APP_NAME`, `DB_ENV` and `VERSION` directly from `env.js` configuration.
+- `megaapp-prod-002.db`
+- `megaapp-test-003.db`
+- `megaapp-dev-001.db`
 
 ## Running Migrations
 
 ### Command Format
 ```bash
-node db/migrations/run-migration.js --migration={migration-key}
+node db/migrations/run-migration.js --migration={migration-key} --source={source-database}
 ```
 
-### Available Migrations
-- `001to002` - Migrate from version 001 to 002 (adds money tables)
-- `002to001` - Rollback from version 002 to 001 (removes money tables)
+### Parameters
+
+- **`--migration`** (required): Migration type to run
+  - `001to002` - Migrate from version 001 to 002
+  - `002to003` - Migrate from version 002 to 003 (Catalogue Revamp)
+  - `002to001` - Rollback from version 002 to 001
+  - `003to002` - Rollback from version 003 to 002
+
+- **`--source`** (required): Source database file
+  - Can be full filename: `megaapp-prod-002.db`
+  - Or filename without extension: `megaapp-prod-002`
+  - Or partial pattern: `megaapp-prod` (if only one version exists)
 
 ### Examples
-```bash
-# Migrate forward
-node db/migrations/run-migration.js --migration=001to002
 
-# Rollback
-node db/migrations/run-migration.js --migration=002to001
+```bash
+# Migrate prod database from v002 to v003
+node db/migrations/run-migration.js --migration=002to003 --source=megaapp-prod-002.db
+
+# Migrate test database (shorter syntax)
+node db/migrations/run-migration.js --migration=002to003 --source=megaapp-test-002
+
+# If only one database in directory, can use pattern
+node db/migrations/run-migration.js --migration=002to003 --source=megaapp-prod
 ```
+
+## Key Features
+
+### Automatic Environment & Name Detection
+- The script automatically extracts database name and environment from the filename
+- No need to modify `env.js` before running migrations
+- Migration version is verified against source database version
+
+### Smart File Discovery
+- If multiple files match the pattern, script will ask for clarification
+- Available files are listed when search fails
+
+### Automatic Backup
+- Creates timestamped backup in `backups/` directory before migration
+- Original source file remains unchanged
+- Target file is created with new version number
+
+### Example Workflow
+
+1. You download `megaapp-prod-002.db` from production
+2. Run migration:
+   ```bash
+   node db/migrations/run-migration.js --migration=002to003 --source=megaapp-prod-002
+   ```
+3. Script automatically:
+   - Detects: name=megaapp, env=prod, sourceVersion=002
+   - Validates: migration expects source version 002 ✓
+   - Creates backup: `backups/backup-megaapp-prod-002-2025-10-19T...db`
+   - Creates result: `megaapp-prod-003.db` (in same directory)
+   - Runs all migration queries on the new file
+
+## Error Handling
+
+- **Migration version mismatch**: Script validates that source database version matches migration source version
+- **File not found**: Lists available database files in current directory
+- **SQL errors**: Automatically cleans up partial target file, leaving source intact
+- **Multiple matches**: Asks for clarification when search pattern matches multiple files
 
 ## What Happens During Migration
 
-1. **Backup Creation**: Creates timestamped backup in `backups/` directory
-2. **File Copying**: Copies source database file to target version (e.g., `dbname-prod-001.db` → `dbname-prod-002.db`)
-3. **Schema Changes**: Executes SQL queries on the new target file
-4. **Error Handling**: Removes target file if SQL execution fails, leaving source file intact
+1. **Search**: Finds source database file matching the pattern
+2. **Parse**: Extracts name, environment, and version from filename
+3. **Validate**: Ensures migration version matches source version
+4. **Backup**: Creates timestamped backup of source file
+5. **Copy**: Creates target file with new version number
+6. **Migrate**: Executes all SQL queries on target file
+7. **Cleanup**: If migration fails, removes partial target file
 
 ## Adding New Migrations
 
 1. Create migration files (e.g., `002-to-003.js`, `003-to-002.js`)
-2. Add to `availableMigrations` object in `run-migration.js`:
-```javascript
-'002to003': {
-  name: 'Migration from version 002 to 003',
-  queries: migration002to003,
-  sourceVersion: '002',
-  targetVersion: '003',
-}
-```
+   ```javascript
+   export const migration002to003 = [
+     `ALTER TABLE table_name ADD COLUMN new_column TEXT;`,
+     // ... more queries
+   ];
+   ```
+
+2. Add reverse migration (e.g., `003-to-002.js`)
+
+3. Add to `db-schemas.js` with schema for version 003
+
+4. Register in `run-migration.js`:
+   ```javascript
+   '002to003': {
+     name: 'Migration from version 002 to 003',
+     queries: migration002to003,
+     sourceVersion: '002',
+     targetVersion: '003',
+   }
+   ```
 
 ## Important Notes
 
-- Always backup your database before running migrations
-- Migration copies source file to target file, leaving original intact
-- Failed migrations will clean up the target file automatically
-- Source file serves as natural backup during migration process
-- Check logs for detailed migration progress
+- ✓ No need to modify `env.js` before running migrations
+- ✓ Source database file remains unchanged (safe backup)
+- ✓ Automatic version validation prevents mistakes
+- ✓ Failed migrations automatically clean up partial results
+- ✓ All backups stored in `backups/` directory with timestamps

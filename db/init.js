@@ -1,146 +1,13 @@
 import { INIT_POPULATION_DATA } from '../db-population-data.js';
 import {
+  DB_VERSION,
   DEV_MODE_FORCE_RECREATE_TABLES,
   DEV_MODE_INIT_USERS,
   DEV_MODE_POPULATE_DB,
   DEV_MODE_TABLES_TO_DELETE,
 } from '../env.js';
 import { getConnection } from './db.js';
-
-const CREATE_TABLES_QUERIES = [
-  `
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT,
-    hashedPassword TEXT,
-    isAdmin BOOLEAN
-  );
-  `,
-
-  `
-  CREATE TABLE IF NOT EXISTS settings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    usersId INTEGER,
-    darkTheme BOOLEAN,
-    selectedChapterFood BOOLEAN,
-    selectedChapterMoney BOOLEAN,
-    liteVersion BOOLEAN,
-    height INTEGER
-  );
-  `,
-
-  `
-  CREATE TABLE IF NOT EXISTS foodDiary (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    dateISO TEXT,
-    foodCatalogueId INTEGER,
-    foodWeight INTEGER,
-    history TEXT,
-    usersId INTEGER,
-    ver INTEGER,
-    del BOOLEAN
-  );
-  `,
-
-  `
-  CREATE TABLE IF NOT EXISTS foodCatalogue (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT,
-    kcals INTEGER
-  );
-  `,
-
-  `
-  CREATE TABLE IF NOT EXISTS foodSettings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    height INTEGER,
-    useCoeffs BOOLEAN,
-    coefficients TEXT,
-    selectedCatalogueIds TEXT,
-    usersId INTEGER
-  );
-  `,
-
-  `
-  CREATE TABLE IF NOT EXISTS foodBodyWeight (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    dateISO TEXT,
-    weight NUMERIC,
-    usersId INTEGER
-  );
-  `,
-
-  `
-  CREATE TABLE IF NOT EXISTS moneyCategories (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    userId INTEGER,
-    name TEXT NOT NULL,
-    parentId INTEGER,
-    usedFor TEXT NOT NULL,
-    groupKey TEXT,
-    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (parentId) REFERENCES moneyCategories(id) ON DELETE SET NULL
-  );
-  `,
-
-  `
-  CREATE TABLE IF NOT EXISTS moneyCurrency (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    userId INTEGER,
-    title TEXT NOT NULL,
-    ticker TEXT NOT NULL,
-    symbol TEXT,
-    symbolPosEnum TEXT CHECK(symbolPosEnum IN ('before', 'after')),
-    whitespace BOOLEAN DEFAULT 0,
-    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
-  );
-  `,
-
-  `
-  CREATE TABLE IF NOT EXISTS moneyAccount (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    userId INTEGER,
-    title TEXT NOT NULL,
-    currencyId INTEGER,
-    isInvest BOOLEAN DEFAULT 0,
-    kind TEXT,
-    categoryIds TEXT,
-    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (currencyId) REFERENCES moneyCurrency(id) ON DELETE SET NULL
-  );
-  `,
-
-  `
-  CREATE TABLE IF NOT EXISTS moneyAsset (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    userId INTEGER,
-    ticker TEXT NOT NULL,
-    title TEXT NOT NULL,
-    type TEXT,
-    categoryIds TEXT,
-    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
-  );
-  `,
-
-  `
-  CREATE TABLE IF NOT EXISTS moneyTransaction (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    userId INTEGER,
-    dateISO TEXT NOT NULL,
-    accountId INTEGER,
-    amount REAL NOT NULL,
-    categoryIds TEXT,
-    kind TEXT,
-    isGift BOOLEAN DEFAULT 0,
-    notes TEXT,
-    details TEXT,
-    twinTransactionId INTEGER,
-    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (accountId) REFERENCES moneyAccount(id) ON DELETE SET NULL,
-    FOREIGN KEY (twinTransactionId) REFERENCES moneyTransaction(id) ON DELETE SET NULL
-  );
-  `,
-];
+import { dbSchemas } from './migrations/db-schemas.js';
 
 export async function initDatabase() {
   if (DEV_MODE_FORCE_RECREATE_TABLES) {
@@ -192,8 +59,13 @@ async function dropSpecifiedTables() {
 async function createTablesIfNotExist() {
   const connection = await getConnection();
 
+  const currentSchema = dbSchemas[DB_VERSION];
+  if (!currentSchema) {
+    throw new Error(`Database schema version ${DB_VERSION} not found`);
+  }
+
   try {
-    for (const query of CREATE_TABLES_QUERIES) {
+    for (const query of currentSchema) {
       await connection.exec(query);
     }
     // console.log('Tables created successfully');

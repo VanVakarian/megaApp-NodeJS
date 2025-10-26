@@ -1,15 +1,16 @@
 import * as authController from '../auth/auth-controller.js';
 import * as foodController from './food-controller.js';
+import { WS_MESSAGE_TYPES } from './food-controller.js';
 
 export async function foodRoutes(fastify) {
-  //                                                           FULL UPDATE ROUTE
+  // ============================================================================================= FULL UPDATE ROUTE ===
   fastify.get('/diary-full-update', {
     schema: { tags: ['food'] },
     preValidation: [authController.authMiddleware],
     handler: foodController.getFoodDiaryFullUpdateRange,
   });
 
-  //                                                                DIARY ROUTES
+  // ================================================================================================== DIARY ROUTES ===
   fastify.post('/diary/', {
     schema: {
       tags: ['food'],
@@ -49,7 +50,7 @@ export async function foodRoutes(fastify) {
     handler: foodController.deleteDiaryEntry,
   });
 
-  //                                                       MAIN CATALOGUE ROUTES
+  // ========================================================================================= MAIN CATALOGUE ROUTES ===
   fastify.get('/catalogue', {
     schema: { tags: ['food'] },
     preValidation: [authController.authMiddleware],
@@ -89,44 +90,87 @@ export async function foodRoutes(fastify) {
     handler: foodController.editCatalogueEntry,
   });
 
-  //                                                       USER CATALOGUE ROUTES
-  fastify.get('/user-catalogue', {
-    schema: { tags: ['food'] },
+  // =========================================================================================== NEW SEMANTIC SEARCH ===
+  fastify.get('/search', {
+    schema: {
+      tags: ['food'],
+      querystring: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', minLength: 1 },
+        },
+        required: ['query'],
+      },
+    },
     preValidation: [authController.authMiddleware],
-    handler: foodController.getMyCatalogue,
+    handler: foodController.searchCatalogueEntries,
   });
 
-  fastify.put('/user-catalogue/pick/', {
+  fastify.post('/generate-product-preview', {
     schema: {
       tags: ['food'],
       body: {
         type: 'object',
         properties: {
-          foodId: { type: 'number' },
+          description: { type: 'string', minLength: 1 },
         },
-        required: ['foodId'],
+        required: ['description'],
       },
     },
     preValidation: [authController.authMiddleware],
-    handler: foodController.pickUserCatalogueEntry,
+    handler: foodController.generateProductPreview,
   });
 
-  fastify.put('/user-catalogue/dismiss/', {
+  fastify.post('/save-product', {
     schema: {
       tags: ['food'],
       body: {
         type: 'object',
         properties: {
-          foodId: { type: 'number' },
+          id: { type: 'number' },
+          name: { type: 'string', minLength: 1, maxLength: 100 },
+          kcals: { type: 'number', minimum: 0, maximum: 1000 },
+          protein: { type: 'number', minimum: 0, maximum: 100 },
+          fat: { type: 'number', minimum: 0, maximum: 100 },
+          carbs: { type: 'number', minimum: 0, maximum: 100 },
+          fiber: { type: 'number', minimum: 0, maximum: 50 },
+          description: { type: 'string', minLength: 1, maxLength: 2000 },
         },
-        required: ['foodId'],
+        required: ['name', 'kcals', 'protein', 'fat', 'carbs', 'fiber', 'description'],
       },
     },
     preValidation: [authController.authMiddleware],
-    handler: foodController.dismissUserCatalogueEntry,
+    handler: foodController.saveProduct,
   });
 
-  //                                                         COEFFICIENTS ROUTES
+  // =========================================================================================== MULTIMODAL ANALYSIS ===
+  fastify.post('/analyze-image', {
+    schema: {
+      tags: ['food'],
+      consumes: ['multipart/form-data'],
+      description: 'Analyze image to detect food products',
+    },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.analyzeImage,
+  });
+
+  fastify.post('/analyze-voice', {
+    schema: {
+      tags: ['food'],
+      body: {
+        type: 'object',
+        properties: {
+          transcript: { type: 'string', minLength: 1 },
+        },
+        required: ['transcript'],
+      },
+      description: 'Analyze voice transcript to detect food products',
+    },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.analyzeVoice,
+  });
+
+  // =========================================================================================== COEFFICIENTS ROUTES ===
   fastify.get('/coefficients', {
     schema: { tags: ['food'] },
     preValidation: [authController.authMiddleware],
@@ -138,7 +182,7 @@ export async function foodRoutes(fastify) {
     handler: foodController.calculateCoefficients,
   });
 
-  //                                                               WEIGHT ROUTES
+  // ================================================================================================= WEIGHT ROUTES ===
   fastify.post('/body-weight', {
     schema: {
       tags: ['food'],
@@ -155,10 +199,20 @@ export async function foodRoutes(fastify) {
     handler: foodController.processWeight,
   });
 
-  //                                                                STATS ROUTES
+  // ================================================================================================== STATS ROUTES ===
   fastify.get('/stats', {
     schema: { tags: ['food'] },
     preValidation: [authController.authMiddleware],
     handler: foodController.getStats,
   });
 }
+
+// ============================================================================================== WEBSOCKET HANDLERS ===
+
+/**
+ * WebSocket message handlers for food-related functionality
+ * These handlers are registered with the central WebSocket system
+ */
+export const foodWebSocketHandlers = {
+  [WS_MESSAGE_TYPES.SEARCH_QUERY]: foodController.handleSearchQuery,
+};
