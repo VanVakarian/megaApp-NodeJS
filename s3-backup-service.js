@@ -49,8 +49,6 @@ async function createDbBackup() {
   } catch (error) {
     console.error('Error creating database backup:', error);
     throw error;
-  } finally {
-    await connection.close();
   }
 }
 
