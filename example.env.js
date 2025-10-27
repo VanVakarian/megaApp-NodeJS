@@ -320,7 +320,14 @@ export const AI_PROMPTS_DEBUG = {
 };
 
 export const AI_IMAGE_GENERATION = {
-  FOOD_PRODUCT_PROMPT: `Photorealistic food photography of {productName}. Professional studio lighting, white background, appetizing presentation, high resolution, commercial quality. {foodDescription}`,
+  FOOD_PRODUCT_PROMPT: `
+    Абсолютно по центру изображения, идеально выровненный, крупный план продукта {productName}. {foodDescription}.
+    Объект находится точно по центру на светлой, слегка потертой и теплой на вид деревянной поверхности или на тактильно
+    гладком, но не глянцевом мраморе с мелкими включениями. Мягкий, обволакивающий естественный свет из окна,
+    подсвечивающий микро-текстуры продукта, малая глубина резкости, создающая бархатное боке, уютная и чистая эстетика.
+    Сфокусировано по центру. Рядом, очень незаметно, несколько минималистичных акцентов, тонко раскрывающих его
+    природную сущность или характерную свежесть, создавая ощущение тепла и домашнего уюта.
+  `,
 };
 
 // IMAGE GENERATION QUEUE
