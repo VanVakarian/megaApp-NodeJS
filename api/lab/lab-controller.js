@@ -133,3 +133,59 @@ export async function generateEmbeddings(request, reply) {
     });
   }
 }
+
+export async function generateImage(request, reply) {
+  const { id, nextN } = request.query;
+
+  if (!id && !nextN) {
+    return reply.code(400).send({
+      result: false,
+      error: 'Either id or nextN query parameter must be provided',
+    });
+  }
+
+  const catalogueId = id ? parseInt(id) : null;
+  const batchSize = nextN ? parseInt(nextN) : null;
+
+  try {
+    if (catalogueId) {
+      const result = await labService.generateImageFromId(catalogueId);
+
+      if (result.success) {
+        return reply.code(200).send({
+          result: true,
+          data: result.data,
+          metadata: result.metadata,
+        });
+      }
+
+      return reply.code(400).send({
+        result: false,
+        error: result.error,
+      });
+    } else if (batchSize) {
+      const result = await labService.generateImageBatch(batchSize);
+
+      if (result.success) {
+        return reply.code(200).send({
+          result: true,
+          data: result.data,
+          batchInfo: result.batchInfo,
+        });
+      }
+
+      return reply.code(400).send({
+        result: false,
+        error: result.error,
+        data: result.data,
+        batchInfo: result.batchInfo,
+      });
+    }
+  } catch (error) {
+    console.error('Error in generateImage:', error);
+    return reply.code(500).send({
+      result: false,
+      error: 'Internal server error',
+    });
+  }
+}

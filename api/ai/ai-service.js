@@ -840,7 +840,7 @@ export async function runMultipleModels(description) {
   }
 }
 
-export async function generateImageOpenRouter(prompt) {
+export async function generateImageWithOpenRouter(prompt) {
   try {
     const config = AI_PROVIDERS.IMAGE_GENERATION_OPENROUTER;
 
@@ -914,7 +914,7 @@ export async function generateImageOpenRouter(prompt) {
   }
 }
 
-export async function generateImageNaga(prompt) {
+export async function generateImageWithNaga(prompt) {
   try {
     const config = AI_PROVIDERS.IMAGE_GENERATION_NAGA;
 

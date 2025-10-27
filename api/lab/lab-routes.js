@@ -179,4 +179,102 @@ export async function labRoutes(fastify) {
     },
     handler: labController.generateEmbeddings,
   });
+
+  fastify.get('/generate-image', {
+    schema: {
+      tags: ['lab'],
+      description:
+        'Generate product images for catalogue entries. Can generate for a specific ID or for the next N entries without images.',
+      querystring: {
+        type: 'object',
+        properties: {
+          id: {
+            type: 'integer',
+            minimum: 1,
+            description: 'Catalogue entry ID to generate image for (IF PROVIDED, nextN IS IGNORED)',
+          },
+          nextN: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 50,
+            description:
+              'Generate images for first N catalogue entries without images (ignored if id is provided). Default: 10, Max: 50',
+          },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            result: { type: 'boolean' },
+            data: {
+              oneOf: [
+                {
+                  type: 'object',
+                  description: 'Single image result',
+                  properties: {
+                    catalogueId: { type: 'number' },
+                    name: { type: 'string' },
+                    imageData: {
+                      type: 'object',
+                      properties: {
+                        catalogueId: { type: 'number' },
+                        thumbnailFilename: { type: 'string' },
+                        originalFilename: { type: 'string' },
+                        mediumFilename: { type: 'string' },
+                        largeFilename: { type: 'string' },
+                        generationTime: { type: 'number' },
+                      },
+                    },
+                  },
+                },
+                {
+                  type: 'array',
+                  description: 'Batch results when using nextN parameter',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'number' },
+                      name: { type: 'string' },
+                      generated: { type: 'boolean' },
+                      imageData: {
+                        type: 'object',
+                        properties: {
+                          catalogueId: { type: 'number' },
+                          thumbnailFilename: { type: 'string' },
+                          originalFilename: { type: 'string' },
+                          mediumFilename: { type: 'string' },
+                          largeFilename: { type: 'string' },
+                          generationTime: { type: 'number' },
+                        },
+                      },
+                      error: { type: 'string' },
+                    },
+                  },
+                },
+              ],
+            },
+            batchInfo: {
+              type: 'object',
+              description: 'Information about batch operation',
+              properties: {
+                totalRequested: { type: 'number' },
+                totalProcessed: { type: 'number' },
+                successCount: { type: 'number' },
+                failedCount: { type: 'number' },
+              },
+            },
+            metadata: {
+              type: 'object',
+              properties: {
+                model: { type: 'string' },
+                provider: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+    handler: labController.generateImage,
+  });
 }

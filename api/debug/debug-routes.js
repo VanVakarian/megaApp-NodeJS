@@ -93,46 +93,4 @@ export async function debugRoutes(fastify) {
     },
     handler: debugController.importCatalogueFromBackup,
   });
-
-  fastify.get('/test-image-generation/:id', {
-    schema: {
-      tags: ['debug'],
-      description: 'Test image generation for catalogue entry using OpenRouter or Naga provider',
-      params: {
-        type: 'object',
-        properties: {
-          id: { type: 'string', pattern: '^[0-9]+$' },
-        },
-        required: ['id'],
-      },
-      querystring: {
-        type: 'object',
-        properties: {
-          provider: {
-            type: 'string',
-            enum: ['openrouter', 'naga'],
-            description: 'Image generation provider to test (openrouter or naga)',
-          },
-        },
-        required: ['provider'],
-      },
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            result: { type: 'boolean' },
-            catalogueEntry: { type: 'object' },
-            provider: { type: 'string' },
-            model: { type: 'string' },
-            prompt: { type: 'string' },
-            imageFilePath: { type: 'string' },
-            relativeUrl: { type: 'string' },
-            generationTime: { type: 'number' },
-            error: { type: 'string' },
-          },
-        },
-      },
-    },
-    handler: debugController.testImageGeneration,
-  });
 }
