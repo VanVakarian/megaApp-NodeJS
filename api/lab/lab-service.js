@@ -1,5 +1,8 @@
+import { existsSync, readdirSync } from 'fs';
+import { join } from 'path';
 import * as dbFood from '../../db/db-food.js';
 import * as aiService from '../ai/ai-service.js';
+import * as imageService from '../ai/image-service.js';
 
 function isNutritionDataValid(data) {
   if (!data || typeof data !== 'object') {
@@ -516,6 +519,186 @@ export async function generateEmbeddings(count) {
       data: [],
       batchInfo: {
         totalRequested: count,
+        totalProcessed: 0,
+        successCount: 0,
+        failedCount: 0,
+      },
+    };
+  }
+}
+
+function getExistingImageIds() {
+  try {
+    const origDir = join(process.cwd(), 'public', 'images', 'food', 'orig');
+
+    if (!existsSync(origDir)) {
+      console.log('⚠️ Orig directory not found');
+      return [];
+    }
+
+    const files = readdirSync(origDir);
+
+    const imageIds = new Set();
+    const originalFilePattern = /^(\d+)-original-v\d+\.(png|jpg|jpeg|webp)$/;
+
+    for (const file of files) {
+      const match = file.match(originalFilePattern);
+      if (match) {
+        imageIds.add(parseInt(match[1]));
+      }
+    }
+
+    console.log(`📊 Found ${imageIds.size} products with existing images`);
+    return Array.from(imageIds);
+  } catch (error) {
+    console.error('💥 Error reading orig directory:', error);
+    return [];
+  }
+}
+
+export async function generateImageFromId(catalogueId) {
+  try {
+    console.log(`🎨 Single image generation: catalogueId=${catalogueId}`);
+
+    const entry = await dbFood.getCatalogueEntryById(catalogueId);
+    if (!entry) {
+      console.log(`❌ Catalogue entry ID ${catalogueId} not found`);
+      return {
+        success: false,
+        error: `Catalogue entry with ID ${catalogueId} not found`,
+      };
+    }
+
+    console.log(`📦 Processing: "${entry.name}" (ID: ${catalogueId})`);
+
+    const existingIds = getExistingImageIds();
+    if (existingIds.includes(catalogueId)) {
+      console.log(`⚠️ Image already exists for product ${catalogueId}`);
+      return {
+        success: false,
+        error: `Image already exists for product ${catalogueId}`,
+      };
+    }
+
+    console.log('⌛ Generating image...');
+    const result = await imageService.generateProductImage(catalogueId, entry.name, entry.description || '');
+
+    if (!result.success) {
+      console.log(`❌ Image generation failed: ${result.error}`);
+      return {
+        success: false,
+        error: result.error,
+      };
+    }
+
+    console.log(`✅ Success: image generated for "${entry.name}"`);
+    return {
+      success: true,
+      data: {
+        catalogueId,
+        name: entry.name,
+        imageData: result.data,
+      },
+      metadata: result.metadata,
+    };
+  } catch (error) {
+    console.error('💥 Single image generation error:', error);
+    return {
+      success: false,
+      error: 'Internal server error',
+    };
+  }
+}
+
+export async function generateImageBatch(batchSize) {
+  try {
+    console.log(`🚀 Starting batch image generation: ${batchSize} products`);
+
+    const existingImageIds = getExistingImageIds();
+    const entries = await dbFood.getCatalogueEntriesWithoutImages(existingImageIds, batchSize);
+
+    if (!entries || entries.length === 0) {
+      console.log('⚠️ No products found without images');
+      return {
+        success: false,
+        error: 'No catalogue entries without images found',
+        data: [],
+        batchInfo: {
+          totalRequested: batchSize,
+          totalProcessed: 0,
+          successCount: 0,
+          failedCount: 0,
+        },
+      };
+    }
+
+    console.log(`📦 Found ${entries.length} products to process`);
+
+    const results = [];
+    let successCount = 0;
+    let failedCount = 0;
+
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      console.log(`⏳ [${i + 1}/${entries.length}] Processing: "${entry.name}" (ID: ${entry.id})`);
+
+      try {
+        const imageResult = await imageService.generateProductImage(entry.id, entry.name, entry.description || '');
+
+        if (!imageResult.success) {
+          console.log(`❌ [${i + 1}/${entries.length}] Image generation failed: ${imageResult.error}`);
+          results.push({
+            id: entry.id,
+            name: entry.name,
+            generated: false,
+            error: imageResult.error,
+          });
+          failedCount++;
+          continue;
+        }
+
+        console.log(`✅ [${i + 1}/${entries.length}] Success: image generated for "${entry.name}"`);
+        results.push({
+          id: entry.id,
+          name: entry.name,
+          generated: true,
+          imageData: imageResult.data,
+        });
+        successCount++;
+      } catch (error) {
+        console.error(`💥 [${i + 1}/${entries.length}] Exception: ${error.message}`);
+        results.push({
+          id: entry.id,
+          name: entry.name,
+          generated: false,
+          error: error.message,
+        });
+        failedCount++;
+      }
+    }
+
+    console.log(
+      `🏁 Batch complete: ✅ ${successCount} success | ❌ ${failedCount} failed | 📊 ${entries.length} total`
+    );
+
+    return {
+      success: true,
+      data: results,
+      batchInfo: {
+        totalRequested: batchSize,
+        totalProcessed: entries.length,
+        successCount,
+        failedCount,
+      },
+    };
+  } catch (error) {
+    console.error('💥 Batch image generation fatal error:', error);
+    return {
+      success: false,
+      error: 'Internal server error',
+      data: [],
+      batchInfo: {
+        totalRequested: batchSize,
         totalProcessed: 0,
         successCount: 0,
         failedCount: 0,

@@ -949,3 +949,44 @@ export async function getCatalogueEntriesWithoutEmbeddings(limit = 10) {
     return [];
   }
 }
+
+export async function getCatalogueEntriesWithoutImages(existingImageIds = [], limit = 10) {
+  const connection = await getConnection();
+  try {
+    let query;
+    let params;
+
+    if (existingImageIds.length === 0) {
+      query = `
+        SELECT
+          id, name, description
+        FROM
+          foodCatalogue
+        ORDER BY
+          id ASC
+        LIMIT ?;
+      `;
+      params = [limit];
+    } else {
+      const placeholders = existingImageIds.map(() => '?').join(',');
+      query = `
+        SELECT
+          id, name, description
+        FROM
+          foodCatalogue
+        WHERE
+          id NOT IN (${placeholders})
+        ORDER BY
+          id ASC
+        LIMIT ?;
+      `;
+      params = [...existingImageIds, limit];
+    }
+
+    const results = await connection.all(query, params);
+    return results || [];
+  } catch (error) {
+    console.error('Error getting catalogue entries without images:', error);
+    return [];
+  }
+}

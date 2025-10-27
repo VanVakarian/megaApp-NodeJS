@@ -17,7 +17,7 @@ import { broadcastToAllUsers } from '../ws/ws-setup.js';
 import * as aiService from './ai-service.js';
 import * as imageCache from './image-cache.js';
 
-const AI_IMAGE_GEN_MODEL = AI_PROVIDERS.IMAGE_GENERATION_NAGA.MODELS[0];
+const AI_IMAGE_GEN_MODEL = AI_PROVIDERS.IMAGE_GENERATION_OPENROUTER.MODELS[0];
 
 class ImageGenerationQueue {
   constructor(options = {}) {
@@ -219,7 +219,7 @@ async function generateProductImageInternal(catalogueId, productName, productDes
     console.log(`🤖 Model: ${AI_IMAGE_GEN_MODEL}`);
 
     const startTime = Date.now();
-    const imageResult = await aiService.generateImageNaga(prompt);
+    const imageResult = await aiService.generateImageWithOpenRouter(prompt);
     const generationTime = Date.now() - startTime;
 
     if (!imageResult.success) {
@@ -233,18 +233,27 @@ async function generateProductImageInternal(catalogueId, productName, productDes
     console.log(`✅ Image generated successfully in ${generationTime}ms`);
 
     const imagesDir = join(process.cwd(), 'public', 'images', 'food');
+    const origDir = join(imagesDir, 'orig');
     if (!existsSync(imagesDir)) {
       mkdirSync(imagesDir, { recursive: true });
       console.log(`📁 Created images directory: ${imagesDir}`);
+    }
+    if (!existsSync(origDir)) {
+      mkdirSync(origDir, { recursive: true });
+      console.log(`📁 Created orig directory: ${origDir}`);
     }
 
     const currentVersion = imageCache.getImageVersion(catalogueId) || 0;
     const newVersion = currentVersion + 1;
 
     const originalFilename = `${catalogueId}-original-v${newVersion}.${imageResult.data.format}`;
-    const originalFilePath = join(imagesDir, originalFilename);
+    const originalFilePath = join(origDir, originalFilename);
     const thumbFilename = `${catalogueId}-thumb-v${newVersion}.webp`;
     const thumbFilePath = join(imagesDir, thumbFilename);
+    const mediumFilename = `${catalogueId}-medium-v${newVersion}.webp`;
+    const mediumFilePath = join(imagesDir, mediumFilename);
+    const largeFilename = `${catalogueId}-large-v${newVersion}.webp`;
+    const largeFilePath = join(imagesDir, largeFilename);
 
     writeFileSync(originalFilePath, imageResult.data.imageBuffer);
     console.log(`💾 Original image saved: ${originalFilename}`);
@@ -255,7 +264,23 @@ async function generateProductImageInternal(catalogueId, productName, productDes
       .webp({ quality: 80 })
       .toFile(thumbFilePath);
     const thumbTime = Date.now() - thumbStartTime;
-    console.log(`🖼️  Thumbnail created in ${thumbTime}ms: ${thumbFilename}`);
+    console.log(`🖼️  Thumbnail (256x256) created in ${thumbTime}ms: ${thumbFilename}`);
+
+    const mediumStartTime = Date.now();
+    await sharp(imageResult.data.imageBuffer)
+      .resize(512, 512, { fit: 'cover' })
+      .webp({ quality: 85 })
+      .toFile(mediumFilePath);
+    const mediumTime = Date.now() - mediumStartTime;
+    console.log(`🖼️  Medium image (512x512) created in ${mediumTime}ms: ${mediumFilename}`);
+
+    const largeStartTime = Date.now();
+    await sharp(imageResult.data.imageBuffer)
+      .resize(1024, 1024, { fit: 'cover' })
+      .webp({ quality: 90 })
+      .toFile(largeFilePath);
+    const largeTime = Date.now() - largeStartTime;
+    console.log(`🖼️  Large image (1024x1024) created in ${largeTime}ms: ${largeFilename}`);
 
     imageCache.setImageExists(catalogueId, newVersion);
     console.log(`💾 Image cache updated for product ${catalogueId} (version ${newVersion})`);
@@ -272,8 +297,12 @@ async function generateProductImageInternal(catalogueId, productName, productDes
         catalogueId,
         thumbnailFilename: thumbFilename,
         originalFilename,
+        mediumFilename,
+        largeFilename,
         generationTime,
         thumbTime,
+        mediumTime,
+        largeTime,
       },
     };
   } catch (error) {
@@ -291,4 +320,8 @@ export function stopImageQueue() {
 
 export function getImageQueueStats() {
   return imageQueue.getStats();
+}
+
+export async function generateProductImage(catalogueId, productName, productDescription = '') {
+  return await generateProductImageInternal(catalogueId, productName, productDescription);
 }
