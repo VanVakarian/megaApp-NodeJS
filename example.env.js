@@ -83,7 +83,7 @@ export const FOOD_SEARCH_NAME_WEIGHT = 0.7;
 export const FOOD_SEARCH_DESCRIPTION_WEIGHT = 0.3;
 
 export const AI_PROVIDERS = {
-  TEXT_GENERATION_OPENROUTER: {
+  TEXT_GENERATION: {
     PROVIDER: 'openrouter',
     API_KEY: 'YOUR_OPENROUTER_API_KEY',
     BASE_URL: 'https://openrouter.ai/api/v1',
@@ -119,33 +119,34 @@ export const AI_PROVIDERS = {
     TEMPERATURE: 0.1,
   },
 
-  IMAGE_GENERATION_OPENROUTER: {
-    PROVIDER: 'openrouter',
-    API_KEY: 'YOUR_OPENROUTER_API_KEY',
-    BASE_URL: 'https://openrouter.ai/api/v1',
-    MODELS: ['google/gemini-2.5-flash-image'],
-  },
+  IMAGE_GENERATION: [
+    {
+      PROVIDER: 'openrouter',
+      ENABLED: true,
+      API_KEY: 'YOUR_OPENROUTER_API_KEY',
+      BASE_URL: 'https://openrouter.ai/api/v1',
+      MODELS: [
+        'google/gemini-2.5-flash-image',
+        // 'openai/gpt-5-image-mini',
+      ],
+    },
+    {
+      PROVIDER: 'naga',
+      ENABLED: false,
+      BASE_URL: 'https://api.naga.ac/v1/images/generations',
+      API_KEY: 'YOUR_NAGA_API_KEY',
+      MODELS: [
+        // 'flux-1-schnell:free',
+        // 'kandinsky-3.1:free',
+        // 'sdxl:free',
+        'dall-e-3:free',
+        // 'sdxl',
+        // 'midjourney',
+      ],
+    },
+  ],
 
-  IMAGE_GENERATION_NAGA: {
-    PROVIDER: 'naga',
-    BASE_URL: 'https://api.naga.ac/v1',
-    API_KEY: 'YOUR_NAGA_API_KEY',
-    MODELS: [
-      // 'flux-1-schnell:free',
-      // 'kandinsky-3.1:free',
-      // 'sdxl:free',
-      'dall-e-3:free',
-      // 'sdxl',
-      // 'midjourney',
-    ],
-  },
-
-  IMAGE_GENERATION_AIMLAPI: {
-    PROVIDER: 'aimlapi',
-    API_KEY: 'YOUR_AIMLAPI_API_KEY',
-  },
-
-  IMAGE_RECOGNITION_OPENROUTER: {
+  IMAGE_RECOGNITION: {
     PROVIDER: 'openrouter',
     API_KEY: 'YOUR_OPENROUTER_API_KEY',
     BASE_URL: 'https://openrouter.ai/api/v1',

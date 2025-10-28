@@ -4,6 +4,7 @@ import { tempPerfLog } from '../../perf-logger.js';
 import * as utils from '../../utils/utils.js';
 import * as aiService from '../ai/ai-service.js';
 import * as imageCache from '../ai/image-cache.js';
+import * as imageService from '../ai/image-service.js';
 import * as statsCache from './stats-cache.js';
 
 export function getDateRange(dateIso, fetchDaysRangeOffset) {
@@ -576,6 +577,8 @@ export async function saveProductData(id, productData) {
       }
 
       const createdEntry = await dbFood.getCatalogueEntryByIdForAPI(catalogueId);
+
+      imageService.requestProductImageGeneration(catalogueId, name, description);
 
       return {
         success: true,

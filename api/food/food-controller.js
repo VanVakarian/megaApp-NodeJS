@@ -3,8 +3,6 @@ import path from 'path';
 import * as coefficientsService from '../../coefficients/coeffs-service.js';
 import * as dbFood from '../../db/db-food.js';
 import * as utils from '../../utils/utils.js';
-import * as imageCache from '../ai/image-cache.js';
-import * as imageService from '../ai/image-service.js';
 import { updateUserDataLastModified } from '../ws/sync-state.js';
 import * as foodService from './food-service.js';
 
@@ -480,19 +478,6 @@ export async function handleSearchQuery(socket, message) {
     };
 
     socket.send(JSON.stringify(response));
-
-    if (catalogueIds.length > 0) {
-      const allEntries = await dbFood.getAllFoodCatalogueEntries();
-
-      for (const entryId of catalogueIds) {
-        const entry = allEntries.find((e) => e.id === entryId);
-        if (!entry) continue;
-
-        if (!imageCache.getImageVersion(entry.id)) {
-          imageService.requestProductImageGeneration(entry.id, entry.name, entry.description);
-        }
-      }
-    }
   } catch (error) {
     console.error('Error handling search query:', error);
   }

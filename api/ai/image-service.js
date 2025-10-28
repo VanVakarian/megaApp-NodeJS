@@ -17,7 +17,13 @@ import { broadcastToAllUsers } from '../ws/ws-setup.js';
 import * as aiService from './ai-service.js';
 import * as imageCache from './image-cache.js';
 
-const AI_IMAGE_GEN_MODEL = AI_PROVIDERS.IMAGE_GENERATION_OPENROUTER.MODELS[0];
+function getImageGenerationProvider() {
+  const providers = AI_PROVIDERS.IMAGE_GENERATION;
+  if (!providers || providers.length === 0) return null;
+
+  const activeProvider = providers.find((p) => p.ENABLED && p.MODELS && p.MODELS.length > 0);
+  return activeProvider || null;
+}
 
 class ImageGenerationQueue {
   constructor(options = {}) {
@@ -195,6 +201,10 @@ const imageQueue = new ImageGenerationQueue({
 });
 
 export function requestProductImageGeneration(catalogueId, productName, description = '') {
+  if (!getImageGenerationProvider()) {
+    return { success: false, reason: 'Image generation is disabled (no active providers)' };
+  }
+
   if (imageCache.getImageVersion(catalogueId)) {
     return { success: false, reason: 'Image already exists' };
   }
@@ -208,18 +218,25 @@ export function requestProductImageGeneration(catalogueId, productName, descript
 
 async function generateProductImageInternal(catalogueId, productName, productDescription = '') {
   try {
+    const provider = getImageGenerationProvider();
+    if (!provider) {
+      console.log(`❌ Image generation is disabled for product ${catalogueId} (no active providers)`);
+      return {
+        success: false,
+        error: 'Image generation is disabled (no active providers)',
+      };
+    }
+
     console.log(`🎨 Starting image generation for product ${catalogueId}: "${productName}"`);
 
-    const prompt = AI_IMAGE_GENERATION.FOOD_PRODUCT_PROMPT.replace('{productName}', productName).replace(
-      '{foodDescription}',
-      productDescription || ''
-    );
+    const partialPrompt = AI_IMAGE_GENERATION.FOOD_PRODUCT_PROMPT.replace('{productName}', productName || '');
+    const finalPrompt = partialPrompt.replace('{foodDescription}', productDescription || '');
 
-    console.log(`📝 Prompt: "${prompt}"`);
-    console.log(`🤖 Model: ${AI_IMAGE_GEN_MODEL}`);
+    console.log(`📝 Prompt: "${finalPrompt}"`);
+    console.log(`🤖 Provider: ${provider.PROVIDER}, Model: ${provider.MODELS[0]}`);
 
     const startTime = Date.now();
-    const imageResult = await aiService.generateImageWithOpenRouter(prompt);
+    const imageResult = await aiService.generateImage(finalPrompt);
     const generationTime = Date.now() - startTime;
 
     if (!imageResult.success) {
