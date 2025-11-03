@@ -1,9 +1,10 @@
 import * as dbUsers from '../../db/db-users.js';
-import { recalculateStats } from './food-service.js';
 
 const statsCache = new Map();
 
 export async function initCache() {
+  const { recalculateStats } = await import('./food-service.js');
+
   statsCache.clear();
   const users = await dbUsers.getAllUserIds();
 

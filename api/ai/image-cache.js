@@ -77,7 +77,7 @@ class ImageCache {
 
 const imageCache = new ImageCache();
 
-export function initializeImageCache() {
+export function initImageCache() {
   imageCache.initialize();
 }
 

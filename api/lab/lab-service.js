@@ -853,13 +853,11 @@ export async function regenerateImageVariantsBatch(batchSize) {
 
     for (let i = 0; i < entriesToProcessLimited.length; i++) {
       const entry = entriesToProcessLimited[i];
-      console.log(`⏳ [${i + 1}/${entriesToProcessLimited.length}] Processing: "${entry.name}" (ID: ${entry.id})`);
 
       try {
         const regenerateResult = await imageService.regenerateImageVariantsFromOriginal(entry.id);
 
         if (!regenerateResult.success) {
-          console.log(`❌ [${i + 1}/${entriesToProcessLimited.length}] Regeneration failed: ${regenerateResult.error}`);
           results.push({
             id: entry.id,
             name: entry.name,
@@ -868,7 +866,6 @@ export async function regenerateImageVariantsBatch(batchSize) {
           });
           failedCount++;
         } else {
-          console.log(`✅ [${i + 1}/${entriesToProcessLimited.length}] Success: variants regenerated`);
           results.push({
             id: entry.id,
             name: entry.name,
@@ -878,7 +875,6 @@ export async function regenerateImageVariantsBatch(batchSize) {
           successCount++;
         }
       } catch (error) {
-        console.error(`💥 [${i + 1}/${entriesToProcessLimited.length}] Error processing ${entry.id}:`, error);
         results.push({
           id: entry.id,
           name: entry.name,
@@ -887,6 +883,13 @@ export async function regenerateImageVariantsBatch(batchSize) {
         });
         failedCount++;
       }
+
+      // Компактный прогресс в одну строку
+      console.log(
+        `🔄 [${i + 1}/${entriesToProcessLimited.length}] ✅ ${successCount} | ❌ ${failedCount} | Left: ${
+          entriesToProcessLimited.length - i - 1
+        } | ${entry.name.slice(0, 35)}`
+      );
     }
 
     console.log(
