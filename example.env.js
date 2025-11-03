@@ -24,6 +24,7 @@ export const CRON_SCHEDULE = {
 
 // AWS S3 BACKUP
 export const S3_CONFIG = {
+  ENABLED: true,
   TEMP_DIR: 'backups',
   REGION: 'eu-north-1',
   BUCKET_NAME: 'bucket-name',

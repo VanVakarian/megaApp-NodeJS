@@ -706,3 +706,217 @@ export async function generateImageBatch(batchSize) {
     };
   }
 }
+
+export async function regenerateImageVariantsFromId(catalogueId) {
+  try {
+    console.log(`🔄 Regenerating image variants for catalogueId=${catalogueId}`);
+
+    const entry = await dbFood.getCatalogueEntryById(catalogueId);
+    if (!entry) {
+      console.log(`❌ Catalogue entry ID ${catalogueId} not found in database`);
+      return {
+        success: false,
+        error: `Catalogue entry with ID ${catalogueId} not found`,
+      };
+    }
+
+    console.log(`📦 Processing: "${entry.name}" (ID: ${catalogueId})`);
+
+    const result = await imageService.regenerateImageVariantsFromOriginal(catalogueId);
+
+    if (!result.success) {
+      console.log(`❌ Regeneration failed: ${result.error}`);
+      return {
+        success: false,
+        error: result.error,
+      };
+    }
+
+    console.log(`✅ Success: all variants regenerated for "${entry.name}"`);
+    return {
+      success: true,
+      data: {
+        catalogueId,
+        name: entry.name,
+        variants: result.data,
+      },
+    };
+  } catch (error) {
+    console.error('💥 Image variants regeneration error:', error);
+    return {
+      success: false,
+      error: 'Internal server error',
+    };
+  }
+}
+
+export async function regenerateImageVariantsBatch(batchSize) {
+  try {
+    console.log(`🚀 Starting batch image variants regeneration: up to ${batchSize} products`);
+
+    const imagesDir = join(process.cwd(), 'public', 'images', 'food');
+    const origDir = join(imagesDir, 'orig');
+
+    if (!existsSync(origDir)) {
+      console.log(`❌ Original images directory not found`);
+      return {
+        success: false,
+        error: 'Original images directory not found',
+        data: [],
+        batchInfo: {
+          totalRequested: batchSize,
+          totalProcessed: 0,
+          successCount: 0,
+          failedCount: 0,
+          skippedCount: 0,
+        },
+      };
+    }
+
+    const allEntries = await dbFood.getAllCatalogueEntries();
+    if (!allEntries || allEntries.length === 0) {
+      console.log('⚠️ No catalogue entries found');
+      return {
+        success: false,
+        error: 'No catalogue entries found',
+        data: [],
+        batchInfo: {
+          totalRequested: batchSize,
+          totalProcessed: 0,
+          successCount: 0,
+          failedCount: 0,
+          skippedCount: 0,
+        },
+      };
+    }
+
+    console.log(`📦 Found ${allEntries.length} catalogue entries`);
+
+    const origFiles = readdirSync(origDir);
+    const catalogueIdsWithOriginals = new Set();
+
+    for (const file of origFiles) {
+      const match = file.match(/^(\d+)-original-v\d+\./);
+      if (match) {
+        catalogueIdsWithOriginals.add(parseInt(match[1]));
+      }
+    }
+
+    console.log(`📂 Found ${catalogueIdsWithOriginals.size} products with original images`);
+
+    const variantFiles = readdirSync(imagesDir);
+
+    const entriesToProcess = [];
+
+    for (const entry of allEntries) {
+      const catalogueId = entry.id;
+
+      if (!catalogueIdsWithOriginals.has(catalogueId)) {
+        continue;
+      }
+
+      const hasThumb = variantFiles.some((f) => f.match(new RegExp(`^${catalogueId}-thumb-v\\d+\\.webp$`)));
+      const hasMedium = variantFiles.some((f) => f.match(new RegExp(`^${catalogueId}-medium-v\\d+\\.webp$`)));
+      const hasLarge = variantFiles.some((f) => f.match(new RegExp(`^${catalogueId}-large-v\\d+\\.webp$`)));
+      const hasSquircle = variantFiles.some((f) => f.match(new RegExp(`^${catalogueId}-squircle-v\\d+\\.png$`)));
+      const hasCorner = variantFiles.some((f) => f.match(new RegExp(`^${catalogueId}-corner-v\\d+\\.png$`)));
+
+      if (!hasThumb || !hasMedium || !hasLarge || !hasSquircle || !hasCorner) {
+        entriesToProcess.push(entry);
+      }
+    }
+
+    if (entriesToProcess.length === 0) {
+      console.log('✅ All products already have complete image variants');
+      return {
+        success: true,
+        data: [],
+        batchInfo: {
+          totalRequested: batchSize,
+          totalProcessed: 0,
+          successCount: 0,
+          failedCount: 0,
+          skippedCount: allEntries.length,
+        },
+      };
+    }
+
+    console.log(`🔄 Found ${entriesToProcess.length} products needing variant regeneration`);
+
+    // Limit to requested batch size
+    const entriesToProcessLimited = entriesToProcess.slice(0, batchSize);
+    console.log(`📊 Processing ${entriesToProcessLimited.length} products (requested: ${batchSize})`);
+
+    const results = [];
+    let successCount = 0;
+    let failedCount = 0;
+
+    for (let i = 0; i < entriesToProcessLimited.length; i++) {
+      const entry = entriesToProcessLimited[i];
+      console.log(`⏳ [${i + 1}/${entriesToProcessLimited.length}] Processing: "${entry.name}" (ID: ${entry.id})`);
+
+      try {
+        const regenerateResult = await imageService.regenerateImageVariantsFromOriginal(entry.id);
+
+        if (!regenerateResult.success) {
+          console.log(`❌ [${i + 1}/${entriesToProcessLimited.length}] Regeneration failed: ${regenerateResult.error}`);
+          results.push({
+            id: entry.id,
+            name: entry.name,
+            regenerated: false,
+            error: regenerateResult.error,
+          });
+          failedCount++;
+        } else {
+          console.log(`✅ [${i + 1}/${entriesToProcessLimited.length}] Success: variants regenerated`);
+          results.push({
+            id: entry.id,
+            name: entry.name,
+            regenerated: true,
+            variants: regenerateResult.data,
+          });
+          successCount++;
+        }
+      } catch (error) {
+        console.error(`💥 [${i + 1}/${entriesToProcessLimited.length}] Error processing ${entry.id}:`, error);
+        results.push({
+          id: entry.id,
+          name: entry.name,
+          regenerated: false,
+          error: 'Internal processing error',
+        });
+        failedCount++;
+      }
+    }
+
+    console.log(
+      `🏁 Batch complete: ✅ ${successCount} success | ❌ ${failedCount} failed | 📊 ${entriesToProcessLimited.length} total`
+    );
+
+    return {
+      success: true,
+      data: results,
+      batchInfo: {
+        totalRequested: batchSize,
+        totalProcessed: entriesToProcessLimited.length,
+        successCount,
+        failedCount,
+        skippedCount: allEntries.length - entriesToProcess.length,
+      },
+    };
+  } catch (error) {
+    console.error('💥 Batch image variants regeneration fatal error:', error);
+    return {
+      success: false,
+      error: 'Internal server error',
+      data: [],
+      batchInfo: {
+        totalRequested: batchSize,
+        totalProcessed: 0,
+        successCount: 0,
+        failedCount: 0,
+        skippedCount: 0,
+      },
+    };
+  }
+}
