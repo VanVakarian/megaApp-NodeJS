@@ -18,9 +18,7 @@ export async function labRoutes(fastify) {
           nextN: {
             type: 'integer',
             minimum: 1,
-            maximum: 100,
-            description:
-              'Generate for first N catalogue entries without description (ignored if id is provided). Default: 10',
+            description: 'Generate for first N catalogue entries without description (ignored if id is provided)',
           },
           useKcals: {
             type: 'boolean',
@@ -125,8 +123,7 @@ export async function labRoutes(fastify) {
           count: {
             type: 'integer',
             minimum: 1,
-            maximum: 100,
-            description: 'Number of entries to generate embeddings for (default: 10, max: 100)',
+            description: 'Number of entries to generate embeddings for',
           },
         },
         required: ['count'],
@@ -196,9 +193,7 @@ export async function labRoutes(fastify) {
           nextN: {
             type: 'integer',
             minimum: 1,
-            maximum: 50,
-            description:
-              'Generate images for first N catalogue entries without images (ignored if id is provided). Default: 10, Max: 50',
+            description: 'Generate images for first N catalogue entries without images (ignored if id is provided)',
           },
         },
       },
@@ -276,5 +271,109 @@ export async function labRoutes(fastify) {
       },
     },
     handler: labController.generateImage,
+  });
+
+  fastify.get('/rebuild-image-variants', {
+    schema: {
+      tags: ['lab'],
+      description:
+        'Rebuild all image variants (thumb, medium, large, squircle, corner) from the original image. Uses the existing original file and regenerates all other formats. Can process a specific ID or batch process products missing any variants. Skips products without original files.',
+      querystring: {
+        type: 'object',
+        properties: {
+          id: {
+            type: 'integer',
+            minimum: 1,
+            description: 'Catalogue entry ID to rebuild images for (IF PROVIDED, nextN IS IGNORED)',
+          },
+          nextN: {
+            type: 'integer',
+            minimum: 1,
+            description:
+              'Rebuild image variants for first N products that are missing at least one variant (ignored if id is provided)',
+          },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            result: { type: 'boolean' },
+            data: {
+              oneOf: [
+                {
+                  type: 'object',
+                  description: 'Single product result',
+                  properties: {
+                    catalogueId: { type: 'number' },
+                    name: { type: 'string' },
+                    variants: {
+                      type: 'object',
+                      properties: {
+                        catalogueId: { type: 'number' },
+                        version: { type: 'number' },
+                        previousVersion: { type: 'number' },
+                        originalFilename: { type: 'string' },
+                        thumbFilename: { type: 'string' },
+                        mediumFilename: { type: 'string' },
+                        largeFilename: { type: 'string' },
+                        squircleFilename: { type: 'string' },
+                        cornerFilename: { type: 'string' },
+                        totalTime: { type: 'number' },
+                        thumbTime: { type: 'number' },
+                        mediumTime: { type: 'number' },
+                        largeTime: { type: 'number' },
+                        squircleTime: { type: 'number' },
+                        cornerTime: { type: 'number' },
+                      },
+                    },
+                  },
+                },
+                {
+                  type: 'array',
+                  description: 'Batch results when using nextN parameter',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'number' },
+                      name: { type: 'string' },
+                      regenerated: { type: 'boolean' },
+                      variants: {
+                        type: 'object',
+                        properties: {
+                          catalogueId: { type: 'number' },
+                          version: { type: 'number' },
+                          previousVersion: { type: 'number' },
+                          originalFilename: { type: 'string' },
+                          thumbFilename: { type: 'string' },
+                          mediumFilename: { type: 'string' },
+                          largeFilename: { type: 'string' },
+                          squircleFilename: { type: 'string' },
+                          cornerFilename: { type: 'string' },
+                          totalTime: { type: 'number' },
+                        },
+                      },
+                      error: { type: 'string' },
+                    },
+                  },
+                },
+              ],
+            },
+            batchInfo: {
+              type: 'object',
+              description: 'Information about batch operation',
+              properties: {
+                totalRequested: { type: 'number' },
+                totalProcessed: { type: 'number' },
+                successCount: { type: 'number' },
+                failedCount: { type: 'number' },
+                skippedCount: { type: 'number' },
+              },
+            },
+          },
+        },
+      },
+    },
+    handler: labController.rebuildImageVariants,
   });
 }

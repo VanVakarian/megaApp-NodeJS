@@ -104,7 +104,7 @@ export async function checkRateLimits(request, reply) {
     const response = await fetch('https://openrouter.ai/api/v1/auth/key', {
       method: 'GET',
       headers: {
-        Authorization: `Bearer ${AI_PROVIDERS.TEXT_GENERATION_OPENROUTER.API_KEY}`,
+        Authorization: `Bearer ${AI_PROVIDERS.TEXT_GENERATION.API_KEY}`,
       },
     });
 
