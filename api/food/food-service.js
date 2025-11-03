@@ -4,6 +4,7 @@ import { tempPerfLog } from '../../perf-logger.js';
 import * as utils from '../../utils/utils.js';
 import * as aiService from '../ai/ai-service.js';
 import * as imageCache from '../ai/image-cache.js';
+import * as imageService from '../ai/image-service.js';
 import * as statsCache from './stats-cache.js';
 
 export function getDateRange(dateIso, fetchDaysRangeOffset) {
@@ -577,6 +578,8 @@ export async function saveProductData(id, productData) {
 
       const createdEntry = await dbFood.getCatalogueEntryByIdForAPI(catalogueId);
 
+      imageService.requestProductImageGeneration(catalogueId, name, description);
+
       return {
         success: true,
         data: {
@@ -836,17 +839,18 @@ export async function searchCatalogueEntriesRealtime(query) {
       return [];
     }
 
-    const trimmedQuery = query.trim().toLowerCase();
+    const originalQuery = query.trim().toLowerCase();
+    const queryWithTransliteration = utils.addTransliterationToQuery(originalQuery);
     let queryEmbedding = null;
 
     const t1 = performance.now();
-    queryEmbedding = await dbFood.getQueryEmbedding(trimmedQuery);
+    queryEmbedding = await dbFood.getQueryEmbedding(originalQuery);
     const t2 = performance.now();
     tempPerfLog(`Cache lookup: ${(t2 - t1).toFixed(2)}ms | hit: ${!!queryEmbedding}`);
 
     if (!queryEmbedding) {
       const t3 = performance.now();
-      const embeddingResult = await aiService.generateEmbedding(trimmedQuery);
+      const embeddingResult = await aiService.generateEmbedding(queryWithTransliteration);
       const t4 = performance.now();
       tempPerfLog(`Embedding generation: ${(t4 - t3).toFixed(2)}ms`);
 
@@ -856,7 +860,7 @@ export async function searchCatalogueEntriesRealtime(query) {
       }
 
       queryEmbedding = embeddingResult.data.embedding;
-      await dbFood.saveQueryEmbedding(trimmedQuery, queryEmbedding);
+      await dbFood.saveQueryEmbedding(originalQuery, queryEmbedding);
     }
 
     const t5 = performance.now();
@@ -870,7 +874,7 @@ export async function searchCatalogueEntriesRealtime(query) {
     tempPerfLog(`Vector search: ${(t6 - t5).toFixed(2)}ms | results: ${searchResults.length}`);
 
     const t7 = performance.now();
-    tempPerfLog(`Total search time: ${(t7 - t0).toFixed(2)}ms | query: "${trimmedQuery}"`);
+    tempPerfLog(`Total search time: ${(t7 - t0).toFixed(2)}ms | query: "${originalQuery}"`);
     tempPerfLog(`${'='.repeat(60)}`);
     return searchResults.map((result) => result.id);
   } catch (error) {

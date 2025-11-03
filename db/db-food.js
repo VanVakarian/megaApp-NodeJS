@@ -267,6 +267,25 @@ export async function getCatalogueEntryById(catalogueId) {
   }
 }
 
+export async function getAllCatalogueEntries() {
+  const connection = await getConnection();
+  try {
+    const query = `
+      SELECT
+        id, name
+      FROM
+        foodCatalogue
+      ORDER BY
+        id ASC;
+    `;
+    const result = await connection.all(query);
+    return result || [];
+  } catch (error) {
+    console.error('Error getting all catalogue entries:', error);
+    return [];
+  }
+}
+
 export async function getCatalogueEntryByIdForAPI(catalogueId) {
   const connection = await getConnection();
   try {

@@ -9,7 +9,7 @@ import fastifyWebSocket from '@fastify/websocket';
 import Fastify from 'fastify';
 import cron from 'node-cron';
 import { join } from 'path';
-import { initializeImageCache } from './api/ai/image-cache.js';
+import { initImageCache } from './api/ai/image-cache.js';
 import { authRoutes } from './api/auth/auth-routes.js';
 import { debugRoutes } from './api/debug/debug-routes.js';
 import { setupEventHandlers } from './api/food/event-handlers.js';
@@ -28,7 +28,7 @@ import {
 } from './api/ws/ws-setup.js';
 import { startCoefficientsCalculation } from './coefficients/coeffs-service.js';
 import { initDatabase } from './db/init.js';
-import { APP_IP, APP_PORT, CRON_SCHEDULE, DEV_MODE, JWT_SECRET } from './env.js';
+import { APP_IP, APP_PORT, CRON_SCHEDULE, DEV_MODE, JWT_SECRET, S3_CONFIG } from './env.js';
 import { loggingHooks } from './logger/logger.js';
 import { performBackup } from './s3-backup-service.js';
 import { swaggerConfig, swaggerCorsConfig, swaggerUiConfig } from './swagger-config.js';
@@ -37,16 +37,18 @@ if (DEV_MODE) {
   await initDatabase();
 }
 
-await initCache();
-initializeImageCache();
+initCache();
+initImageCache();
 
 cron.schedule(CRON_SCHEDULE.COEFFS, async () => {
   await startCoefficientsCalculation();
 });
 
-cron.schedule(CRON_SCHEDULE.BACKUP, async () => {
-  await performBackup();
-});
+if (S3_CONFIG.ENABLED) {
+  cron.schedule(CRON_SCHEDULE.BACKUP, async () => {
+    await performBackup();
+  });
+}
 
 const server = Fastify({ logger: true });
 

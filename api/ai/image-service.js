@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import sharp from 'sharp';
 import {
@@ -17,7 +17,13 @@ import { broadcastToAllUsers } from '../ws/ws-setup.js';
 import * as aiService from './ai-service.js';
 import * as imageCache from './image-cache.js';
 
-const AI_IMAGE_GEN_MODEL = AI_PROVIDERS.IMAGE_GENERATION_OPENROUTER.MODELS[0];
+function getImageGenerationProvider() {
+  const providers = AI_PROVIDERS.IMAGE_GENERATION;
+  if (!providers || providers.length === 0) return null;
+
+  const activeProvider = providers.find((p) => p.ENABLED && p.MODELS && p.MODELS.length > 0);
+  return activeProvider || null;
+}
 
 class ImageGenerationQueue {
   constructor(options = {}) {
@@ -195,6 +201,10 @@ const imageQueue = new ImageGenerationQueue({
 });
 
 export function requestProductImageGeneration(catalogueId, productName, description = '') {
+  if (!getImageGenerationProvider()) {
+    return { success: false, reason: 'Image generation is disabled (no active providers)' };
+  }
+
   if (imageCache.getImageVersion(catalogueId)) {
     return { success: false, reason: 'Image already exists' };
   }
@@ -208,18 +218,25 @@ export function requestProductImageGeneration(catalogueId, productName, descript
 
 async function generateProductImageInternal(catalogueId, productName, productDescription = '') {
   try {
+    const provider = getImageGenerationProvider();
+    if (!provider) {
+      console.log(`❌ Image generation is disabled for product ${catalogueId} (no active providers)`);
+      return {
+        success: false,
+        error: 'Image generation is disabled (no active providers)',
+      };
+    }
+
     console.log(`🎨 Starting image generation for product ${catalogueId}: "${productName}"`);
 
-    const prompt = AI_IMAGE_GENERATION.FOOD_PRODUCT_PROMPT.replace('{productName}', productName).replace(
-      '{foodDescription}',
-      productDescription || ''
-    );
+    const partialPrompt = AI_IMAGE_GENERATION.FOOD_PRODUCT_PROMPT.replace('{productName}', productName || '');
+    const finalPrompt = partialPrompt.replace('{foodDescription}', productDescription || '');
 
-    console.log(`📝 Prompt: "${prompt}"`);
-    console.log(`🤖 Model: ${AI_IMAGE_GEN_MODEL}`);
+    console.log(`📝 Prompt: "${finalPrompt}"`);
+    console.log(`🤖 Provider: ${provider.PROVIDER}, Model: ${provider.MODELS[0]}`);
 
     const startTime = Date.now();
-    const imageResult = await aiService.generateImageWithOpenRouter(prompt);
+    const imageResult = await aiService.generateImage(finalPrompt);
     const generationTime = Date.now() - startTime;
 
     if (!imageResult.success) {
@@ -248,39 +265,16 @@ async function generateProductImageInternal(catalogueId, productName, productDes
 
     const originalFilename = `${catalogueId}-original-v${newVersion}.${imageResult.data.format}`;
     const originalFilePath = join(origDir, originalFilename);
-    const thumbFilename = `${catalogueId}-thumb-v${newVersion}.webp`;
-    const thumbFilePath = join(imagesDir, thumbFilename);
-    const mediumFilename = `${catalogueId}-medium-v${newVersion}.webp`;
-    const mediumFilePath = join(imagesDir, mediumFilename);
-    const largeFilename = `${catalogueId}-large-v${newVersion}.webp`;
-    const largeFilePath = join(imagesDir, largeFilename);
 
     writeFileSync(originalFilePath, imageResult.data.imageBuffer);
     console.log(`💾 Original image saved: ${originalFilename}`);
 
-    const thumbStartTime = Date.now();
-    await sharp(imageResult.data.imageBuffer)
-      .resize(256, 256, { fit: 'cover' })
-      .webp({ quality: 80 })
-      .toFile(thumbFilePath);
-    const thumbTime = Date.now() - thumbStartTime;
-    console.log(`🖼️  Thumbnail (256x256) created in ${thumbTime}ms: ${thumbFilename}`);
-
-    const mediumStartTime = Date.now();
-    await sharp(imageResult.data.imageBuffer)
-      .resize(512, 512, { fit: 'cover' })
-      .webp({ quality: 85 })
-      .toFile(mediumFilePath);
-    const mediumTime = Date.now() - mediumStartTime;
-    console.log(`🖼️  Medium image (512x512) created in ${mediumTime}ms: ${mediumFilename}`);
-
-    const largeStartTime = Date.now();
-    await sharp(imageResult.data.imageBuffer)
-      .resize(1024, 1024, { fit: 'cover' })
-      .webp({ quality: 90 })
-      .toFile(largeFilePath);
-    const largeTime = Date.now() - largeStartTime;
-    console.log(`🖼️  Large image (1024x1024) created in ${largeTime}ms: ${largeFilename}`);
+    const variantResults = await generateImageVariants(
+      imageResult.data.imageBuffer,
+      catalogueId,
+      newVersion,
+      imagesDir
+    );
 
     imageCache.setImageExists(catalogueId, newVersion);
     console.log(`💾 Image cache updated for product ${catalogueId} (version ${newVersion})`);
@@ -295,14 +289,18 @@ async function generateProductImageInternal(catalogueId, productName, productDes
       success: true,
       data: {
         catalogueId,
-        thumbnailFilename: thumbFilename,
+        thumbnailFilename: variantResults.thumbFilename,
         originalFilename,
-        mediumFilename,
-        largeFilename,
+        mediumFilename: variantResults.mediumFilename,
+        largeFilename: variantResults.largeFilename,
+        squircleFilename: variantResults.squircleFilename,
+        cornerFilename: variantResults.cornerFilename,
         generationTime,
-        thumbTime,
-        mediumTime,
-        largeTime,
+        thumbTime: variantResults.thumbTime,
+        mediumTime: variantResults.mediumTime,
+        largeTime: variantResults.largeTime,
+        squircleTime: variantResults.squircleTime,
+        cornerTime: variantResults.cornerTime,
       },
     };
   } catch (error) {
@@ -324,4 +322,279 @@ export function getImageQueueStats() {
 
 export async function generateProductImage(catalogueId, productName, productDescription = '') {
   return await generateProductImageInternal(catalogueId, productName, productDescription);
+}
+
+export async function regenerateImageVariantsFromOriginal(catalogueId) {
+  try {
+    console.log(`🔄 Regenerating all image variants for product ${catalogueId} from original`);
+
+    const imagesDir = join(process.cwd(), 'public', 'images', 'food');
+    const origDir = join(imagesDir, 'orig');
+
+    if (!existsSync(origDir)) {
+      console.log(`❌ Original images directory not found: ${origDir}`);
+      return {
+        success: false,
+        error: 'Original images directory not found',
+      };
+    }
+
+    const files = readdirSync(origDir);
+    const originalFile = files.find(
+      (file) =>
+        file.startsWith(`${catalogueId}-original-v`) &&
+        (file.endsWith('.png') || file.endsWith('.jpg') || file.endsWith('.jpeg') || file.endsWith('.webp'))
+    );
+
+    if (!originalFile) {
+      console.log(`❌ Original image not found for product ${catalogueId}`);
+      return {
+        success: false,
+        error: `Original image not found for product ${catalogueId}`,
+      };
+    }
+
+    const originalFilePath = join(origDir, originalFile);
+    console.log(`📂 Found original: ${originalFile}`);
+
+    const versionMatch = originalFile.match(/-v(\d+)\./);
+    const currentVersion = versionMatch ? parseInt(versionMatch[1]) : 0;
+    const newVersion = currentVersion + 1;
+
+    console.log(`📈 Version: ${currentVersion} → ${newVersion}`);
+
+    const originalBuffer = readFileSync(originalFilePath);
+    const startTime = Date.now();
+
+    const formatMatch = originalFile.match(/\.(png|jpg|jpeg|webp)$/i);
+    const originalFormat = formatMatch ? formatMatch[1] : 'png';
+
+    const newOriginalFilename = `${catalogueId}-original-v${newVersion}.${originalFormat}`;
+    const newOriginalFilePath = join(origDir, newOriginalFilename);
+
+    deleteOldImageVersions(catalogueId, newVersion, imagesDir, origDir);
+
+    console.log(`⚙️  Generating all variants from original...`);
+
+    renameSync(originalFilePath, newOriginalFilePath);
+    console.log(`🔄 Original image renamed: ${originalFile} → ${newOriginalFilename}`);
+
+    const variantResults = await generateImageVariants(originalBuffer, catalogueId, newVersion, imagesDir);
+
+    const totalTime = Date.now() - startTime;
+    console.log(`✅ All variants regenerated in ${totalTime}ms`);
+
+    imageCache.setImageExists(catalogueId, newVersion);
+
+    broadcastToAllUsers({
+      type: 'CATALOGUE_IMAGE_GENERATED',
+      payload: { catalogueId, imageVersion: newVersion },
+    });
+
+    return {
+      success: true,
+      data: {
+        catalogueId,
+        version: newVersion,
+        previousVersion: currentVersion,
+        originalFilename: newOriginalFilename,
+        thumbFilename: variantResults.thumbFilename,
+        mediumFilename: variantResults.mediumFilename,
+        largeFilename: variantResults.largeFilename,
+        squircleFilename: variantResults.squircleFilename,
+        cornerFilename: variantResults.cornerFilename,
+        totalTime,
+        thumbTime: variantResults.thumbTime,
+        mediumTime: variantResults.mediumTime,
+        largeTime: variantResults.largeTime,
+        squircleTime: variantResults.squircleTime,
+        cornerTime: variantResults.cornerTime,
+      },
+    };
+  } catch (error) {
+    console.error(`❌ Regeneration error for product ${catalogueId}:`, error);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+}
+
+async function generateImageVariants(imageBuffer, catalogueId, newVersion, imagesDir) {
+  const results = {};
+
+  const thumbStartTime = Date.now();
+  const thumbFilename = `${catalogueId}-thumb-v${newVersion}.webp`;
+  await sharp(imageBuffer)
+    .resize(256, 256, { fit: 'cover' })
+    .webp({ quality: 80 })
+    .toFile(join(imagesDir, thumbFilename));
+  results.thumbTime = Date.now() - thumbStartTime;
+  results.thumbFilename = thumbFilename;
+  console.log(`🖼️  Thumbnail (256x256) created in ${results.thumbTime}ms: ${thumbFilename}`);
+
+  const mediumStartTime = Date.now();
+  const mediumFilename = `${catalogueId}-medium-v${newVersion}.webp`;
+  await sharp(imageBuffer)
+    .resize(512, 512, { fit: 'cover' })
+    .webp({ quality: 85 })
+    .toFile(join(imagesDir, mediumFilename));
+  results.mediumTime = Date.now() - mediumStartTime;
+  results.mediumFilename = mediumFilename;
+  console.log(`🖼️  Medium image (512x512) created in ${results.mediumTime}ms: ${mediumFilename}`);
+
+  const largeStartTime = Date.now();
+  const largeFilename = `${catalogueId}-large-v${newVersion}.webp`;
+  await sharp(imageBuffer)
+    .resize(1024, 1024, { fit: 'cover' })
+    .webp({ quality: 90 })
+    .toFile(join(imagesDir, largeFilename));
+  results.largeTime = Date.now() - largeStartTime;
+  results.largeFilename = largeFilename;
+  console.log(`🖼️  Large image (1024x1024) created in ${results.largeTime}ms: ${largeFilename}`);
+
+  const squircleStartTime = Date.now();
+  const squircleImageSize = 80;
+  const squircleImageZoomLevel = 1.5;
+  const zoomedSize = Math.round(squircleImageSize * squircleImageZoomLevel);
+  const imageOffset = Math.round((zoomedSize - squircleImageSize) / 2);
+
+  const squircleMask = createSquircleSVGMask(squircleImageSize);
+  const squircleFilename = `${catalogueId}-squircle-v${newVersion}.png`;
+  await sharp(imageBuffer)
+    .resize(zoomedSize, zoomedSize, { fit: 'cover' })
+    .extract({
+      left: imageOffset,
+      top: imageOffset,
+      width: squircleImageSize,
+      height: squircleImageSize,
+    })
+    .composite([{ input: squircleMask, blend: 'dest-in' }])
+    .png({ compressionLevel: 9, palette: true })
+    .toFile(join(imagesDir, squircleFilename));
+  results.squircleTime = Date.now() - squircleStartTime;
+  results.squircleFilename = squircleFilename;
+  console.log(`🎨 Squircle thumbnail (80x80) created in ${results.squircleTime}ms: ${squircleFilename}`);
+
+  const cornerStartTime = Date.now();
+  const cornerImageSize = 370;
+  const cornerImageXOffsetPercent = -25;
+
+  const offsetPixels = Math.abs(Math.round(cornerImageSize * (cornerImageXOffsetPercent / 100)));
+  const extendedWidth = cornerImageSize + offsetPixels;
+
+  const cornerMask = createCornerBlurSVGMask(cornerImageSize);
+  const resizedBuffer = await sharp(imageBuffer)
+    .resize(extendedWidth, cornerImageSize, { fit: 'cover', position: 'center' })
+    .toBuffer();
+
+  const cornerFilename = `${catalogueId}-corner-v${newVersion}.png`;
+  await sharp(resizedBuffer)
+    .extract({
+      left: offsetPixels,
+      top: 0,
+      width: cornerImageSize,
+      height: cornerImageSize,
+    })
+    .composite([{ input: cornerMask, blend: 'dest-in' }])
+    .png({ compressionLevel: 9, palette: true })
+    .toFile(join(imagesDir, cornerFilename));
+  results.cornerTime = Date.now() - cornerStartTime;
+  results.cornerFilename = cornerFilename;
+  console.log(`🎨 Corner blur image (370x370) created in ${results.cornerTime}ms: ${cornerFilename}`);
+
+  return results;
+}
+
+function deleteOldImageVersions(catalogueId, newVersion, imagesDir, origDir) {
+  console.log(`🗑️  Deleting old versions...`);
+
+  let deletedCount = 0;
+
+  const allFiles = readdirSync(imagesDir);
+  const oldFiles = allFiles.filter(
+    (file) => file.startsWith(`${catalogueId}-`) && file.match(/-v\d+\./) && !file.includes(`-v${newVersion}.`)
+  );
+
+  for (const oldFile of oldFiles) {
+    try {
+      unlinkSync(join(imagesDir, oldFile));
+      deletedCount++;
+      console.log(`   ❌ Deleted: ${oldFile}`);
+    } catch (err) {
+      console.warn(`   ⚠️  Could not delete ${oldFile}:`, err.message);
+    }
+  }
+
+  if (deletedCount > 0) {
+    console.log(`🗑️  Deleted ${deletedCount} old file(s)`);
+  }
+
+  return deletedCount;
+}
+
+function createSquircleSVGMask(size) {
+  const squircleOffsetRatio = 0.06;
+  const squircleCornerRatio = 0.4;
+  const blurDeviation = 0.8;
+
+  const offset = size * squircleOffsetRatio;
+  const corner = size * squircleCornerRatio;
+  const center = size * (1 - squircleCornerRatio);
+
+  return Buffer.from(`
+    <svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <filter id="blur">
+          <feGaussianBlur stdDeviation="${blurDeviation}"/>
+        </filter>
+        <mask id="squircleMask">
+          <path
+            d="M ${offset} ${corner}
+               C ${offset} ${offset}, ${offset} ${offset}, ${corner} ${offset}
+               L ${center} ${offset}
+               C ${size - offset} ${offset}, ${size - offset} ${offset}, ${size - offset} ${corner}
+               L ${size - offset} ${center}
+               C ${size - offset} ${size - offset}, ${size - offset} ${size - offset}, ${center} ${size - offset}
+               L ${corner} ${size - offset}
+               C ${offset} ${size - offset}, ${offset} ${size - offset}, ${offset} ${center}
+               Z"
+            fill="white"
+            filter="url(#blur)"
+          />
+        </mask>
+      </defs>
+      <rect width="${size}" height="${size}" fill="white" mask="url(#squircleMask)"/>
+    </svg>
+  `);
+}
+
+function createCornerBlurSVGMask(size) {
+  const blurDeviation = 3;
+  const offset = size * 0.125;
+  const edgePoint = size * 0.875;
+
+  return Buffer.from(`
+    <svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <filter id="cornerBlur">
+          <feGaussianBlur stdDeviation="${blurDeviation}"/>
+        </filter>
+        <mask id="cornerMask">
+          <path
+            d="M ${-offset} ${-offset}
+               L ${edgePoint} ${-offset}
+               L ${edgePoint} 0
+               C ${edgePoint} ${size * 0.8125}, ${size * 0.8125} ${edgePoint}, 0 ${edgePoint}
+               L ${-offset} ${edgePoint}
+               L ${-offset} ${-offset}
+               Z"
+            fill="white"
+            filter="url(#cornerBlur)"
+          />
+        </mask>
+      </defs>
+      <rect width="${size}" height="${size}" fill="white" mask="url(#cornerMask)"/>
+    </svg>
+  `);
 }
