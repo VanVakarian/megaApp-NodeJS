@@ -77,6 +77,54 @@ function prepFoodCatalogue(catalogueArray) {
   return catalogueObj;
 }
 
+export function prepareCatalogueMap(catalogue) {
+  return Object.fromEntries(Object.entries(catalogue).map(([id, entry]) => [parseInt(id), entry]));
+}
+
+export function calculateTargetNutrientsForRange(datesIsoList, bodyWeightPrepped, stats, userGoal, targetKcals) {
+  const targetNutrients = {};
+
+  datesIsoList.forEach((date) => {
+    const dayWeight = stats[date]?.[1] || bodyWeightPrepped[date] || 75; // stats[date]?.[1] - сглаженное среднее значение веса (avgWeights)
+    const dayTargetKcals = targetKcals[date] || 2000;
+
+    targetNutrients[date] = calculateTargetNutrients(dayWeight, userGoal, dayTargetKcals);
+  });
+
+  return targetNutrients;
+}
+
+export function calculateConsumedNutrientsForRange(datesIsoList, foodDiaryPrepped, catalogueMap) {
+  const consumedNutrients = {};
+
+  datesIsoList.forEach((date) => {
+    const dayDiaryEntries = foodDiaryPrepped[date] || {};
+    consumedNutrients[date] = calculateDailyNutrients(dayDiaryEntries, catalogueMap);
+  });
+
+  return consumedNutrients;
+}
+
+export function extendDiaryWithNutrients(diaryResult, targetNutrients, consumedNutrients, targetKcals, consumedKcals) {
+  for (const date in diaryResult) {
+    if (targetNutrients[date] && consumedNutrients[date]) {
+      diaryResult[date].nutrients = {
+        targetKcals: targetKcals[date] || null,
+        consumedKcals: consumedKcals[date] || 0,
+        targetProtein: targetNutrients[date].targetProtein,
+        targetFat: targetNutrients[date].targetFat,
+        targetCarbs: targetNutrients[date].targetCarbs,
+        targetFiber: targetNutrients[date].targetFiber,
+        consumedProtein: consumedNutrients[date].consumedProtein,
+        consumedFat: consumedNutrients[date].consumedFat,
+        consumedCarbs: consumedNutrients[date].consumedCarbs,
+        consumedFiber: consumedNutrients[date].consumedFiber,
+      };
+    }
+  }
+  return diaryResult;
+}
+
 export async function makeUpdatedHistoryString(diaryId, userId, newHistoryEntry) {
   const resHistory = await dbFood.dbGetDiaryEntriesHistory(diaryId, userId);
   const updatedHistory = resHistory.length ? JSON.parse(resHistory[0].history) : [];
@@ -143,6 +191,91 @@ export async function calculateTargetKcals(userId, endDate) {
   }
 
   return smoothedTargetKcals;
+}
+
+export function calculateTargetNutrients(weight, goal, targetKcals) {
+  const PROTEIN_COEFFICIENTS = {
+    gain: 2.0,
+    lose: 1.8,
+    maintain: 1.4,
+  };
+  const FAT_PERCENTAGE = 0.25;
+  const KCAL_PER_GRAM_PROTEIN = 4;
+  const KCAL_PER_GRAM_FAT = 9;
+  const KCAL_PER_GRAM_CARBS = 4;
+  const FIBER_DAILY_NORM = 30;
+
+  const targetProtein = weight * (PROTEIN_COEFFICIENTS[goal] || PROTEIN_COEFFICIENTS.maintain);
+  const targetFat = (targetKcals * FAT_PERCENTAGE) / KCAL_PER_GRAM_FAT;
+
+  const kcalsFromProtein = targetProtein * KCAL_PER_GRAM_PROTEIN;
+  const kcalsFromFat = targetFat * KCAL_PER_GRAM_FAT;
+  const kcalsForCarbs = targetKcals - kcalsFromProtein - kcalsFromFat;
+  const targetCarbs = kcalsForCarbs / KCAL_PER_GRAM_CARBS;
+
+  return {
+    targetProtein: Math.round(targetProtein),
+    targetFat: Math.round(targetFat),
+    targetCarbs: Math.round(targetCarbs),
+    targetFiber: FIBER_DAILY_NORM,
+  };
+}
+
+export function calculateDailyNutrients(diaryEntries, catalogueMap) {
+  let consumedProtein = 0;
+  let consumedFat = 0;
+  let consumedCarbs = 0;
+  let consumedFiber = 0;
+
+  if (!diaryEntries) {
+    return {
+      consumedProtein: 0,
+      consumedFat: 0,
+      consumedCarbs: 0,
+      consumedFiber: 0,
+    };
+  }
+
+  for (const entry of Object.values(diaryEntries)) {
+    const catalogueEntry = catalogueMap[entry.foodCatalogueId];
+
+    if (catalogueEntry) {
+      const portionMultiplier = entry.foodWeight / 100;
+
+      consumedProtein += (catalogueEntry.protein || 0) * portionMultiplier;
+      consumedFat += (catalogueEntry.fat || 0) * portionMultiplier;
+      consumedCarbs += (catalogueEntry.carbs || 0) * portionMultiplier;
+      consumedFiber += (catalogueEntry.fiber || 0) * portionMultiplier;
+    }
+  }
+
+  return {
+    consumedProtein: Math.round(consumedProtein),
+    consumedFat: Math.round(consumedFat),
+    consumedCarbs: Math.round(consumedCarbs),
+    consumedFiber: Math.round(consumedFiber),
+  };
+}
+
+export function calculateDailyKcals(diaryEntries, catalogueMap, coefficientsMap) {
+  let totalKcals = 0;
+
+  if (!diaryEntries) {
+    return 0;
+  }
+
+  for (const entry of Object.values(diaryEntries)) {
+    const catalogueEntry = catalogueMap[entry.foodCatalogueId];
+    const coefficient = coefficientsMap[entry.foodCatalogueId] || 1.0;
+
+    if (catalogueEntry) {
+      const portionMultiplier = entry.foodWeight / 100;
+      const kcals = catalogueEntry.kcals * portionMultiplier * coefficient;
+      totalKcals += kcals;
+    }
+  }
+
+  return Math.round(totalKcals);
 }
 
 // =========================================================================================================== STATS ===

@@ -5,7 +5,7 @@ export async function getUsersSettings(userId) {
   try {
     const query = `
       SELECT
-        darkTheme, selectedChapterFood, selectedChapterMoney, liteVersion, height
+        darkTheme, selectedChapterFood, selectedChapterMoney, liteVersion, height, sex, birthDate, activityLevel, goal
       FROM
         settings
       WHERE

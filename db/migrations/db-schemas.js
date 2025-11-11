@@ -348,8 +348,169 @@ const dbVersion003 = [
   `,
 ];
 
+const dbVersion004 = [
+  `
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT,
+    hashedPassword TEXT,
+    isAdmin BOOLEAN
+  );
+  `,
+
+  `
+  CREATE TABLE IF NOT EXISTS settings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    usersId INTEGER,
+    darkTheme BOOLEAN,
+    selectedChapterFood BOOLEAN,
+    selectedChapterMoney BOOLEAN,
+    liteVersion BOOLEAN,
+    height INTEGER,
+    sex TEXT DEFAULT NULL,
+    birthDate TEXT DEFAULT NULL,
+    activityLevel TEXT DEFAULT NULL,
+    goal TEXT DEFAULT NULL
+  );
+  `,
+
+  `
+  CREATE TABLE IF NOT EXISTS foodDiary (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dateISO TEXT,
+    foodCatalogueId INTEGER,
+    foodWeight INTEGER,
+    history TEXT,
+    usersId INTEGER,
+    ver INTEGER,
+    del BOOLEAN
+  );
+  `,
+
+  `
+  CREATE TABLE IF NOT EXISTS foodCatalogue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    kcals INTEGER,
+    protein REAL DEFAULT NULL,
+    fat REAL DEFAULT NULL,
+    carbs REAL DEFAULT NULL,
+    fiber REAL DEFAULT NULL,
+    description TEXT DEFAULT NULL,
+    nameVec BLOB DEFAULT NULL,
+    descriptionVec BLOB DEFAULT NULL,
+    legacyName TEXT DEFAULT NULL
+  );
+  `,
+
+  `
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_foodCatalogue_name ON foodCatalogue(name);
+  `,
+
+  `
+  CREATE TABLE IF NOT EXISTS foodSettings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    height INTEGER,
+    useCoeffs BOOLEAN,
+    coefficients TEXT,
+    usersId INTEGER
+  );
+  `,
+
+  `
+  CREATE TABLE IF NOT EXISTS foodBodyWeight (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dateISO TEXT,
+    weight NUMERIC,
+    usersId INTEGER
+  );
+  `,
+
+  `
+  CREATE TABLE IF NOT EXISTS foodSearchQueryEmbeddings (
+    query TEXT PRIMARY KEY,
+    embedding BLOB NOT NULL,
+    hitCount INTEGER DEFAULT 1,
+    lastUsedAt INTEGER NOT NULL,
+    createdAt INTEGER NOT NULL
+  );
+  `,
+
+  `
+  CREATE TABLE IF NOT EXISTS moneyCategories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER,
+    name TEXT NOT NULL,
+    parentId INTEGER,
+    usedFor TEXT NOT NULL,
+    groupKey TEXT,
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (parentId) REFERENCES moneyCategories(id) ON DELETE SET NULL
+  );
+  `,
+
+  `
+  CREATE TABLE IF NOT EXISTS moneyCurrency (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER,
+    title TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    symbol TEXT,
+    symbolPosEnum TEXT CHECK(symbolPosEnum IN ('before', 'after')),
+    whitespace BOOLEAN DEFAULT 0,
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+  );
+  `,
+
+  `
+  CREATE TABLE IF NOT EXISTS moneyAccount (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER,
+    title TEXT NOT NULL,
+    currencyId INTEGER,
+    isInvest BOOLEAN DEFAULT 0,
+    kind TEXT,
+    categoryIds TEXT,
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (currencyId) REFERENCES moneyCurrency(id) ON DELETE SET NULL
+  );
+  `,
+
+  `
+  CREATE TABLE IF NOT EXISTS moneyAsset (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER,
+    ticker TEXT NOT NULL,
+    title TEXT NOT NULL,
+    type TEXT,
+    categoryIds TEXT,
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+  );
+  `,
+
+  `
+  CREATE TABLE IF NOT EXISTS moneyTransaction (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER,
+    dateISO TEXT NOT NULL,
+    accountId INTEGER,
+    amount REAL NOT NULL,
+    categoryIds TEXT,
+    kind TEXT,
+    isGift BOOLEAN DEFAULT 0,
+    notes TEXT,
+    details TEXT,
+    twinTransactionId INTEGER,
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (accountId) REFERENCES moneyAccount(id) ON DELETE SET NULL,
+    FOREIGN KEY (twinTransactionId) REFERENCES moneyTransaction(id) ON DELETE SET NULL
+  );
+  `,
+];
+
 export const dbSchemas = {
   '001': dbVersion001,
   '002': dbVersion002,
   '003': dbVersion003,
+  '004': dbVersion004,
 };
