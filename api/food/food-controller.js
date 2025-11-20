@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import * as coefficientsService from '../../coefficients/coeffs-service.js';
 import * as dbFood from '../../db/db-food.js';
+import * as dbSettings from '../../db/db-settings.js';
 import * as utils from '../../utils/utils.js';
 import { updateUserDataLastModified } from '../ws/sync-state.js';
 import * as foodService from './food-service.js';
@@ -58,7 +59,41 @@ export async function getFoodDiaryFullUpdateRange(request, reply) {
     }
   });
 
-  diaryResult = foodService.extendDiary(diaryResult, 'targetKcals', targetKcals, null);
+  const userSettings = await dbSettings.getUsersSettings(userId);
+  const userGoal = userSettings?.goal || 'lose';
+
+  const catalogue = await foodService.formFoodCatalogue();
+  const catalogueMap = foodService.prepareCatalogueMap(catalogue);
+
+  const coefficientsObj = await foodService.getCoefficients(userId);
+
+  const targetNutrients = foodService.calculateTargetNutrientsForRange(
+    datesIsoList,
+    bodyWeightPrepped,
+    stats,
+    userGoal,
+    targetKcals
+  );
+
+  const consumedNutrients = foodService.calculateConsumedNutrientsForRange(
+    datesIsoList,
+    foodDiaryPrepped,
+    catalogueMap
+  );
+
+  const consumedKcals = {};
+  datesIsoList.forEach((date) => {
+    const dayDiaryEntries = foodDiaryPrepped[date] || {};
+    consumedKcals[date] = foodService.calculateDailyKcals(dayDiaryEntries, catalogueMap, coefficientsObj);
+  });
+
+  diaryResult = foodService.extendDiaryWithNutrients(
+    diaryResult,
+    targetNutrients,
+    consumedNutrients,
+    targetKcals,
+    consumedKcals
+  );
 
   return reply.code(200).send(JSON.stringify(diaryResult));
 }
