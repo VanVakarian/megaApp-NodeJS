@@ -6,6 +6,9 @@ import { migration001to002 } from './001-to-002.js';
 import { migration002to001 } from './002-to-001.js';
 import { migration002to003 } from './002-to-003.js';
 import { migration003to002 } from './003-to-002.js';
+import { migration003to004populateData as migration003to004withPopulateData } from './003-to-004-and-populate-data.js';
+import { migration003to004 } from './003-to-004.js';
+import { migration004to003 } from './004-to-003.js';
 
 const availableMigrations = {
   '001to002': {
@@ -31,6 +34,24 @@ const availableMigrations = {
     queries: migration003to002,
     sourceVersion: '003',
     targetVersion: '002',
+  },
+  '003to004': {
+    name: 'Migration from version 003 to 004 (PFCF fields)',
+    queries: migration003to004,
+    sourceVersion: '003',
+    targetVersion: '004',
+  },
+  '003to004withPopulate': {
+    name: 'Migration from version 003 to 004 (PFCF fields + populate user data)',
+    queries: migration003to004withPopulateData,
+    sourceVersion: '003',
+    targetVersion: '004',
+  },
+  '004to003': {
+    name: 'Rollback from version 004 to 003',
+    queries: migration004to003,
+    sourceVersion: '004',
+    targetVersion: '003',
   },
 };
 
