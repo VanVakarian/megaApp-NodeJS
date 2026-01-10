@@ -4,14 +4,21 @@ on:
   push:
     branches:
       - release
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 'Specific commit SHA (optional, leave empty for latest)'
+        required: false
+        type: string
 
 jobs:
   deploy:
     uses: ./.github/workflows/deploy-backend.yml
     with:
       branch: 'release'
-      server-path: '~/megaback'
       service-name: 'megaback'
+      server-path: '~/megaback'
+      commit_sha: ${{ inputs.commit_sha }}
     secrets:
       HOST: ${{ secrets.HOST }}
       USER: ${{ secrets.USER }}

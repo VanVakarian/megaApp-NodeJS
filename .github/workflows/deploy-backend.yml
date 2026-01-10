@@ -15,6 +15,10 @@ on:
         required: true
         type: string
         description: 'Service name to restart'
+      commit_sha:
+        required: false
+        type: string
+        description: 'Specific commit SHA to deploy'
     secrets:
       HOST:
         required: true
@@ -41,7 +45,11 @@ jobs:
             [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
             nvm use 22
             cd ${{ inputs.server-path }}
-            git reset --hard origin/${{ inputs.branch }}
-            git pull origin ${{ inputs.branch }}
+            git fetch origin
+            if [ -n "${{ inputs.commit_sha }}" ]; then
+              git reset --hard ${{ inputs.commit_sha }}
+            else
+              git reset --hard origin/${{ inputs.branch }}
+            fi
             npm ci
             systemctl restart ${{ inputs.service-name }}
