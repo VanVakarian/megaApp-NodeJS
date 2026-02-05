@@ -17,7 +17,7 @@ export async function getAllCurrencies(userId) {
     ORDER BY
       title ASC;
     `,
-    [userId]
+    [userId],
   );
 }
 
@@ -32,7 +32,7 @@ export async function getCurrencyById(currencyId, userId) {
     WHERE
       id = ? AND userId = ?;
     `,
-    [currencyId, userId]
+    [currencyId, userId],
   );
 }
 
@@ -45,7 +45,7 @@ export async function createCurrency(title, ticker, symbol, symbolPosEnum, white
     VALUES
       (?, ?, ?, ?, ?, ?);
     `,
-    [title, ticker, symbol, symbolPosEnum, whitespace, userId]
+    [title, ticker, symbol, symbolPosEnum, whitespace, userId],
   );
   return result.lastID;
 }
@@ -61,7 +61,7 @@ export async function updateCurrency(currencyId, title, ticker, symbol, symbolPo
     WHERE
       id = ? AND userId = ?;
     `,
-    [title, ticker, symbol, symbolPosEnum, whitespace, currencyId, userId]
+    [title, ticker, symbol, symbolPosEnum, whitespace, currencyId, userId],
   );
   return result.changes;
 }
@@ -75,7 +75,7 @@ export async function deleteCurrency(currencyId, userId) {
     WHERE
       id = ? AND userId = ?;
     `,
-    [currencyId, userId]
+    [currencyId, userId],
   );
   return result.changes;
 }
@@ -89,15 +89,15 @@ export async function getAllCategories(userId) {
   return await db.all(
     `
     SELECT
-      id, name, usedFor, groupKey
+      id, name, parentId, categoryType
     FROM
       moneyCategories
     WHERE
       userId = ?
     ORDER BY
-      usedFor ASC, groupKey ASC, name ASC;
+      categoryType ASC, parentId ASC, name ASC;
     `,
-    [userId]
+    [userId],
   );
 }
 
@@ -106,42 +106,42 @@ export async function getCategoryById(categoryId, userId) {
   return await db.get(
     `
     SELECT
-      id, name, usedFor, groupKey
+      id, name, parentId, categoryType
     FROM
       moneyCategories
     WHERE
       id = ? AND userId = ?;
     `,
-    [categoryId, userId]
+    [categoryId, userId],
   );
 }
 
-export async function createCategory(name, usedFor, groupKey, userId) {
+export async function createCategory(name, categoryType, parentId, userId) {
   const db = await getConnection();
   const result = await db.run(
     `
     INSERT INTO
-      moneyCategories (name, usedFor, groupKey, userId, parentId)
+      moneyCategories (name, categoryType, userId, parentId)
     VALUES
-      (?, ?, ?, ?, NULL);
+      (?, ?, ?, ?);
     `,
-    [name, usedFor, groupKey, userId]
+    [name, categoryType, userId, parentId],
   );
   return result.lastID;
 }
 
-export async function updateCategory(categoryId, name, usedFor, groupKey, userId) {
+export async function updateCategory(categoryId, name, categoryType, parentId, userId) {
   const db = await getConnection();
   const result = await db.run(
     `
     UPDATE
       moneyCategories
     SET
-      name = ?, usedFor = ?, groupKey = ?
+      name = ?, categoryType = ?, parentId = ?
     WHERE
       id = ? AND userId = ?;
     `,
-    [name, usedFor, groupKey, categoryId, userId]
+    [name, categoryType, parentId, categoryId, userId],
   );
   return result.changes;
 }
@@ -155,23 +155,7 @@ export async function deleteCategory(categoryId, userId) {
     WHERE
       id = ? AND userId = ?;
     `,
-    [categoryId, userId]
-  );
-  return result.changes;
-}
-
-export async function updateGroupKey(oldGroupKey, newGroupKey, userId) {
-  const db = await getConnection();
-  const result = await db.run(
-    `
-    UPDATE
-      moneyCategories
-    SET
-      groupKey = ?
-    WHERE
-      groupKey = ? AND userId = ?;
-    `,
-    [newGroupKey, oldGroupKey, userId]
+    [categoryId, userId],
   );
   return result.changes;
 }
@@ -185,7 +169,7 @@ export async function getAllAccounts(userId) {
   return await db.all(
     `
     SELECT
-      id, title, currencyId, isInvest, kind, categoryIds
+      id, title, currencyId, isInvest, kind
     FROM
       moneyAccount
     WHERE
@@ -193,7 +177,7 @@ export async function getAllAccounts(userId) {
     ORDER BY
       title ASC;
     `,
-    [userId]
+    [userId],
   );
 }
 
@@ -202,42 +186,42 @@ export async function getAccountById(accountId, userId) {
   return await db.get(
     `
     SELECT
-      id, title, currencyId, isInvest, kind, categoryIds
+      id, title, currencyId, isInvest, kind
     FROM
       moneyAccount
     WHERE
       id = ? AND userId = ?;
     `,
-    [accountId, userId]
+    [accountId, userId],
   );
 }
 
-export async function createAccount(title, currencyId, isInvest, kind, categoryIds, userId) {
+export async function createAccount(title, currencyId, isInvest, kind, userId) {
   const db = await getConnection();
   const result = await db.run(
     `
     INSERT INTO
-      moneyAccount (title, currencyId, isInvest, kind, categoryIds, userId)
+      moneyAccount (title, currencyId, isInvest, kind, userId)
     VALUES
-      (?, ?, ?, ?, ?, ?);
+      (?, ?, ?, ?, ?);
     `,
-    [title, currencyId, isInvest, kind, categoryIds, userId]
+    [title, currencyId, isInvest, kind, userId],
   );
   return result.lastID;
 }
 
-export async function updateAccount(accountId, title, currencyId, isInvest, kind, categoryIds, userId) {
+export async function updateAccount(accountId, title, currencyId, isInvest, kind, userId) {
   const db = await getConnection();
   const result = await db.run(
     `
     UPDATE
       moneyAccount
     SET
-      title = ?, currencyId = ?, isInvest = ?, kind = ?, categoryIds = ?
+      title = ?, currencyId = ?, isInvest = ?, kind = ?
     WHERE
       id = ? AND userId = ?;
     `,
-    [title, currencyId, isInvest, kind, categoryIds, accountId, userId]
+    [title, currencyId, isInvest, kind, accountId, userId],
   );
   return result.changes;
 }
@@ -251,7 +235,7 @@ export async function deleteAccount(accountId, userId) {
     WHERE
       id = ? AND userId = ?;
     `,
-    [accountId, userId]
+    [accountId, userId],
   );
   return result.changes;
 }
@@ -265,7 +249,7 @@ export async function getAllTransactions(userId) {
   return await db.all(
     `
     SELECT
-      id, dateISO, accountId, amount, categoryIds, kind, isGift, notes, details
+      id, dateISO, accountId, amount, categoryId, kind, isGift, notes, details
     FROM
       moneyTransaction
     WHERE
@@ -273,7 +257,7 @@ export async function getAllTransactions(userId) {
     ORDER BY
       dateISO DESC;
     `,
-    [userId]
+    [userId],
   );
 }
 
@@ -282,26 +266,26 @@ export async function getTransactionById(transactionId, userId) {
   return await db.get(
     `
     SELECT
-      id, dateISO, accountId, amount, categoryIds, kind, isGift, notes, details
+      id, dateISO, accountId, amount, categoryId, kind, isGift, notes, details
     FROM
       moneyTransaction
     WHERE
       id = ? AND userId = ?;
     `,
-    [transactionId, userId]
+    [transactionId, userId],
   );
 }
 
-export async function createTransaction(dateISO, accountId, amount, categoryIds, kind, isGift, notes, userId) {
+export async function createTransaction(dateISO, accountId, amount, categoryId, kind, isGift, notes, userId) {
   const db = await getConnection();
   const result = await db.run(
     `
     INSERT INTO
-      moneyTransaction (dateISO, accountId, amount, categoryIds, kind, isGift, notes, details, userId, twinTransactionId)
+      moneyTransaction (dateISO, accountId, amount, categoryId, kind, isGift, notes, details, userId, twinTransactionId)
     VALUES
       (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL);
     `,
-    [dateISO, accountId, amount, categoryIds, kind, isGift, notes, userId]
+    [dateISO, accountId, amount, categoryId, kind, isGift, notes, userId],
   );
   return result.lastID;
 }
@@ -311,11 +295,11 @@ export async function updateTransaction(
   dateISO,
   accountId,
   amount,
-  categoryIds,
+  categoryId,
   kind,
   isGift,
   notes,
-  userId
+  userId,
 ) {
   const db = await getConnection();
   const result = await db.run(
@@ -323,11 +307,11 @@ export async function updateTransaction(
     UPDATE
       moneyTransaction
     SET
-      dateISO = ?, accountId = ?, amount = ?, categoryIds = ?, kind = ?, isGift = ?, notes = ?
+      dateISO = ?, accountId = ?, amount = ?, categoryId = ?, kind = ?, isGift = ?, notes = ?
     WHERE
       id = ? AND userId = ?;
     `,
-    [dateISO, accountId, amount, categoryIds, kind, isGift, notes, transactionId, userId]
+    [dateISO, accountId, amount, categoryId, kind, isGift, notes, transactionId, userId],
   );
   return result.changes;
 }
@@ -341,7 +325,7 @@ export async function deleteTransaction(transactionId, userId) {
     WHERE
       id = ? AND userId = ?;
     `,
-    [transactionId, userId]
+    [transactionId, userId],
   );
   return result.changes;
 }

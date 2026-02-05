@@ -117,8 +117,8 @@ export const categorySchemas = {
               properties: {
                 id: { type: 'integer' },
                 name: { type: 'string' },
-                usedFor: { type: 'string', enum: ['transaction', 'account', 'asset'] },
-                groupKey: { type: 'string', nullable: true },
+                parentId: { type: 'integer', nullable: true },
+                categoryType: { type: 'string', enum: ['income', 'expense'] },
               },
             },
           },
@@ -133,10 +133,10 @@ export const categorySchemas = {
       type: 'object',
       properties: {
         name: { type: 'string' },
-        usedFor: { type: 'string', enum: ['transaction', 'account', 'asset'] },
-        groupKey: { type: 'string' },
+        parentId: { type: 'integer' },
+        categoryType: { type: 'string', enum: ['income', 'expense'] },
       },
-      required: ['name', 'usedFor'],
+      required: ['name', 'categoryType'],
     },
     response: { 201: responseWithID },
   },
@@ -148,10 +148,10 @@ export const categorySchemas = {
       type: 'object',
       properties: {
         name: { type: 'string' },
-        usedFor: { type: 'string', enum: ['transaction', 'account', 'asset'] },
-        groupKey: { type: 'string' },
+        parentId: { type: 'integer' },
+        categoryType: { type: 'string', enum: ['income', 'expense'] },
       },
-      required: ['name', 'usedFor'],
+      required: ['name', 'categoryType'],
     },
     response: { 200: successResponse },
   },
@@ -160,33 +160,6 @@ export const categorySchemas = {
     tags: ['money'],
     params: paramWithID,
     response: { 200: successResponse },
-  },
-
-  updateGroupKey: {
-    tags: ['money'],
-    body: {
-      type: 'object',
-      properties: {
-        oldGroupKey: { type: 'string' },
-        newGroupKey: { type: 'string' },
-      },
-      required: ['oldGroupKey', 'newGroupKey'],
-    },
-    response: {
-      200: {
-        type: 'object',
-        properties: {
-          success: { type: 'boolean' },
-          message: { type: 'string' },
-          data: {
-            type: 'object',
-            properties: {
-              affectedRows: { type: 'integer' },
-            },
-          },
-        },
-      },
-    },
   },
 };
 
@@ -212,7 +185,6 @@ export const accountSchemas = {
                 currencyId: { type: 'integer' },
                 isInvest: { type: 'boolean' },
                 kind: { type: 'string', enum: ['cash', 'card', 'checking', 'deposit', 'brokerage', 'crypto'] },
-                categoryIds: { type: 'string', nullable: true },
               },
             },
           },
@@ -230,7 +202,6 @@ export const accountSchemas = {
         currencyId: { type: 'integer' },
         isInvest: { type: 'boolean' },
         kind: { type: 'string', enum: ['cash', 'card', 'checking', 'deposit', 'brokerage', 'crypto'] },
-        categoryIds: { type: 'array', items: { type: 'integer' } },
       },
       required: ['title', 'currencyId', 'kind'],
     },
@@ -247,7 +218,6 @@ export const accountSchemas = {
         currencyId: { type: 'integer' },
         isInvest: { type: 'boolean' },
         kind: { type: 'string', enum: ['cash', 'card', 'checking', 'deposit', 'brokerage', 'crypto'] },
-        categoryIds: { type: 'array', items: { type: 'integer' } },
       },
       required: ['title', 'currencyId', 'kind'],
     },
@@ -282,7 +252,7 @@ export const transactionSchemas = {
                 dateISO: { type: 'string', format: 'date' },
                 accountId: { type: 'integer' },
                 amount: { type: 'number' },
-                categoryIds: { type: 'string', nullable: true },
+                categoryId: { type: 'integer', nullable: true },
                 kind: { type: 'string', enum: ['income', 'expense'] },
                 isGift: { type: 'boolean' },
                 notes: { type: 'string', nullable: true },
@@ -303,7 +273,7 @@ export const transactionSchemas = {
         dateISO: { type: 'string', format: 'date' },
         accountId: { type: 'integer' },
         amount: { type: 'number', minimum: 0 },
-        categoryIds: { type: 'array', items: { type: 'integer' } },
+        categoryId: { type: 'integer' },
         kind: { type: 'string', enum: ['income', 'expense'] },
         isGift: { type: 'boolean' },
         notes: { type: 'string' },
@@ -322,7 +292,7 @@ export const transactionSchemas = {
         dateISO: { type: 'string', format: 'date' },
         accountId: { type: 'integer' },
         amount: { type: 'number', minimum: 0 },
-        categoryIds: { type: 'array', items: { type: 'integer' } },
+        categoryId: { type: 'integer' },
         kind: { type: 'string', enum: ['income', 'expense'] },
         isGift: { type: 'boolean' },
         notes: { type: 'string' },

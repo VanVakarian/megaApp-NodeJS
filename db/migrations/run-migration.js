@@ -9,6 +9,8 @@ import { migration003to002 } from './003-to-002.js';
 import { migration003to004populateData as migration003to004withPopulateData } from './003-to-004-and-populate-data.js';
 import { migration003to004 } from './003-to-004.js';
 import { migration004to003 } from './004-to-003.js';
+import { migration004to005 } from './004-to-005.js';
+import { migration005to004 } from './005-to-004.js';
 
 const availableMigrations = {
   '001to002': {
@@ -52,6 +54,18 @@ const availableMigrations = {
     queries: migration004to003,
     sourceVersion: '004',
     targetVersion: '003',
+  },
+  '004to005': {
+    name: 'Migration from version 004 to 005 (Money categories v2)',
+    queries: migration004to005,
+    sourceVersion: '004',
+    targetVersion: '005',
+  },
+  '005to004': {
+    name: 'Rollback from version 005 to 004',
+    queries: migration005to004,
+    sourceVersion: '005',
+    targetVersion: '004',
   },
 };
 
@@ -101,7 +115,7 @@ function findDatabaseFile(searchPattern, currentDir = '.') {
     // Try exact match first (with or without .db)
     const searchWithoutExt = searchPattern.endsWith('.db') ? searchPattern.slice(0, -3) : searchPattern;
     const exactMatch = dbFiles.find(
-      (f) => f === searchPattern || f === `${searchPattern}.db` || f.slice(0, -3) === searchWithoutExt
+      (f) => f === searchPattern || f === `${searchPattern}.db` || f.slice(0, -3) === searchWithoutExt,
     );
 
     if (exactMatch) {
@@ -139,7 +153,7 @@ function validateMigrationVersion(migration, sourceDbVersion) {
   if (migration.sourceVersion !== sourceDbVersion) {
     throw new Error(
       `Migration version mismatch: source database is version ${sourceDbVersion}, ` +
-        `but migration ${migration.sourceVersion}→${migration.targetVersion} expects version ${migration.sourceVersion}`
+        `but migration ${migration.sourceVersion}→${migration.targetVersion} expects version ${migration.sourceVersion}`,
     );
   }
 }

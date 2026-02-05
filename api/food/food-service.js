@@ -554,7 +554,7 @@ export async function searchCatalogueEntries(query) {
       embeddingResult.data.embedding,
       embeddingResult.data.embedding,
       FOOD_SEARCH_NAME_WEIGHT,
-      FOOD_SEARCH_DESCRIPTION_WEIGHT
+      FOOD_SEARCH_DESCRIPTION_WEIGHT,
     );
 
     return searchResults.map((result) => ({
@@ -623,18 +623,20 @@ export async function saveProductData(id, productData) {
   try {
     const { name, kcals, protein, fat, carbs, fiber, description } = productData;
 
-    if (
-      !name ||
-      kcals === undefined ||
-      protein === undefined ||
-      fat === undefined ||
-      carbs === undefined ||
-      fiber === undefined ||
-      !description
-    ) {
+    const missingFields = [];
+
+    if (!name) missingFields.push('name');
+    if (kcals === undefined) missingFields.push('kcals');
+    if (protein === undefined) missingFields.push('protein');
+    if (fat === undefined) missingFields.push('fat');
+    if (carbs === undefined) missingFields.push('carbs');
+    if (fiber === undefined) missingFields.push('fiber');
+    if (!description) missingFields.push('description');
+
+    if (missingFields.length > 0) {
       return {
         success: false,
-        error: 'Missing required fields',
+        error: `Missing required fields: ${missingFields.join(', ')}`,
       };
     }
 
@@ -705,7 +707,7 @@ export async function saveProductData(id, productData) {
         await dbFood.updateCatalogueEntryEmbedding(
           catalogueId,
           embeddingNameResult.data.embedding,
-          embeddingDescriptionResult?.success ? embeddingDescriptionResult.data.embedding : null
+          embeddingDescriptionResult?.success ? embeddingDescriptionResult.data.embedding : null,
         );
       }
 
@@ -744,7 +746,7 @@ export async function saveProductData(id, productData) {
         fat,
         carbs,
         fiber,
-        description
+        description,
       );
 
       if (updateResult === false || (updateResult.success === false && updateResult.error === 'DUPLICATE_NAME')) {
@@ -771,7 +773,7 @@ export async function saveProductData(id, productData) {
           await dbFood.updateCatalogueEntryEmbedding(
             id,
             embeddingNameResult.data.embedding,
-            embeddingDescriptionResult?.success ? embeddingDescriptionResult.data.embedding : null
+            embeddingDescriptionResult?.success ? embeddingDescriptionResult.data.embedding : null,
           );
         }
       }
@@ -841,7 +843,7 @@ export async function createGeneralizedCatalogueEntry(description) {
         await dbFood.updateCatalogueEntryEmbedding(
           catalogueId,
           embeddingNameResult.data.embedding,
-          embeddingDescriptionResult?.success ? embeddingDescriptionResult.data.embedding : null
+          embeddingDescriptionResult?.success ? embeddingDescriptionResult.data.embedding : null,
         );
       }
     }
@@ -1001,7 +1003,7 @@ export async function searchCatalogueEntriesRealtime(query) {
       queryEmbedding,
       queryEmbedding,
       FOOD_SEARCH_NAME_WEIGHT,
-      FOOD_SEARCH_DESCRIPTION_WEIGHT
+      FOOD_SEARCH_DESCRIPTION_WEIGHT,
     );
     const t6 = performance.now();
     tempPerfLog(`Vector search: ${(t6 - t5).toFixed(2)}ms | results: ${searchResults.length}`);

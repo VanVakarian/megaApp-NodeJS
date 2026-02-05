@@ -1,13 +1,13 @@
 import * as dbMoney from '../../db/db-money.js';
 import {
   ACCOUNT_KIND,
+  CATEGORY_TYPE,
   isAccountKindValid,
+  isCategoryTypeValid,
   isSymbolPositionValid,
   isTransactionKindValid,
-  isUsedForValid,
   SYMBOL_POSITION,
   TRANSACTION_KIND,
-  USED_FOR,
 } from './money-service.js';
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -37,10 +37,16 @@ export async function createCurrency(request, reply) {
     const { user } = request;
     const { title, ticker, symbol, symbolPosEnum, whitespace } = request.body;
 
-    if (!title || !ticker || !symbol) {
+    const missingFields = [];
+
+    if (!title) missingFields.push('title');
+    if (!ticker) missingFields.push('ticker');
+    if (!symbol) missingFields.push('symbol');
+
+    if (missingFields.length > 0) {
       return reply.status(400).send({
         success: false,
-        error: 'Missing required fields: title, ticker, symbol',
+        error: `Missing required fields: ${missingFields.join(', ')}`,
       });
     }
 
@@ -72,10 +78,16 @@ export async function updateCurrency(request, reply) {
     const { id } = request.params;
     const { title, ticker, symbol, symbolPosEnum, whitespace } = request.body;
 
-    if (!title || !ticker || !symbol) {
+    const missingFields = [];
+
+    if (!title) missingFields.push('title');
+    if (!ticker) missingFields.push('ticker');
+    if (!symbol) missingFields.push('symbol');
+
+    if (missingFields.length > 0) {
       return reply.status(400).send({
         success: false,
-        error: 'Missing required fields: title, ticker, symbol',
+        error: `Missing required fields: ${missingFields.join(', ')}`,
       });
     }
 
@@ -168,23 +180,45 @@ export async function getCategories(request, reply) {
 export async function createCategory(request, reply) {
   try {
     const { user } = request;
-    const { name, usedFor, groupKey } = request.body;
+    const { name, categoryType, parentId } = request.body;
 
-    if (!name || !usedFor) {
+    const missingFields = [];
+
+    if (!name) missingFields.push('name');
+    if (!categoryType) missingFields.push('categoryType');
+
+    if (missingFields.length > 0) {
       return reply.status(400).send({
         success: false,
-        error: 'Missing required fields: name, usedFor',
+        error: `Missing required fields: ${missingFields.join(', ')}`,
       });
     }
 
-    if (!isUsedForValid(usedFor)) {
+    if (!isCategoryTypeValid(categoryType)) {
       return reply.status(400).send({
         success: false,
-        error: `usedFor must be one of: ${Object.values(USED_FOR).join(', ')}`,
+        error: `categoryType must be one of: ${Object.values(CATEGORY_TYPE).join(', ')}`,
       });
     }
 
-    const categoryId = await dbMoney.createCategory(name, usedFor, groupKey || null, user.id);
+    if (parentId) {
+      const parentCategory = await dbMoney.getCategoryById(parentId, user.id);
+      if (!parentCategory) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Parent category not found',
+        });
+      }
+
+      if (parentCategory.categoryType !== categoryType) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Parent category type must match categoryType',
+        });
+      }
+    }
+
+    const categoryId = await dbMoney.createCategory(name, categoryType, parentId || null, user.id);
 
     reply.status(201).send({
       success: true,
@@ -203,19 +237,24 @@ export async function updateCategory(request, reply) {
   try {
     const { user } = request;
     const { id } = request.params;
-    const { name, usedFor, groupKey } = request.body;
+    const { name, categoryType, parentId } = request.body;
 
-    if (!name || !usedFor) {
+    const missingFields = [];
+
+    if (!name) missingFields.push('name');
+    if (!categoryType) missingFields.push('categoryType');
+
+    if (missingFields.length > 0) {
       return reply.status(400).send({
         success: false,
-        error: 'Missing required fields: name, usedFor',
+        error: `Missing required fields: ${missingFields.join(', ')}`,
       });
     }
 
-    if (!isUsedForValid(usedFor)) {
+    if (!isCategoryTypeValid(categoryType)) {
       return reply.status(400).send({
         success: false,
-        error: `usedFor must be one of: ${Object.values(USED_FOR).join(', ')}`,
+        error: `categoryType must be one of: ${Object.values(CATEGORY_TYPE).join(', ')}`,
       });
     }
 
@@ -227,7 +266,31 @@ export async function updateCategory(request, reply) {
       });
     }
 
-    const changedRows = await dbMoney.updateCategory(id, name, usedFor, groupKey || null, user.id);
+    if (parentId && Number(parentId) === Number(id)) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Parent category cannot be the same as the category',
+      });
+    }
+
+    if (parentId) {
+      const parentCategory = await dbMoney.getCategoryById(parentId, user.id);
+      if (!parentCategory) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Parent category not found',
+        });
+      }
+
+      if (parentCategory.categoryType !== categoryType) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Parent category type must match categoryType',
+        });
+      }
+    }
+
+    const changedRows = await dbMoney.updateCategory(id, name, categoryType, parentId || null, user.id);
 
     if (changedRows === 0) {
       return reply.status(404).send({
@@ -276,34 +339,6 @@ export async function deleteCategory(request, reply) {
   }
 }
 
-export async function updateGroupKey(request, reply) {
-  try {
-    const { user } = request;
-    const { oldGroupKey, newGroupKey } = request.body;
-
-    if (!oldGroupKey || !newGroupKey) {
-      return reply.status(400).send({
-        success: false,
-        error: 'Missing required fields: oldGroupKey, newGroupKey',
-      });
-    }
-
-    const changedRows = await dbMoney.updateGroupKey(oldGroupKey, newGroupKey, user.id);
-
-    reply.send({
-      success: true,
-      message: `Group key updated successfully. ${changedRows} categories affected.`,
-      data: { affectedRows: changedRows },
-    });
-  } catch (error) {
-    reply.status(500).send({
-      success: false,
-      error: 'Failed to update group key',
-      message: error.message,
-    });
-  }
-}
-
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~                                                  ~~~ ACCOUNTS ~~~                                                 ~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -329,12 +364,18 @@ export async function getAccounts(request, reply) {
 export async function createAccount(request, reply) {
   try {
     const { user } = request;
-    const { title, currencyId, isInvest, kind, categoryIds } = request.body;
+    const { title, currencyId, isInvest, kind } = request.body;
 
-    if (!title || !currencyId || !kind) {
+    const missingFields = [];
+
+    if (!title) missingFields.push('title');
+    if (!currencyId) missingFields.push('currencyId');
+    if (!kind) missingFields.push('kind');
+
+    if (missingFields.length > 0) {
       return reply.status(400).send({
         success: false,
-        error: 'Missing some of required fields: title, currencyId, kind',
+        error: `Missing required fields: ${missingFields.join(', ')}`,
       });
     }
 
@@ -346,9 +387,7 @@ export async function createAccount(request, reply) {
     }
 
     const isInvestBoolean = isInvest === true || isInvest === 'true';
-    const categoryIdsJson = categoryIds ? JSON.stringify(categoryIds) : null;
-
-    const accountId = await dbMoney.createAccount(title, currencyId, isInvestBoolean, kind, categoryIdsJson, user.id);
+    const accountId = await dbMoney.createAccount(title, currencyId, isInvestBoolean, kind, user.id);
 
     reply.status(201).send({
       success: true,
@@ -367,12 +406,18 @@ export async function updateAccount(request, reply) {
   try {
     const { user } = request;
     const { id } = request.params;
-    const { title, currencyId, isInvest, kind, categoryIds } = request.body;
+    const { title, currencyId, isInvest, kind } = request.body;
 
-    if (!title || !currencyId || !kind) {
+    const missingFields = [];
+
+    if (!title) missingFields.push('title');
+    if (!currencyId) missingFields.push('currencyId');
+    if (!kind) missingFields.push('kind');
+
+    if (missingFields.length > 0) {
       return reply.status(400).send({
         success: false,
-        error: 'Missing some of required fields: title, currencyId, kind',
+        error: `Missing required fields: ${missingFields.join(', ')}`,
       });
     }
 
@@ -392,17 +437,7 @@ export async function updateAccount(request, reply) {
     }
 
     const isInvestBoolean = isInvest === true || isInvest === 'true';
-    const categoryIdsJson = categoryIds ? JSON.stringify(categoryIds) : null;
-
-    const changedRows = await dbMoney.updateAccount(
-      id,
-      title,
-      currencyId,
-      isInvestBoolean,
-      kind,
-      categoryIdsJson,
-      user.id
-    );
+    const changedRows = await dbMoney.updateAccount(id, title, currencyId, isInvestBoolean, kind, user.id);
 
     if (changedRows === 0) {
       return reply.status(404).send({
@@ -476,12 +511,19 @@ export async function getTransactions(request, reply) {
 export async function createTransaction(request, reply) {
   try {
     const { user } = request;
-    const { dateISO, accountId, amount, categoryIds, kind, isGift, notes } = request.body;
+    const { dateISO, accountId, amount, categoryId, kind, isGift, notes } = request.body;
 
-    if (!dateISO || !accountId || !amount || !kind) {
+    const missingFields = [];
+
+    if (!dateISO) missingFields.push('dateISO');
+    if (!accountId) missingFields.push('accountId');
+    if (!amount) missingFields.push('amount');
+    if (!kind) missingFields.push('kind');
+
+    if (missingFields.length > 0) {
       return reply.status(400).send({
         success: false,
-        error: 'Missing required fields: dateISO, accountId, amount, kind',
+        error: `Missing required fields: ${missingFields.join(', ')}`,
       });
     }
 
@@ -507,18 +549,34 @@ export async function createTransaction(request, reply) {
       });
     }
 
+    if (categoryId) {
+      const category = await dbMoney.getCategoryById(categoryId, user.id);
+      if (!category) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Category not found',
+        });
+      }
+
+      if (category.categoryType !== kind) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Category type must match transaction kind',
+        });
+      }
+    }
+
     const isGiftBoolean = isGift === true || isGift === 'true';
-    const categoryIdsJson = categoryIds ? JSON.stringify(categoryIds) : null;
 
     const transactionId = await dbMoney.createTransaction(
       dateISO,
       accountId,
       amount,
-      categoryIdsJson,
+      categoryId || null,
       kind,
       isGiftBoolean,
       notes || null,
-      user.id
+      user.id,
     );
 
     reply.status(201).send({
@@ -538,12 +596,19 @@ export async function updateTransaction(request, reply) {
   try {
     const { user } = request;
     const { id } = request.params;
-    const { dateISO, accountId, amount, categoryIds, kind, isGift, notes } = request.body;
+    const { dateISO, accountId, amount, categoryId, kind, isGift, notes } = request.body;
 
-    if (!dateISO || !accountId || !amount || !kind) {
+    const missingFields = [];
+
+    if (!dateISO) missingFields.push('dateISO');
+    if (!accountId) missingFields.push('accountId');
+    if (!amount) missingFields.push('amount');
+    if (!kind) missingFields.push('kind');
+
+    if (missingFields.length > 0) {
       return reply.status(400).send({
         success: false,
-        error: 'Missing required fields: dateISO, accountId, amount, kind',
+        error: `Missing required fields: ${missingFields.join(', ')}`,
       });
     }
 
@@ -577,19 +642,35 @@ export async function updateTransaction(request, reply) {
       });
     }
 
+    if (categoryId) {
+      const category = await dbMoney.getCategoryById(categoryId, user.id);
+      if (!category) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Category not found',
+        });
+      }
+
+      if (category.categoryType !== kind) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Category type must match transaction kind',
+        });
+      }
+    }
+
     const isGiftBoolean = isGift === true || isGift === 'true';
-    const categoryIdsJson = categoryIds ? JSON.stringify(categoryIds) : null;
 
     const changedRows = await dbMoney.updateTransaction(
       id,
       dateISO,
       accountId,
       amount,
-      categoryIdsJson,
+      categoryId || null,
       kind,
       isGiftBoolean,
       notes || null,
-      user.id
+      user.id,
     );
 
     if (changedRows === 0) {

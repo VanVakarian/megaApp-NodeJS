@@ -3,10 +3,7 @@ import * as moneyController from './money-controller.js';
 import { accountSchemas, categorySchemas, currencySchemas, transactionSchemas } from './money-swagger.js';
 
 export async function moneyRoutes(fastify) {
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  // ~                                                ~~~ CURRENCIES ~~~                                               ~
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
+  //                                                          ~~~ CURRENCIES ~~~
   fastify.get('/currencies', {
     schema: currencySchemas.getCurrencies,
     preValidation: [authController.authMiddleware],
@@ -31,10 +28,7 @@ export async function moneyRoutes(fastify) {
     handler: moneyController.deleteCurrency,
   });
 
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  // ~                                                ~~~ CATEGORIES ~~~                                               ~
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
+  //                                                          ~~~ CATEGORIES ~~~
   fastify.get('/categories', {
     schema: categorySchemas.getCategories,
     preValidation: [authController.authMiddleware],
@@ -59,15 +53,7 @@ export async function moneyRoutes(fastify) {
     handler: moneyController.deleteCategory,
   });
 
-  fastify.put('/categories/group-key', {
-    schema: categorySchemas.updateGroupKey,
-    preValidation: [authController.authMiddleware],
-    handler: moneyController.updateGroupKey,
-  });
-
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  // ~                                                 ~~~ ACCOUNTS ~~~                                                ~
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  //                                                            ~~~ ACCOUNTS ~~~
 
   fastify.get('/accounts', {
     schema: accountSchemas.getAccounts,
@@ -93,9 +79,7 @@ export async function moneyRoutes(fastify) {
     handler: moneyController.deleteAccount,
   });
 
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  // ~                                               ~~~ TRANSACTIONS ~~~                                              ~
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  //                                                        ~~~ TRANSACTIONS ~~~
 
   fastify.get('/transactions', {
     schema: transactionSchemas.getTransactions,
