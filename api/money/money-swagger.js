@@ -19,6 +19,14 @@ const responseWithID = {
   },
 };
 
+const conflictResponse = {
+  type: 'object',
+  properties: {
+    success: { type: 'boolean' },
+    error: { type: 'string' },
+  },
+};
+
 const paramWithID = {
   type: 'object',
   properties: {
@@ -27,9 +35,7 @@ const paramWithID = {
   required: ['id'],
 };
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~                                                 ~~~ CURRENCIES ~~~                                                ~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//                                                            ~~~ CURRENCIES ~~~
 
 export const currencySchemas = {
   getCurrencies: {
@@ -94,13 +100,11 @@ export const currencySchemas = {
   deleteCurrency: {
     tags: ['money'],
     params: paramWithID,
-    response: { 200: successResponse },
+    response: { 200: successResponse, 409: conflictResponse },
   },
 };
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~                                                 ~~~ CATEGORIES ~~~                                                ~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//                                                            ~~~ CATEGORIES ~~~
 
 export const categorySchemas = {
   getCategories: {
@@ -159,13 +163,11 @@ export const categorySchemas = {
   deleteCategory: {
     tags: ['money'],
     params: paramWithID,
-    response: { 200: successResponse },
+    response: { 200: successResponse, 409: conflictResponse },
   },
 };
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~                                                  ~~~ ACCOUNTS ~~~                                                 ~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//                                                              ~~~ ACCOUNTS ~~~
 
 export const accountSchemas = {
   getAccounts: {
@@ -227,13 +229,11 @@ export const accountSchemas = {
   deleteAccount: {
     tags: ['money'],
     params: paramWithID,
-    response: { 200: successResponse },
+    response: { 200: successResponse, 409: conflictResponse },
   },
 };
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~                                                ~~~ TRANSACTIONS ~~~                                               ~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//                                                          ~~~ TRANSACTIONS ~~~
 
 export const transactionSchemas = {
   getTransactions: {

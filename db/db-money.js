@@ -36,6 +36,22 @@ export async function getCurrencyById(currencyId, userId) {
   );
 }
 
+export async function countAccountsByCurrency(currencyId, userId) {
+  const db = await getConnection();
+  const result = await db.get(
+    `
+    SELECT
+      COUNT(*) as count
+    FROM
+      moneyAccount
+    WHERE
+      currencyId = ? AND userId = ?;
+    `,
+    [currencyId, userId],
+  );
+  return result?.count ?? 0;
+}
+
 export async function createCurrency(title, ticker, symbol, symbolPosEnum, whitespace, userId) {
   const db = await getConnection();
   const result = await db.run(
@@ -114,6 +130,22 @@ export async function getCategoryById(categoryId, userId) {
     `,
     [categoryId, userId],
   );
+}
+
+export async function countChildCategories(categoryId, userId) {
+  const db = await getConnection();
+  const result = await db.get(
+    `
+    SELECT
+      COUNT(*) as count
+    FROM
+      moneyCategories
+    WHERE
+      parentId = ? AND userId = ?;
+    `,
+    [categoryId, userId],
+  );
+  return result?.count ?? 0;
 }
 
 export async function createCategory(name, categoryType, parentId, userId) {
@@ -196,6 +228,22 @@ export async function getAccountById(accountId, userId) {
   );
 }
 
+export async function countTransactionsByAccount(accountId, userId) {
+  const db = await getConnection();
+  const result = await db.get(
+    `
+    SELECT
+      COUNT(*) as count
+    FROM
+      moneyTransaction
+    WHERE
+      accountId = ? AND userId = ?;
+    `,
+    [accountId, userId],
+  );
+  return result?.count ?? 0;
+}
+
 export async function createAccount(title, currencyId, isInvest, kind, userId) {
   const db = await getConnection();
   const result = await db.run(
@@ -274,6 +322,22 @@ export async function getTransactionById(transactionId, userId) {
     `,
     [transactionId, userId],
   );
+}
+
+export async function countTransactionsByCategory(categoryId, userId) {
+  const db = await getConnection();
+  const result = await db.get(
+    `
+    SELECT
+      COUNT(*) as count
+    FROM
+      moneyTransaction
+    WHERE
+      categoryId = ? AND userId = ?;
+    `,
+    [categoryId, userId],
+  );
+  return result?.count ?? 0;
 }
 
 export async function createTransaction(dateISO, accountId, amount, categoryId, kind, isGift, notes, userId) {

@@ -133,6 +133,22 @@ export async function deleteCurrency(request, reply) {
     const { user } = request;
     const { id } = request.params;
 
+    const currency = await dbMoney.getCurrencyById(id, user.id);
+    if (!currency) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Currency not found',
+      });
+    }
+
+    const linkedAccountsCount = await dbMoney.countAccountsByCurrency(id, user.id);
+    if (linkedAccountsCount > 0) {
+      return reply.status(409).send({
+        success: false,
+        error: 'Currency is linked to existing accounts',
+      });
+    }
+
     const changedRows = await dbMoney.deleteCurrency(id, user.id);
 
     if (changedRows === 0) {
@@ -317,6 +333,30 @@ export async function deleteCategory(request, reply) {
     const { user } = request;
     const { id } = request.params;
 
+    const category = await dbMoney.getCategoryById(id, user.id);
+    if (!category) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Category not found',
+      });
+    }
+
+    const childCategoriesCount = await dbMoney.countChildCategories(id, user.id);
+    if (childCategoriesCount > 0) {
+      return reply.status(409).send({
+        success: false,
+        error: 'Category has child categories',
+      });
+    }
+
+    const linkedTransactionsCount = await dbMoney.countTransactionsByCategory(id, user.id);
+    if (linkedTransactionsCount > 0) {
+      return reply.status(409).send({
+        success: false,
+        error: 'Category is linked to existing transactions',
+      });
+    }
+
     const changedRows = await dbMoney.deleteCategory(id, user.id);
 
     if (changedRows === 0) {
@@ -463,6 +503,22 @@ export async function deleteAccount(request, reply) {
   try {
     const { user } = request;
     const { id } = request.params;
+
+    const account = await dbMoney.getAccountById(id, user.id);
+    if (!account) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Account not found',
+      });
+    }
+
+    const linkedTransactionsCount = await dbMoney.countTransactionsByAccount(id, user.id);
+    if (linkedTransactionsCount > 0) {
+      return reply.status(409).send({
+        success: false,
+        error: 'Account is linked to existing transactions',
+      });
+    }
 
     const changedRows = await dbMoney.deleteAccount(id, user.id);
 
