@@ -255,7 +255,7 @@ export async function getAllTransactions(userId) {
     WHERE
       userId = ?
     ORDER BY
-      dateISO DESC;
+      dateISO DESC, id DESC;
     `,
     [userId],
   );

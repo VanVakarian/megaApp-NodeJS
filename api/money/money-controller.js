@@ -564,6 +564,16 @@ export async function createTransaction(request, reply) {
           error: 'Category type must match transaction kind',
         });
       }
+
+      if (category.parentId) {
+        const parentCategory = await dbMoney.getCategoryById(category.parentId, user.id);
+        if (!parentCategory || parentCategory.categoryType !== kind) {
+          return reply.status(400).send({
+            success: false,
+            error: 'Category parent must match transaction kind',
+          });
+        }
+      }
     }
 
     const isGiftBoolean = isGift === true || isGift === 'true';
@@ -656,6 +666,16 @@ export async function updateTransaction(request, reply) {
           success: false,
           error: 'Category type must match transaction kind',
         });
+      }
+
+      if (category.parentId) {
+        const parentCategory = await dbMoney.getCategoryById(category.parentId, user.id);
+        if (!parentCategory || parentCategory.categoryType !== kind) {
+          return reply.status(400).send({
+            success: false,
+            error: 'Category parent must match transaction kind',
+          });
+        }
       }
     }
 
