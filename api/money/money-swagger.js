@@ -19,6 +19,20 @@ const responseWithID = {
   },
 };
 
+const responseWithTransactionIds = {
+  type: 'object',
+  properties: {
+    success: { type: 'boolean' },
+    data: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer' },
+        twinId: { type: 'integer' },
+      },
+    },
+  },
+};
+
 const conflictResponse = {
   type: 'object',
   properties: {
@@ -253,10 +267,11 @@ export const transactionSchemas = {
                 accountId: { type: 'integer' },
                 amount: { type: 'number' },
                 categoryId: { type: 'integer', nullable: true },
-                kind: { type: 'string', enum: ['income', 'expense'] },
+                kind: { type: 'string', enum: ['income', 'expense', 'transfer'] },
                 isGift: { type: 'boolean' },
                 notes: { type: 'string', nullable: true },
                 details: { type: 'string', nullable: true },
+                twinId: { type: 'integer', nullable: true },
               },
             },
           },
@@ -273,14 +288,16 @@ export const transactionSchemas = {
         dateISO: { type: 'string', format: 'date' },
         accountId: { type: 'integer' },
         amount: { type: 'number', minimum: 0 },
+        twinAccountId: { type: 'integer' },
+        twinAmount: { type: 'number', minimum: 0 },
         categoryId: { type: 'integer' },
-        kind: { type: 'string', enum: ['income', 'expense'] },
+        kind: { type: 'string', enum: ['income', 'expense', 'transfer'] },
         isGift: { type: 'boolean' },
         notes: { type: 'string' },
       },
       required: ['dateISO', 'accountId', 'amount', 'kind'],
     },
-    response: { 201: responseWithID },
+    response: { 201: responseWithTransactionIds },
   },
 
   updateTransaction: {
@@ -292,8 +309,10 @@ export const transactionSchemas = {
         dateISO: { type: 'string', format: 'date' },
         accountId: { type: 'integer' },
         amount: { type: 'number', minimum: 0 },
+        twinAccountId: { type: 'integer' },
+        twinAmount: { type: 'number', minimum: 0 },
         categoryId: { type: 'integer' },
-        kind: { type: 'string', enum: ['income', 'expense'] },
+        kind: { type: 'string', enum: ['income', 'expense', 'transfer'] },
         isGift: { type: 'boolean' },
         notes: { type: 'string' },
       },

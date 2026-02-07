@@ -657,11 +657,11 @@ const dbVersion005 = [
     isGift BOOLEAN NOT NULL DEFAULT 0,
     notes TEXT,
     details TEXT,
-    twinTransactionId INTEGER,
+    twinId INTEGER,
     FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (accountId) REFERENCES moneyAccount(id) ON DELETE RESTRICT,
     FOREIGN KEY (categoryId) REFERENCES moneyCategories(id) ON DELETE RESTRICT,
-    FOREIGN KEY (twinTransactionId) REFERENCES moneyTransaction(id) ON DELETE SET NULL
+    FOREIGN KEY (twinId) REFERENCES moneyTransaction(id) ON DELETE CASCADE
   );
   `,
 ];

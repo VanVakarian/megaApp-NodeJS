@@ -51,10 +51,10 @@ export const migration005to004 = [
     isGift BOOLEAN DEFAULT 0,
     notes TEXT,
     details TEXT,
-    twinTransactionId INTEGER,
+    twinId INTEGER,
     FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (accountId) REFERENCES moneyAccount(id) ON DELETE SET NULL,
-    FOREIGN KEY (twinTransactionId) REFERENCES moneyTransaction(id) ON DELETE SET NULL
+    FOREIGN KEY (twinId) REFERENCES moneyTransaction(id) ON DELETE SET NULL
   );
   `,
 ];

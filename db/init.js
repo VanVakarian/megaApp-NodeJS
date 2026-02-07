@@ -1,4 +1,4 @@
-import { INIT_POPULATION_DATA } from '../db-population-data.js';
+import { SEED_MONEY_DATA } from '../db-population-data.js';
 import {
   DB_VERSION,
   DEV_MODE_FORCE_RECREATE_TABLES,
@@ -78,7 +78,7 @@ async function populateDatabase() {
   const connection = await getConnection();
 
   try {
-    for (const [tableName, rows] of Object.entries(INIT_POPULATION_DATA)) {
+    for (const [tableName, rows] of Object.entries(SEED_MONEY_DATA)) {
       for (const row of rows) {
         const columns = Object.keys(row).join(', ');
         const placeholders = Object.keys(row)

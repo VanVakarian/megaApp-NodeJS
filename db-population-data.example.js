@@ -1,6 +1,6 @@
 // rename this to db-population-data.js
 
-export const INIT_POPULATION_DATA = {
+export const SEED_MONEY_DATA = {
   moneyCurrency: [
     {
       id: 1,

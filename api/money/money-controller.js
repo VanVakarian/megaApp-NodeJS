@@ -567,7 +567,7 @@ export async function getTransactions(request, reply) {
 export async function createTransaction(request, reply) {
   try {
     const { user } = request;
-    const { dateISO, accountId, amount, categoryId, kind, isGift, notes } = request.body;
+    const { dateISO, accountId, amount, twinAccountId, twinAmount, categoryId, kind, isGift, notes } = request.body;
 
     const missingFields = [];
 
@@ -586,8 +586,74 @@ export async function createTransaction(request, reply) {
     if (!isTransactionKindValid(kind)) {
       return reply.status(400).send({
         success: false,
-        error: `kind must be either "${TRANSACTION_KIND.INCOME}" or "${TRANSACTION_KIND.EXPENSE}"`,
+        error: `kind must be one of: ${Object.values(TRANSACTION_KIND).join(', ')}`,
       });
+    }
+
+    if (kind === TRANSACTION_KIND.TRANSFER) {
+      if (!twinAccountId) missingFields.push('twinAccountId');
+      if (!twinAmount) missingFields.push('twinAmount');
+
+      if (missingFields.length > 0) {
+        return reply.status(400).send({
+          success: false,
+          error: `Missing required fields: ${missingFields.join(', ')}`,
+        });
+      }
+
+      if (amount <= 0 || twinAmount <= 0) {
+        return reply.status(400).send({
+          success: false,
+          error: 'amount must be greater than 0',
+        });
+      }
+
+      if (Number(accountId) === Number(twinAccountId)) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Transfer accounts must be different',
+        });
+      }
+
+      if (categoryId) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Category is not allowed for transfer',
+        });
+      }
+
+      const fromAccount = await dbMoney.getAccountById(accountId, user.id);
+      if (!fromAccount) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Account not found',
+        });
+      }
+
+      const toAccount = await dbMoney.getAccountById(twinAccountId, user.id);
+      if (!toAccount) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Account not found',
+        });
+      }
+
+      const { fromId, toId } = await dbMoney.createTransferTransactions(
+        dateISO,
+        accountId,
+        amount,
+        twinAccountId,
+        twinAmount,
+        notes || null,
+        user.id,
+      );
+
+      reply.status(201).send({
+        success: true,
+        data: { id: fromId, twinId: toId },
+      });
+
+      return;
     }
 
     if (amount <= 0) {
@@ -662,7 +728,7 @@ export async function updateTransaction(request, reply) {
   try {
     const { user } = request;
     const { id } = request.params;
-    const { dateISO, accountId, amount, categoryId, kind, isGift, notes } = request.body;
+    const { dateISO, accountId, amount, twinAccountId, twinAmount, categoryId, kind, isGift, notes } = request.body;
 
     const missingFields = [];
 
@@ -681,7 +747,115 @@ export async function updateTransaction(request, reply) {
     if (!isTransactionKindValid(kind)) {
       return reply.status(400).send({
         success: false,
-        error: `kind must be either "${TRANSACTION_KIND.INCOME}" or "${TRANSACTION_KIND.EXPENSE}"`,
+        error: `kind must be one of: ${Object.values(TRANSACTION_KIND).join(', ')}`,
+      });
+    }
+
+    const existingTransaction = await dbMoney.getTransactionById(id, user.id);
+    if (!existingTransaction) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Transaction not found',
+      });
+    }
+
+    if (existingTransaction.kind === TRANSACTION_KIND.TRANSFER) {
+      if (!twinAccountId) missingFields.push('twinAccountId');
+      if (!twinAmount) missingFields.push('twinAmount');
+
+      if (missingFields.length > 0) {
+        return reply.status(400).send({
+          success: false,
+          error: `Missing required fields: ${missingFields.join(', ')}`,
+        });
+      }
+
+      if (kind !== TRANSACTION_KIND.TRANSFER) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Transaction kind cannot be changed',
+        });
+      }
+
+      if (amount <= 0 || twinAmount <= 0) {
+        return reply.status(400).send({
+          success: false,
+          error: 'amount must be greater than 0',
+        });
+      }
+
+      if (categoryId) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Category is not allowed for transfer',
+        });
+      }
+
+      if (Number(accountId) !== Number(existingTransaction.accountId)) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Account cannot be changed',
+        });
+      }
+
+      if (!existingTransaction.twinId) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Transfer pair is missing',
+        });
+      }
+
+      const twinTransaction = await dbMoney.getTransactionById(existingTransaction.twinId, user.id);
+      if (!twinTransaction) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Transfer pair is missing',
+        });
+      }
+
+      if (Number(twinAccountId) !== Number(twinTransaction.accountId)) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Account cannot be changed',
+        });
+      }
+
+      const changedRows = await dbMoney.updateTransferTransactions(
+        existingTransaction.id,
+        twinTransaction.id,
+        dateISO,
+        amount,
+        twinAmount,
+        notes || null,
+        user.id,
+      );
+
+      if (changedRows === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: 'Transaction not found',
+        });
+      }
+
+      reply.send({
+        success: true,
+        message: 'Transaction updated successfully',
+      });
+
+      return;
+    }
+
+    if (kind !== existingTransaction.kind) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Transaction kind cannot be changed',
+      });
+    }
+
+    if (Number(accountId) !== Number(existingTransaction.accountId)) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Account cannot be changed',
       });
     }
 
@@ -689,22 +863,6 @@ export async function updateTransaction(request, reply) {
       return reply.status(400).send({
         success: false,
         error: 'amount must be greater than 0',
-      });
-    }
-
-    const isTransactionExist = await dbMoney.getTransactionById(id, user.id);
-    if (!isTransactionExist) {
-      return reply.status(404).send({
-        success: false,
-        error: 'Transaction not found',
-      });
-    }
-
-    const isAccountExist = await dbMoney.getAccountById(accountId, user.id);
-    if (!isAccountExist) {
-      return reply.status(400).send({
-        success: false,
-        error: 'Account not found',
       });
     }
 

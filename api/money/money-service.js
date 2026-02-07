@@ -33,6 +33,7 @@ export function isAccountKindValid(kind) {
 export const TRANSACTION_KIND = {
   INCOME: 'income',
   EXPENSE: 'expense',
+  TRANSFER: 'transfer',
 };
 
 export function isTransactionKindValid(kind) {

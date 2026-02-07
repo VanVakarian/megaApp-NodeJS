@@ -1,8 +1,6 @@
 import { getConnection } from './db.js';
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~                                                 ~~~ CURRENCIES ~~~                                                ~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//                                                            ~~~ CURRENCIES ~~~
 
 export async function getAllCurrencies(userId) {
   const db = await getConnection();
@@ -96,9 +94,7 @@ export async function deleteCurrency(currencyId, userId) {
   return result.changes;
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~                                                 ~~~ CATEGORIES ~~~                                                ~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//                                                            ~~~ CATEGORIES ~~~
 
 export async function getAllCategories(userId) {
   const db = await getConnection();
@@ -192,9 +188,7 @@ export async function deleteCategory(categoryId, userId) {
   return result.changes;
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~                                                  ~~~ ACCOUNTS ~~~                                                 ~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//                                                              ~~~ ACCOUNTS ~~~
 
 export async function getAllAccounts(userId) {
   const db = await getConnection();
@@ -288,16 +282,14 @@ export async function deleteAccount(accountId, userId) {
   return result.changes;
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~                                                ~~~ TRANSACTIONS ~~~                                               ~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//                                                          ~~~ TRANSACTIONS ~~~
 
 export async function getAllTransactions(userId) {
   const db = await getConnection();
   return await db.all(
     `
     SELECT
-      id, dateISO, accountId, amount, categoryId, kind, isGift, notes, details
+      id, dateISO, accountId, amount, categoryId, kind, isGift, notes, details, twinId
     FROM
       moneyTransaction
     WHERE
@@ -314,7 +306,7 @@ export async function getTransactionById(transactionId, userId) {
   return await db.get(
     `
     SELECT
-      id, dateISO, accountId, amount, categoryId, kind, isGift, notes, details
+      id, dateISO, accountId, amount, categoryId, kind, isGift, notes, details, twinId
     FROM
       moneyTransaction
     WHERE
@@ -345,13 +337,71 @@ export async function createTransaction(dateISO, accountId, amount, categoryId, 
   const result = await db.run(
     `
     INSERT INTO
-      moneyTransaction (dateISO, accountId, amount, categoryId, kind, isGift, notes, details, userId, twinTransactionId)
+      moneyTransaction (dateISO, accountId, amount, categoryId, kind, isGift, notes, details, userId, twinId)
     VALUES
       (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL);
     `,
     [dateISO, accountId, amount, categoryId, kind, isGift, notes, userId],
   );
   return result.lastID;
+}
+
+export async function createTransferTransactions(
+  dateISO,
+  fromAccountId,
+  fromAmount,
+  toAccountId,
+  toAmount,
+  notes,
+  userId,
+) {
+  const db = await getConnection();
+  await db.exec('BEGIN');
+
+  try {
+    const fromResult = await db.run(
+      `
+      INSERT INTO
+        moneyTransaction (dateISO, accountId, amount, categoryId, kind, isGift, notes, details, userId, twinId)
+      VALUES
+        (?, ?, ?, NULL, 'transfer', 0, ?, NULL, ?, NULL);
+      `,
+      [dateISO, fromAccountId, fromAmount, notes, userId],
+    );
+
+    const fromId = fromResult.lastID;
+
+    const toResult = await db.run(
+      `
+      INSERT INTO
+        moneyTransaction (dateISO, accountId, amount, categoryId, kind, isGift, notes, details, userId, twinId)
+      VALUES
+        (?, ?, ?, NULL, 'transfer', 0, ?, NULL, ?, ?);
+      `,
+      [dateISO, toAccountId, toAmount, notes, userId, fromId],
+    );
+
+    const toId = toResult.lastID;
+
+    await db.run(
+      `
+      UPDATE
+        moneyTransaction
+      SET
+        twinId = ?
+      WHERE
+        id = ? AND userId = ?;
+      `,
+      [toId, fromId, userId],
+    );
+
+    await db.exec('COMMIT');
+
+    return { fromId, toId };
+  } catch (error) {
+    await db.exec('ROLLBACK');
+    throw error;
+  }
 }
 
 export async function updateTransaction(
@@ -378,6 +428,44 @@ export async function updateTransaction(
     [dateISO, accountId, amount, categoryId, kind, isGift, notes, transactionId, userId],
   );
   return result.changes;
+}
+
+export async function updateTransferTransactions(fromId, toId, dateISO, fromAmount, toAmount, notes, userId) {
+  const db = await getConnection();
+  await db.exec('BEGIN');
+
+  try {
+    const fromResult = await db.run(
+      `
+      UPDATE
+        moneyTransaction
+      SET
+        dateISO = ?, amount = ?, notes = ?
+      WHERE
+        id = ? AND userId = ?;
+      `,
+      [dateISO, fromAmount, notes, fromId, userId],
+    );
+
+    const toResult = await db.run(
+      `
+      UPDATE
+        moneyTransaction
+      SET
+        dateISO = ?, amount = ?, notes = ?
+      WHERE
+        id = ? AND userId = ?;
+      `,
+      [dateISO, toAmount, notes, toId, userId],
+    );
+
+    await db.exec('COMMIT');
+
+    return fromResult.changes + toResult.changes;
+  } catch (error) {
+    await db.exec('ROLLBACK');
+    throw error;
+  }
 }
 
 export async function deleteTransaction(transactionId, userId) {

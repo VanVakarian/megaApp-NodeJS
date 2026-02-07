@@ -84,6 +84,7 @@ export async function moneyRoutes(fastify) {
   fastify.get('/transactions', {
     schema: transactionSchemas.getTransactions,
     preValidation: [authController.authMiddleware],
+    compress: false,
     handler: moneyController.getTransactions,
   });
 
