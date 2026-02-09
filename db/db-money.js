@@ -359,14 +359,17 @@ export async function createTransferTransactions(
   await db.exec('BEGIN');
 
   try {
+    const fromDetails = JSON.stringify({ direction: 'out' });
+    const toDetails = JSON.stringify({ direction: 'in' });
+
     const fromResult = await db.run(
       `
       INSERT INTO
         moneyTransaction (dateISO, accountId, amount, categoryId, kind, isGift, notes, details, userId, twinId)
       VALUES
-        (?, ?, ?, NULL, 'transfer', 0, ?, NULL, ?, NULL);
+        (?, ?, ?, NULL, 'transfer', 0, ?, ?, ?, NULL);
       `,
-      [dateISO, fromAccountId, fromAmount, notes, userId],
+      [dateISO, fromAccountId, fromAmount, notes, fromDetails, userId],
     );
 
     const fromId = fromResult.lastID;
@@ -376,9 +379,9 @@ export async function createTransferTransactions(
       INSERT INTO
         moneyTransaction (dateISO, accountId, amount, categoryId, kind, isGift, notes, details, userId, twinId)
       VALUES
-        (?, ?, ?, NULL, 'transfer', 0, ?, NULL, ?, ?);
+        (?, ?, ?, NULL, 'transfer', 0, ?, ?, ?, ?);
       `,
-      [dateISO, toAccountId, toAmount, notes, userId, fromId],
+      [dateISO, toAccountId, toAmount, notes, toDetails, userId, fromId],
     );
 
     const toId = toResult.lastID;

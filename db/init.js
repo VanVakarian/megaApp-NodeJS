@@ -1,4 +1,3 @@
-import { SEED_MONEY_DATA } from '../db-population-data.js';
 import {
   DB_VERSION,
   DEV_MODE_FORCE_RECREATE_TABLES,
@@ -75,21 +74,5 @@ async function createTablesIfNotExist() {
 }
 
 async function populateDatabase() {
-  const connection = await getConnection();
-
-  try {
-    for (const [tableName, rows] of Object.entries(SEED_MONEY_DATA)) {
-      for (const row of rows) {
-        const columns = Object.keys(row).join(', ');
-        const placeholders = Object.keys(row)
-          .map(() => '?')
-          .join(', ');
-        const insertQuery = `INSERT INTO ${tableName} (${columns}) VALUES (${placeholders})`;
-        await connection.run(insertQuery, Object.values(row));
-      }
-    }
-    // console.log('Database populated successfully');
-  } catch (error) {
-    console.error('Error populating database:', error);
-  }
+  console.log('populateDatabase is empty');
 }
