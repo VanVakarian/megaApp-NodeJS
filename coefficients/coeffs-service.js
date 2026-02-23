@@ -3,6 +3,7 @@ import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import * as dbFood from '../db/db-food.js';
 import * as dbUsers from '../db/db-users.js';
+import * as utils from '../utils/utils.js';
 import * as dbCoefficients from './coeffs-db.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -129,7 +130,7 @@ export function targetKcalsPrep(kcals, weights, n) {
     const startIdx = i - n + 1;
     const kcalsSlice = kcals.slice(startIdx, i + 1);
     const weightDiff = weights[i] - weights[startIdx];
-    const targetKcal = (kcalsSlice.reduce((a, b) => a + b, 0) - weightDiff * 7700) / n;
+    const targetKcal = (kcalsSlice.reduce((a, b) => a + b, 0) - weightDiff * utils.KCALS_IN_1_KG) / n;
     res.push(targetKcal);
   }
 

@@ -136,7 +136,6 @@ export async function makeUpdatedHistoryString(diaryId, userId, newHistoryEntry)
 export async function calculateTargetKcals(userId, endDate) {
   const DAYS_AVG_7 = 7;
   const DAYS_AVG_60 = 60;
-  const KCALS_IN_1_KG = 7700;
 
   const startDate = await dbFood.getUserFirstDate(userId);
   if (!startDate) throw new Error('No user data found');
@@ -170,7 +169,7 @@ export async function calculateTargetKcals(userId, endDate) {
       const weightDiff = dailyWeights[currentDate] - dailyWeights[dates[startIdx]];
       const kcalsInPeriod = dates.slice(startIdx, i + 1).reduce((sum, date) => sum + (dailyKcals[date] || 0), 0);
 
-      const avgDailyKcals = (kcalsInPeriod - weightDiff * KCALS_IN_1_KG) / DAYS_AVG_7;
+      const avgDailyKcals = (kcalsInPeriod - weightDiff * utils.KCALS_IN_1_KG) / DAYS_AVG_7;
       targetKcals[currentDate] = Math.round(avgDailyKcals);
     }
   }
@@ -331,10 +330,31 @@ async function calculateStats(userId) {
     const weightsPrepAvg = calculateCenteredAverage(weightsPrepped, avgDays, true, 1);
 
     const normDays = 30;
-    const targetKcals = computeTargetKcalsFromHistory(dailySumKcalsAvg, weightsPrepAvg, normDays);
-    const targetKcalsAvg = calculateCenteredAverage(targetKcals, normDays, true, 0);
+    const targetKcalsBaseline = computeTargetKcalsFromHistory(dailySumKcalsAvg, weightsPrepAvg, normDays);
+    const targetKcalsAvgBaseline = calculateCenteredAverage(targetKcalsBaseline, normDays, true, 0);
 
-    const preparedStats = prepareStats(allDates, weightsPrepped, weightsPrepAvg, dailySumKcals, targetKcalsAvg);
+    const targetKcalsForAllDates = normalizeTargetKcalsForAllDates(allDates, targetKcalsAvgBaseline);
+
+    const { dailySumKcalsWithVirtual, virtualDaysFlags } = applyVirtualKcalsForMissingPastDays(
+      allDates,
+      dailySumKcals,
+      targetKcalsForAllDates,
+      weightsPrepAvg,
+      lastDate,
+    );
+
+    const dailySumKcalsWithVirtualAvg = calculateCenteredAverage(dailySumKcalsWithVirtual, avgDays, true, 0);
+    const targetKcalsFinal = computeTargetKcalsFromHistory(dailySumKcalsWithVirtualAvg, weightsPrepAvg, normDays);
+    const targetKcalsAvgFinal = calculateCenteredAverage(targetKcalsFinal, normDays, true, 0);
+
+    const preparedStats = prepareStats(
+      allDates,
+      weightsPrepped,
+      weightsPrepAvg,
+      dailySumKcalsWithVirtual,
+      targetKcalsAvgFinal,
+      virtualDaysFlags,
+    );
     return preparedStats;
   } catch (error) {
     console.error(error);
@@ -366,7 +386,42 @@ function prepareWeights(weightsRaw, allDates) {
     weights[item.dateISO] = parseFloat(item.weight);
   });
 
-  return weights;
+  return interpolateWeightsByDates(allDates, weights);
+}
+
+function interpolateWeightsByDates(allDates, factualWeightsByDate) {
+  const interpolatedWeights = { ...factualWeightsByDate };
+  const knownPoints = allDates
+    .map((date, index) => ({ date, index, value: interpolatedWeights[date] }))
+    .filter((point) => point.value !== null);
+
+  if (knownPoints.length === 0) {
+    return interpolatedWeights;
+  }
+
+  const firstKnownPoint = knownPoints[0];
+  for (let idx = 0; idx < firstKnownPoint.index; idx++) {
+    interpolatedWeights[allDates[idx]] = firstKnownPoint.value;
+  }
+
+  for (let pointIdx = 0; pointIdx < knownPoints.length - 1; pointIdx++) {
+    const left = knownPoints[pointIdx];
+    const right = knownPoints[pointIdx + 1];
+    const gap = right.index - left.index;
+    if (gap <= 1) continue;
+
+    for (let idx = left.index + 1; idx < right.index; idx++) {
+      const progress = (idx - left.index) / gap;
+      interpolatedWeights[allDates[idx]] = left.value + (right.value - left.value) * progress;
+    }
+  }
+
+  const lastKnownPoint = knownPoints[knownPoints.length - 1];
+  for (let idx = lastKnownPoint.index + 1; idx < allDates.length; idx++) {
+    interpolatedWeights[allDates[idx]] = lastKnownPoint.value;
+  }
+
+  return interpolatedWeights;
 }
 
 function prepareDiaryEntries(diaryEntriesRaw, allDates) {
@@ -515,7 +570,7 @@ function computeTargetKcalsFromHistory(kcals, weights, n) {
     const kcalsSlice = kcalsValues.slice(i - n + 1, i + 1);
     const weightDiff = weightsValues[i] - weightsValues[i - n + 1];
     const totalCaloriesConsumedInNDays = utils.sumArray(kcalsSlice);
-    const calorieDeficitFromWeight = weightDiff * 7700;
+    const calorieDeficitFromWeight = weightDiff * utils.KCALS_IN_1_KG;
     const dailyMaintenanceCalories = (totalCaloriesConsumedInNDays - calorieDeficitFromWeight) / n;
     averaged.push(dailyMaintenanceCalories);
   }
@@ -525,11 +580,115 @@ function computeTargetKcalsFromHistory(kcals, weights, n) {
   return Object.fromEntries(resultKeys.map((k, i) => [k, averaged[i]]));
 }
 
-function prepareStats(allDates, weights, avgWeights, dailySumKcals, targetKcalsAvg) {
+function normalizeTargetKcalsForAllDates(allDates, targetKcalsAvg) {
+  const targetKcalsForAllDates = {};
+  for (const date of allDates) {
+    targetKcalsForAllDates[date] = targetKcalsAvg[date] ?? null;
+  }
+
+  let prevKnownValue = null;
+  for (const date of allDates) {
+    if (targetKcalsForAllDates[date] !== null) {
+      prevKnownValue = targetKcalsForAllDates[date];
+      continue;
+    }
+
+    if (prevKnownValue !== null) {
+      targetKcalsForAllDates[date] = prevKnownValue;
+    }
+  }
+
+  let nextKnownValue = null;
+  for (let i = allDates.length - 1; i >= 0; i--) {
+    const date = allDates[i];
+    if (targetKcalsForAllDates[date] !== null) {
+      nextKnownValue = targetKcalsForAllDates[date];
+      continue;
+    }
+
+    if (nextKnownValue !== null) {
+      targetKcalsForAllDates[date] = nextKnownValue;
+    }
+  }
+
+  return targetKcalsForAllDates;
+}
+
+function applyVirtualKcalsForMissingPastDays(
+  allDates,
+  factualDailySumKcals,
+  targetKcalsForAllDates,
+  avgWeights,
+  todayIso,
+) {
+  const dailySumKcalsWithVirtual = { ...factualDailySumKcals };
+  const virtualDaysFlags = Object.fromEntries(allDates.map((date) => [date, false]));
+
+  let segmentStartIdx = null;
+
+  const commitSegment = (startIdx, endIdx) => {
+    if (startIdx === null || endIdx === null || endIdx < startIdx) return;
+
+    const segmentDates = allDates.slice(startIdx, endIdx + 1);
+    const segmentTargetValues = segmentDates.map((date) => targetKcalsForAllDates[date]);
+    if (segmentTargetValues.some((value) => value === null || value === undefined)) return;
+
+    const leftAnchorIdx = Math.max(0, startIdx - 1);
+    const rightAnchorIdx = Math.min(allDates.length - 1, endIdx + 1);
+    const leftAnchorWeight = avgWeights[allDates[leftAnchorIdx]];
+    const rightAnchorWeight = avgWeights[allDates[rightAnchorIdx]];
+    if (leftAnchorWeight === null || rightAnchorWeight === null) return;
+
+    const segmentTargetTotal = utils.sumArray(segmentTargetValues);
+    if (segmentTargetTotal === 0) return;
+
+    const segmentWeightDiff = rightAnchorWeight - leftAnchorWeight;
+    const segmentRequiredTotal = segmentTargetTotal + segmentWeightDiff * utils.KCALS_IN_1_KG;
+    const segmentRatio = segmentRequiredTotal / segmentTargetTotal;
+
+    segmentDates.forEach((date, idx) => {
+      const virtualKcals = segmentTargetValues[idx] * segmentRatio;
+      dailySumKcalsWithVirtual[date] = Math.round(virtualKcals);
+      virtualDaysFlags[date] = true;
+    });
+  };
+
+  for (let idx = 0; idx < allDates.length; idx++) {
+    const date = allDates[idx];
+    const isPastDay = date < todayIso;
+    const hasFactualKcals = factualDailySumKcals[date] !== null;
+
+    if (isPastDay && !hasFactualKcals) {
+      if (segmentStartIdx === null) {
+        segmentStartIdx = idx;
+      }
+      continue;
+    }
+
+    if (segmentStartIdx !== null) {
+      commitSegment(segmentStartIdx, idx - 1);
+      segmentStartIdx = null;
+    }
+  }
+
+  if (segmentStartIdx !== null) {
+    commitSegment(segmentStartIdx, allDates.length - 1);
+  }
+
+  return { dailySumKcalsWithVirtual, virtualDaysFlags };
+}
+
+function prepareStats(allDates, weights, avgWeights, dailySumKcals, targetKcalsAvg, virtualDaysFlags) {
   const stats = {};
 
   allDates.forEach((day) => {
-    stats[day] = [weights[day], avgWeights[day], dailySumKcals[day], targetKcalsAvg[day]];
+    stats[day] = [
+      weights[day],
+      avgWeights[day],
+      dailySumKcals[day],
+      targetKcalsAvg[day],
+      Boolean(virtualDaysFlags[day]),
+    ];
   });
 
   return stats;
@@ -554,7 +713,7 @@ export async function searchCatalogueEntries(query) {
       embeddingResult.data.embedding,
       embeddingResult.data.embedding,
       FOOD_SEARCH_NAME_WEIGHT,
-      FOOD_SEARCH_DESCRIPTION_WEIGHT
+      FOOD_SEARCH_DESCRIPTION_WEIGHT,
     );
 
     return searchResults.map((result) => ({
@@ -705,7 +864,7 @@ export async function saveProductData(id, productData) {
         await dbFood.updateCatalogueEntryEmbedding(
           catalogueId,
           embeddingNameResult.data.embedding,
-          embeddingDescriptionResult?.success ? embeddingDescriptionResult.data.embedding : null
+          embeddingDescriptionResult?.success ? embeddingDescriptionResult.data.embedding : null,
         );
       }
 
@@ -744,7 +903,7 @@ export async function saveProductData(id, productData) {
         fat,
         carbs,
         fiber,
-        description
+        description,
       );
 
       if (updateResult === false || (updateResult.success === false && updateResult.error === 'DUPLICATE_NAME')) {
@@ -771,7 +930,7 @@ export async function saveProductData(id, productData) {
           await dbFood.updateCatalogueEntryEmbedding(
             id,
             embeddingNameResult.data.embedding,
-            embeddingDescriptionResult?.success ? embeddingDescriptionResult.data.embedding : null
+            embeddingDescriptionResult?.success ? embeddingDescriptionResult.data.embedding : null,
           );
         }
       }
@@ -841,7 +1000,7 @@ export async function createGeneralizedCatalogueEntry(description) {
         await dbFood.updateCatalogueEntryEmbedding(
           catalogueId,
           embeddingNameResult.data.embedding,
-          embeddingDescriptionResult?.success ? embeddingDescriptionResult.data.embedding : null
+          embeddingDescriptionResult?.success ? embeddingDescriptionResult.data.embedding : null,
         );
       }
     }
@@ -1001,7 +1160,7 @@ export async function searchCatalogueEntriesRealtime(query) {
       queryEmbedding,
       queryEmbedding,
       FOOD_SEARCH_NAME_WEIGHT,
-      FOOD_SEARCH_DESCRIPTION_WEIGHT
+      FOOD_SEARCH_DESCRIPTION_WEIGHT,
     );
     const t6 = performance.now();
     tempPerfLog(`Vector search: ${(t6 - t5).toFixed(2)}ms | results: ${searchResults.length}`);
