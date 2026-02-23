@@ -94,3 +94,5 @@ export function addTransliterationToQuery(query) {
 
   return `${query} ${transliteratedQuery}`;
 }
+
+export const KCALS_IN_1_KG = 7700;
