@@ -188,7 +188,27 @@ async function createBackup(sourceFilePath) {
 /**
  * Main migration function
  */
-async function runMigration(migrationKey, sourceDbPattern) {
+function resolveTargetFilePath(targetPattern, sourceDir, migration) {
+  if (!targetPattern) {
+    return null;
+  }
+
+  const targetWithExt = targetPattern.endsWith('.db') ? targetPattern : `${targetPattern}.db`;
+  const targetFileName = path.basename(targetWithExt);
+  const targetParsed = parseDbFileName(targetFileName);
+
+  if (targetParsed.version !== migration.targetVersion) {
+    throw new Error(
+      `Target version mismatch: migration ${migration.sourceVersion}→${migration.targetVersion} requires target version ${migration.targetVersion}, ` +
+        `but target file is version ${targetParsed.version}`,
+    );
+  }
+
+  const hasDirectory = targetWithExt.includes('/') || targetWithExt.includes('\\');
+  return hasDirectory ? path.resolve(targetWithExt) : path.join(sourceDir, targetFileName);
+}
+
+async function runMigration(migrationKey, sourceDbPattern, targetDbPattern) {
   // Validate migration key
   if (!migrationKey) {
     console.error('Error: Please specify migration to run using --migration=<key>');
@@ -237,10 +257,11 @@ async function runMigration(migrationKey, sourceDbPattern) {
     validateMigrationVersion(migration, sourceParsed.version);
     console.log(`✓ Migration version matches source database version: ${sourceParsed.version}`);
 
-    // Construct target filename
-    const targetFileName = `${sourceParsed.name}-${sourceParsed.env}-${migration.targetVersion}.db`;
     const sourceDir = path.dirname(sourceFilePath);
-    const targetFilePath = path.join(sourceDir, targetFileName);
+    const autoTargetFileName = `${sourceParsed.name}-${sourceParsed.env}-${migration.targetVersion}.db`;
+    const targetFilePath =
+      resolveTargetFilePath(targetDbPattern, sourceDir, migration) ?? path.join(sourceDir, autoTargetFileName);
+    const targetFileName = path.basename(targetFilePath);
 
     // Check if target already exists
     if (fs.existsSync(targetFilePath)) {
@@ -307,6 +328,8 @@ function parseCliArguments() {
       result.migration = arg.split('=')[1];
     } else if (arg.startsWith('--source=')) {
       result.source = arg.split('=')[1];
+    } else if (arg.startsWith('--target=')) {
+      result.target = arg.split('=')[1];
     }
   }
 
@@ -314,9 +337,9 @@ function parseCliArguments() {
 }
 
 // Main execution
-const { migration, source } = parseCliArguments();
+const { migration, source, target } = parseCliArguments();
 
-runMigration(migration, source)
+runMigration(migration, source, target)
   .then(() => {
     process.exit(0);
   })

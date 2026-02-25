@@ -1,4 +1,5 @@
 export const migration005to004 = [
+  'DROP TABLE IF EXISTS moneyRateHistory;',
   'DROP TABLE IF EXISTS moneyTransaction;',
   'DROP TABLE IF EXISTS moneyAsset;',
   'DROP TABLE IF EXISTS moneyAccount;',

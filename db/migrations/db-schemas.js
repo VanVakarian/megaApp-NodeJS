@@ -664,6 +664,15 @@ const dbVersion005 = [
     FOREIGN KEY (twinId) REFERENCES moneyTransaction(id) ON DELETE CASCADE
   );
   `,
+
+  `
+  CREATE TABLE IF NOT EXISTS moneyRateHistory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dateISO TEXT NOT NULL,
+    ratesJson TEXT NOT NULL,
+    UNIQUE(dateISO)
+  );
+  `,
 ];
 
 export const dbSchemas = {

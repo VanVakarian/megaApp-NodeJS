@@ -564,6 +564,24 @@ export async function getTransactions(request, reply) {
   }
 }
 
+export async function getRateHistory(request, reply) {
+  try {
+    const rateHistory = await dbMoney.getAllRateHistory();
+    const payload = Array.isArray(rateHistory) ? rateHistory : [];
+
+    return reply.code(200).send({
+      success: true,
+      data: payload,
+    });
+  } catch (error) {
+    return reply.status(500).send({
+      success: false,
+      error: 'Failed to get money rate history',
+      message: error.message,
+    });
+  }
+}
+
 export async function createTransaction(request, reply) {
   try {
     const { user } = request;

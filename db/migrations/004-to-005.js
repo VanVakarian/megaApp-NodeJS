@@ -1,4 +1,5 @@
 export const migration004to005 = [
+  'DROP TABLE IF EXISTS moneyRateHistory;',
   'DROP TABLE IF EXISTS moneyTransaction;',
   'DROP TABLE IF EXISTS moneyAsset;',
   'DROP TABLE IF EXISTS moneyAccount;',
@@ -66,6 +67,14 @@ export const migration004to005 = [
     FOREIGN KEY (accountId) REFERENCES moneyAccount(id) ON DELETE RESTRICT,
     FOREIGN KEY (categoryId) REFERENCES moneyCategories(id) ON DELETE RESTRICT,
     FOREIGN KEY (twinId) REFERENCES moneyTransaction(id) ON DELETE CASCADE
+  );
+  `,
+  `
+  CREATE TABLE moneyRateHistory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dateISO TEXT NOT NULL,
+    ratesJson TEXT NOT NULL,
+    UNIQUE(dateISO)
   );
   `,
 ];

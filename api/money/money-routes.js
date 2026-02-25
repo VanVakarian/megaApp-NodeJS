@@ -1,6 +1,12 @@
 import * as authController from '../auth/auth-controller.js';
 import * as moneyController from './money-controller.js';
-import { accountSchemas, categorySchemas, currencySchemas, transactionSchemas } from './money-swagger.js';
+import {
+  accountSchemas,
+  categorySchemas,
+  currencySchemas,
+  rateHistorySchemas,
+  transactionSchemas,
+} from './money-swagger.js';
 
 export async function moneyRoutes(fastify) {
   //                                                          ~~~ CURRENCIES ~~~
@@ -86,6 +92,12 @@ export async function moneyRoutes(fastify) {
     preValidation: [authController.authMiddleware],
     compress: false,
     handler: moneyController.getTransactions,
+  });
+
+  fastify.get('/rate-history', {
+    schema: rateHistorySchemas.getRateHistory,
+    preValidation: [authController.authMiddleware],
+    handler: moneyController.getRateHistory,
   });
 
   fastify.post('/transactions', {

@@ -301,6 +301,20 @@ export async function getAllTransactions(userId) {
   );
 }
 
+export async function getAllRateHistory() {
+  const db = await getConnection();
+  return await db.all(
+    `
+    SELECT
+      id, dateISO, ratesJson
+    FROM
+      moneyRateHistory
+    ORDER BY
+      dateISO ASC;
+    `,
+  );
+}
+
 export async function getTransactionById(transactionId, userId) {
   const db = await getConnection();
   return await db.get(

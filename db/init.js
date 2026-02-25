@@ -74,5 +74,5 @@ async function createTablesIfNotExist() {
 }
 
 async function populateDatabase() {
-  console.log('populateDatabase is empty');
+  console.log('Database population is temporarily moved to a separate migration script.');
 }

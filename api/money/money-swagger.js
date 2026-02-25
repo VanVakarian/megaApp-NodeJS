@@ -327,3 +327,30 @@ export const transactionSchemas = {
     response: { 200: successResponse },
   },
 };
+
+export const rateHistorySchemas = {
+  getRateHistory: {
+    tags: ['money'],
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean' },
+          data: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'integer' },
+                dateISO: { type: 'string', format: 'date' },
+                ratesJson: {
+                  anyOf: [{ type: 'string' }, { type: 'object' }],
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+};
