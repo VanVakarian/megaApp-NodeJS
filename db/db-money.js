@@ -289,7 +289,7 @@ export async function getAllTransactions(userId) {
   return await db.all(
     `
     SELECT
-      id, dateISO, accountId, amount, categoryId, kind, isGift, notes, details, twinId
+      id, dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, twinId
     FROM
       moneyTransaction
     WHERE
@@ -320,7 +320,7 @@ export async function getTransactionById(transactionId, userId) {
   return await db.get(
     `
     SELECT
-      id, dateISO, accountId, amount, categoryId, kind, isGift, notes, details, twinId
+      id, dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, twinId
     FROM
       moneyTransaction
     WHERE
@@ -351,7 +351,7 @@ export async function createTransaction(dateISO, accountId, amount, categoryId, 
   const result = await db.run(
     `
     INSERT INTO
-      moneyTransaction (dateISO, accountId, amount, categoryId, kind, isGift, notes, details, userId, twinId)
+      moneyTransaction (dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, userId, twinId)
     VALUES
       (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL);
     `,
@@ -373,17 +373,17 @@ export async function createTransferTransactions(
   await db.exec('BEGIN');
 
   try {
-    const fromDetails = JSON.stringify({ direction: 'out' });
-    const toDetails = JSON.stringify({ direction: 'in' });
+    const fromDetailsStr = JSON.stringify({ direction: 'out' });
+    const toDetailsStr = JSON.stringify({ direction: 'in' });
 
     const fromResult = await db.run(
       `
       INSERT INTO
-        moneyTransaction (dateISO, accountId, amount, categoryId, kind, isGift, notes, details, userId, twinId)
+        moneyTransaction (dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, userId, twinId)
       VALUES
         (?, ?, ?, NULL, 'transfer', 0, ?, ?, ?, NULL);
       `,
-      [dateISO, fromAccountId, fromAmount, notes, fromDetails, userId],
+      [dateISO, fromAccountId, fromAmount, notes, fromDetailsStr, userId],
     );
 
     const fromId = fromResult.lastID;
@@ -391,11 +391,11 @@ export async function createTransferTransactions(
     const toResult = await db.run(
       `
       INSERT INTO
-        moneyTransaction (dateISO, accountId, amount, categoryId, kind, isGift, notes, details, userId, twinId)
+        moneyTransaction (dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, userId, twinId)
       VALUES
         (?, ?, ?, NULL, 'transfer', 0, ?, ?, ?, ?);
       `,
-      [dateISO, toAccountId, toAmount, notes, toDetails, userId, fromId],
+      [dateISO, toAccountId, toAmount, notes, toDetailsStr, userId, fromId],
     );
 
     const toId = toResult.lastID;

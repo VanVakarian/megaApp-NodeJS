@@ -656,7 +656,7 @@ const dbVersion005 = [
     kind TEXT NOT NULL,
     isGift BOOLEAN NOT NULL DEFAULT 0,
     notes TEXT,
-    details TEXT,
+    detailsJSON TEXT,
     twinId INTEGER,
     FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (accountId) REFERENCES moneyAccount(id) ON DELETE RESTRICT,

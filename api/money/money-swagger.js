@@ -270,7 +270,7 @@ export const transactionSchemas = {
                 kind: { type: 'string', enum: ['income', 'expense', 'transfer'] },
                 isGift: { type: 'boolean' },
                 notes: { type: 'string', nullable: true },
-                details: { type: 'string', nullable: true },
+                detailsJSON: { type: 'string', nullable: true },
                 twinId: { type: 'integer', nullable: true },
               },
             },
