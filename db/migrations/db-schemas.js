@@ -640,7 +640,7 @@ const dbVersion005 = [
     userId INTEGER NOT NULL,
     ticker TEXT NOT NULL,
     title TEXT NOT NULL,
-    type TEXT,
+    type TEXT NOT NULL CHECK(type IN ('stock', 'bond')),
     FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
   );
   `,

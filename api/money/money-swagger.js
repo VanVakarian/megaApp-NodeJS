@@ -247,6 +247,69 @@ export const accountSchemas = {
   },
 };
 
+//                                                                ~~~ ASSETS ~~~
+
+export const assetSchemas = {
+  getAssets: {
+    tags: ['money'],
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean' },
+          data: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'integer' },
+                title: { type: 'string' },
+                ticker: { type: 'string' },
+                type: { type: 'string', enum: ['stock', 'bond'] },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+
+  createAsset: {
+    tags: ['money'],
+    body: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        ticker: { type: 'string' },
+        type: { type: 'string', enum: ['stock', 'bond'] },
+      },
+      required: ['title', 'ticker', 'type'],
+    },
+    response: { 201: responseWithID },
+  },
+
+  updateAsset: {
+    tags: ['money'],
+    params: paramWithID,
+    body: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        ticker: { type: 'string' },
+        type: { type: 'string', enum: ['stock', 'bond'] },
+      },
+      required: ['title', 'ticker', 'type'],
+    },
+    response: { 200: successResponse },
+  },
+
+  deleteAsset: {
+    tags: ['money'],
+    params: paramWithID,
+    response: { 200: successResponse, 409: conflictResponse },
+  },
+};
+
 //                                                          ~~~ TRANSACTIONS ~~~
 
 export const transactionSchemas = {

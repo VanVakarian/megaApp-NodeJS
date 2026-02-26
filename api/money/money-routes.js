@@ -2,6 +2,7 @@ import * as authController from '../auth/auth-controller.js';
 import * as moneyController from './money-controller.js';
 import {
   accountSchemas,
+  assetSchemas,
   categorySchemas,
   currencySchemas,
   rateHistorySchemas,
@@ -83,6 +84,33 @@ export async function moneyRoutes(fastify) {
     schema: accountSchemas.deleteAccount,
     preValidation: [authController.authMiddleware],
     handler: moneyController.deleteAccount,
+  });
+
+  //                                                              ~~~ ASSETS ~~~
+
+  fastify.get('/assets', {
+    schema: assetSchemas.getAssets,
+    preValidation: [authController.authMiddleware],
+    compress: false,
+    handler: moneyController.getAssets,
+  });
+
+  fastify.post('/assets', {
+    schema: assetSchemas.createAsset,
+    preValidation: [authController.authMiddleware],
+    handler: moneyController.createAsset,
+  });
+
+  fastify.put('/assets/:id', {
+    schema: assetSchemas.updateAsset,
+    preValidation: [authController.authMiddleware],
+    handler: moneyController.updateAsset,
+  });
+
+  fastify.delete('/assets/:id', {
+    schema: assetSchemas.deleteAsset,
+    preValidation: [authController.authMiddleware],
+    handler: moneyController.deleteAsset,
   });
 
   //                                                        ~~~ TRANSACTIONS ~~~

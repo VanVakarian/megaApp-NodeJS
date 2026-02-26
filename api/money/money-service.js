@@ -30,6 +30,15 @@ export function isAccountKindValid(kind) {
   return Object.values(ACCOUNT_KIND).includes(kind);
 }
 
+export const ASSET_TYPE = {
+  STOCK: 'stock',
+  BOND: 'bond',
+};
+
+export function isAssetTypeValid(type) {
+  return Object.values(ASSET_TYPE).includes(type);
+}
+
 export const TRANSACTION_KIND = {
   INCOME: 'income',
   EXPENSE: 'expense',

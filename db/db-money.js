@@ -282,6 +282,107 @@ export async function deleteAccount(accountId, userId) {
   return result.changes;
 }
 
+//                                                                ~~~ ASSETS ~~~
+
+export async function getAllAssets(userId) {
+  const db = await getConnection();
+  return await db.all(
+    `
+    SELECT
+      id, title, ticker, type
+    FROM
+      moneyAsset
+    WHERE
+      userId = ?
+    ORDER BY
+      title ASC;
+    `,
+    [userId],
+  );
+}
+
+export async function getAssetById(assetId, userId) {
+  const db = await getConnection();
+  return await db.get(
+    `
+    SELECT
+      id, title, ticker, type
+    FROM
+      moneyAsset
+    WHERE
+      id = ? AND userId = ?;
+    `,
+    [assetId, userId],
+  );
+}
+
+export async function countTransactionsByAsset(assetId, userId) {
+  const db = await getConnection();
+  const result = await db.get(
+    `
+    SELECT
+      COUNT(*) as count
+    FROM
+      moneyTransaction
+    WHERE
+      userId = ?
+      AND detailsJSON IS NOT NULL
+      AND json_valid(detailsJSON) = 1
+      AND CAST(json_extract(detailsJSON, '$.assetId') AS INTEGER) = ?;
+    `,
+    [userId, assetId],
+  );
+
+  return result?.count ?? 0;
+}
+
+export async function createAsset(title, ticker, type, userId) {
+  const db = await getConnection();
+  const result = await db.run(
+    `
+    INSERT INTO
+      moneyAsset (title, ticker, type, userId)
+    VALUES
+      (?, ?, ?, ?);
+    `,
+    [title, ticker, type, userId],
+  );
+
+  return result.lastID;
+}
+
+export async function updateAsset(assetId, title, ticker, type, userId) {
+  const db = await getConnection();
+  const result = await db.run(
+    `
+    UPDATE
+      moneyAsset
+    SET
+      title = ?, ticker = ?, type = ?
+    WHERE
+      id = ? AND userId = ?;
+    `,
+    [title, ticker, type, assetId, userId],
+  );
+
+  return result.changes;
+}
+
+export async function deleteAsset(assetId, userId) {
+  const db = await getConnection();
+  const result = await db.run(
+    `
+    DELETE FROM
+      moneyAsset
+    WHERE
+      id = ? AND userId = ?;
+    `,
+    [assetId, userId],
+  );
+
+  return result.changes;
+}
+
 //                                                          ~~~ TRANSACTIONS ~~~
 
 export async function getAllTransactions(userId) {

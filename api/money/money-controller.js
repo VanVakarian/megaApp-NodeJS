@@ -1,8 +1,10 @@
 import * as dbMoney from '../../db/db-money.js';
 import {
   ACCOUNT_KIND,
+  ASSET_TYPE,
   CATEGORY_TYPE,
   isAccountKindValid,
+  isAssetTypeValid,
   isCategoryTypeValid,
   isSymbolPositionValid,
   isTransactionKindValid,
@@ -10,9 +12,7 @@ import {
   TRANSACTION_KIND,
 } from './money-service.js';
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~                                                 ~~~ CURRENCIES ~~~                                                ~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//                                                            ~~~ CURRENCIES ~~~
 
 export async function getCurrencies(request, reply) {
   try {
@@ -171,9 +171,7 @@ export async function deleteCurrency(request, reply) {
   }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~                                                 ~~~ CATEGORIES ~~~                                                ~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//                                                            ~~~ CATEGORIES ~~~
 
 export async function getCategories(request, reply) {
   try {
@@ -379,9 +377,7 @@ export async function deleteCategory(request, reply) {
   }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~                                                  ~~~ ACCOUNTS ~~~                                                 ~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//                                                              ~~~ ACCOUNTS ~~~
 
 export async function getAccounts(request, reply) {
   try {
@@ -540,9 +536,166 @@ export async function deleteAccount(request, reply) {
   }
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~                                                ~~~ TRANSACTIONS ~~~                                               ~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//                                                                ~~~ ASSETS ~~~
+
+export async function getAssets(request, reply) {
+  try {
+    const { user } = request;
+    const assets = await dbMoney.getAllAssets(user.id);
+
+    reply.send({
+      success: true,
+      data: assets,
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to get assets',
+      message: error.message,
+    });
+  }
+}
+
+export async function createAsset(request, reply) {
+  try {
+    const { user } = request;
+    const { title, ticker, type } = request.body;
+
+    const missingFields = [];
+
+    if (!title) missingFields.push('title');
+    if (!ticker) missingFields.push('ticker');
+    if (!type) missingFields.push('type');
+
+    if (missingFields.length > 0) {
+      return reply.status(400).send({
+        success: false,
+        error: `Missing required fields: ${missingFields.join(', ')}`,
+      });
+    }
+
+    if (!isAssetTypeValid(type)) {
+      return reply.status(400).send({
+        success: false,
+        error: `type must be one of: ${Object.values(ASSET_TYPE).join(', ')}`,
+      });
+    }
+
+    const assetId = await dbMoney.createAsset(title, ticker, type, user.id);
+
+    reply.status(201).send({
+      success: true,
+      data: { id: assetId },
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to create asset',
+      message: error.message,
+    });
+  }
+}
+
+export async function updateAsset(request, reply) {
+  try {
+    const { user } = request;
+    const { id } = request.params;
+    const { title, ticker, type } = request.body;
+
+    const missingFields = [];
+
+    if (!title) missingFields.push('title');
+    if (!ticker) missingFields.push('ticker');
+    if (!type) missingFields.push('type');
+
+    if (missingFields.length > 0) {
+      return reply.status(400).send({
+        success: false,
+        error: `Missing required fields: ${missingFields.join(', ')}`,
+      });
+    }
+
+    if (!isAssetTypeValid(type)) {
+      return reply.status(400).send({
+        success: false,
+        error: `type must be one of: ${Object.values(ASSET_TYPE).join(', ')}`,
+      });
+    }
+
+    const isAssetExist = await dbMoney.getAssetById(id, user.id);
+    if (!isAssetExist) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Asset not found',
+      });
+    }
+
+    const changedRows = await dbMoney.updateAsset(id, title, ticker, type, user.id);
+
+    if (changedRows === 0) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Asset not found',
+      });
+    }
+
+    reply.send({
+      success: true,
+      message: 'Asset updated successfully',
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to update asset',
+      message: error.message,
+    });
+  }
+}
+
+export async function deleteAsset(request, reply) {
+  try {
+    const { user } = request;
+    const { id } = request.params;
+
+    const asset = await dbMoney.getAssetById(id, user.id);
+    if (!asset) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Asset not found',
+      });
+    }
+
+    const linkedTransactionsCount = await dbMoney.countTransactionsByAsset(id, user.id);
+    if (linkedTransactionsCount > 0) {
+      return reply.status(409).send({
+        success: false,
+        error: 'Asset is linked to existing transactions',
+      });
+    }
+
+    const changedRows = await dbMoney.deleteAsset(id, user.id);
+
+    if (changedRows === 0) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Asset not found',
+      });
+    }
+
+    reply.send({
+      success: true,
+      message: 'Asset deleted successfully',
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to delete asset',
+      message: error.message,
+    });
+  }
+}
+
+//                                                          ~~~ TRANSACTIONS ~~~
 
 export async function getTransactions(request, reply) {
   try {
