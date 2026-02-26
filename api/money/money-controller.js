@@ -426,8 +426,7 @@ export async function createAccount(request, reply) {
       });
     }
 
-    const isInvestBoolean = isInvest === true || isInvest === 'true';
-    const accountId = await dbMoney.createAccount(title, currencyId, isInvestBoolean, kind, user.id);
+    const accountId = await dbMoney.createAccount(title, currencyId, isInvest, kind, user.id);
 
     reply.status(201).send({
       success: true,
@@ -476,8 +475,7 @@ export async function updateAccount(request, reply) {
       });
     }
 
-    const isInvestBoolean = isInvest === true || isInvest === 'true';
-    const changedRows = await dbMoney.updateAccount(id, title, currencyId, isInvestBoolean, kind, user.id);
+    const changedRows = await dbMoney.updateAccount(id, title, currencyId, isInvest, kind, user.id);
 
     if (changedRows === 0) {
       return reply.status(404).send({
