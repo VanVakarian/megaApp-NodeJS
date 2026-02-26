@@ -402,6 +402,38 @@ export async function getAllTransactions(userId) {
   );
 }
 
+export async function getInvestAssetTrades(userId) {
+  const db = await getConnection();
+  return await db.all(
+    `
+    SELECT
+      t.id,
+      t.dateISO,
+      t.accountId,
+      t.amount,
+      t.kind,
+      t.notes,
+      t.detailsJSON,
+      a.id as assetId,
+      a.title as assetTitle,
+      a.ticker as assetTicker,
+      a.type as assetType
+    FROM
+      moneyTransaction t
+    LEFT JOIN
+      moneyAsset a
+      ON a.id = CAST(json_extract(t.detailsJSON, '$.assetId') AS INTEGER)
+      AND a.userId = t.userId
+    WHERE
+      t.userId = ?
+      AND t.kind IN ('invest_buy', 'invest_sell')
+    ORDER BY
+      t.dateISO DESC, t.id DESC;
+    `,
+    [userId],
+  );
+}
+
 export async function getAllRateHistory() {
   const db = await getConnection();
   return await db.all(
@@ -447,16 +479,26 @@ export async function countTransactionsByCategory(categoryId, userId) {
   return result?.count ?? 0;
 }
 
-export async function createTransaction(dateISO, accountId, amount, categoryId, kind, isGift, notes, userId) {
+export async function createTransaction(
+  dateISO,
+  accountId,
+  amount,
+  categoryId,
+  kind,
+  isGift,
+  notes,
+  detailsJSON,
+  userId,
+) {
   const db = await getConnection();
   const result = await db.run(
     `
     INSERT INTO
       moneyTransaction (dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, userId, twinId)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL);
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL);
     `,
-    [dateISO, accountId, amount, categoryId, kind, isGift, notes, userId],
+    [dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, userId],
   );
   return result.lastID;
 }
@@ -531,6 +573,7 @@ export async function updateTransaction(
   kind,
   isGift,
   notes,
+  detailsJSON,
   userId,
 ) {
   const db = await getConnection();
@@ -539,11 +582,11 @@ export async function updateTransaction(
     UPDATE
       moneyTransaction
     SET
-      dateISO = ?, accountId = ?, amount = ?, categoryId = ?, kind = ?, isGift = ?, notes = ?
+      dateISO = ?, accountId = ?, amount = ?, categoryId = ?, kind = ?, isGift = ?, notes = ?, detailsJSON = ?
     WHERE
       id = ? AND userId = ?;
     `,
-    [dateISO, accountId, amount, categoryId, kind, isGift, notes, transactionId, userId],
+    [dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, transactionId, userId],
   );
   return result.changes;
 }

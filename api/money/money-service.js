@@ -43,6 +43,9 @@ export const TRANSACTION_KIND = {
   INCOME: 'income',
   EXPENSE: 'expense',
   TRANSFER: 'transfer',
+  INVEST_BUY: 'invest_buy',
+  INVEST_SELL: 'invest_sell',
+  INVEST_DIVIDEND: 'invest_dividend',
 };
 
 export function isTransactionKindValid(kind) {

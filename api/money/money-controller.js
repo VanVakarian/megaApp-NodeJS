@@ -715,6 +715,24 @@ export async function getTransactions(request, reply) {
   }
 }
 
+export async function getInvestAssetTrades(request, reply) {
+  try {
+    const { user } = request;
+    const trades = await dbMoney.getInvestAssetTrades(user.id);
+
+    reply.send({
+      success: true,
+      data: trades,
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to get invest asset trades',
+      message: error.message,
+    });
+  }
+}
+
 export async function getRateHistory(request, reply) {
   try {
     const rateHistory = await dbMoney.getAllRateHistory();
@@ -736,14 +754,24 @@ export async function getRateHistory(request, reply) {
 export async function createTransaction(request, reply) {
   try {
     const { user } = request;
-    const { dateISO, accountId, amount, twinAccountId, twinAmount, categoryId, kind, isGift, notes } = request.body;
+    const { dateISO, accountId, amount, twinAccountId, twinAmount, categoryId, kind, isGift, notes, detailsJSON } =
+      request.body;
 
     const missingFields = [];
 
     if (!dateISO) missingFields.push('dateISO');
     if (!accountId) missingFields.push('accountId');
-    if (!amount) missingFields.push('amount');
     if (!kind) missingFields.push('kind');
+
+    const isInvestKind = [
+      TRANSACTION_KIND.INVEST_BUY,
+      TRANSACTION_KIND.INVEST_SELL,
+      TRANSACTION_KIND.INVEST_DIVIDEND,
+    ].includes(kind);
+
+    if (!isInvestKind && kind !== TRANSACTION_KIND.TRANSFER && !amount) {
+      missingFields.push('amount');
+    }
 
     if (missingFields.length > 0) {
       return reply.status(400).send({
@@ -760,6 +788,7 @@ export async function createTransaction(request, reply) {
     }
 
     if (kind === TRANSACTION_KIND.TRANSFER) {
+      if (!amount) missingFields.push('amount');
       if (!twinAccountId) missingFields.push('twinAccountId');
       if (!twinAmount) missingFields.push('twinAmount');
 
@@ -825,18 +854,91 @@ export async function createTransaction(request, reply) {
       return;
     }
 
+    const account = await dbMoney.getAccountById(accountId, user.id);
+    if (!account) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Account not found',
+      });
+    }
+
+    if (isInvestKind) {
+      if (!account.isInvest) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Invest transaction requires invest account',
+        });
+      }
+
+      if (categoryId) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Category is not allowed for invest transactions',
+        });
+      }
+
+      const parsedDetails = normalizeDetailsJSON(detailsJSON);
+      if (!parsedDetails) {
+        return reply.status(400).send({
+          success: false,
+          error: 'detailsJSON is required for invest transactions',
+        });
+      }
+
+      const assetId = Number(parsedDetails.assetId);
+      if (!Number.isFinite(assetId) || assetId <= 0) {
+        return reply.status(400).send({
+          success: false,
+          error: 'detailsJSON.assetId must be a positive number',
+        });
+      }
+
+      const asset = await dbMoney.getAssetById(assetId, user.id);
+      if (!asset) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Asset not found',
+        });
+      }
+
+      const investValidation = validateInvestPayload({
+        kind,
+        amount,
+        detailsJSON: parsedDetails,
+        assetType: asset.type,
+      });
+
+      if (!investValidation.success) {
+        return reply.status(400).send({
+          success: false,
+          error: investValidation.error,
+        });
+      }
+
+      const transactionId = await dbMoney.createTransaction(
+        dateISO,
+        accountId,
+        investValidation.amount,
+        null,
+        kind,
+        false,
+        notes || null,
+        JSON.stringify(investValidation.detailsJSON),
+        user.id,
+      );
+
+      reply.status(201).send({
+        success: true,
+        data: { id: transactionId },
+      });
+
+      return;
+    }
+
     if (amount <= 0) {
       return reply.status(400).send({
         success: false,
         error: 'amount must be greater than 0',
-      });
-    }
-
-    const isAccountExist = await dbMoney.getAccountById(accountId, user.id);
-    if (!isAccountExist) {
-      return reply.status(400).send({
-        success: false,
-        error: 'Account not found',
       });
     }
 
@@ -877,6 +979,7 @@ export async function createTransaction(request, reply) {
       kind,
       isGiftBoolean,
       notes || null,
+      null,
       user.id,
     );
 
@@ -897,14 +1000,24 @@ export async function updateTransaction(request, reply) {
   try {
     const { user } = request;
     const { id } = request.params;
-    const { dateISO, accountId, amount, twinAccountId, twinAmount, categoryId, kind, isGift, notes } = request.body;
+    const { dateISO, accountId, amount, twinAccountId, twinAmount, categoryId, kind, isGift, notes, detailsJSON } =
+      request.body;
 
     const missingFields = [];
 
     if (!dateISO) missingFields.push('dateISO');
     if (!accountId) missingFields.push('accountId');
-    if (!amount) missingFields.push('amount');
     if (!kind) missingFields.push('kind');
+
+    const isInvestKind = [
+      TRANSACTION_KIND.INVEST_BUY,
+      TRANSACTION_KIND.INVEST_SELL,
+      TRANSACTION_KIND.INVEST_DIVIDEND,
+    ].includes(kind);
+
+    if (!isInvestKind && kind !== TRANSACTION_KIND.TRANSFER && !amount) {
+      missingFields.push('amount');
+    }
 
     if (missingFields.length > 0) {
       return reply.status(400).send({
@@ -929,6 +1042,7 @@ export async function updateTransaction(request, reply) {
     }
 
     if (existingTransaction.kind === TRANSACTION_KIND.TRANSFER) {
+      if (!amount) missingFields.push('amount');
       if (!twinAccountId) missingFields.push('twinAccountId');
       if (!twinAmount) missingFields.push('twinAmount');
 
@@ -1014,6 +1128,126 @@ export async function updateTransaction(request, reply) {
       return;
     }
 
+    if (isInvestKind) {
+      if (kind !== existingTransaction.kind) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Transaction kind cannot be changed',
+        });
+      }
+
+      if (Number(accountId) !== Number(existingTransaction.accountId)) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Account cannot be changed',
+        });
+      }
+
+      if (categoryId) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Category is not allowed for invest transactions',
+        });
+      }
+
+      const account = await dbMoney.getAccountById(accountId, user.id);
+      if (!account) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Account not found',
+        });
+      }
+
+      if (!account.isInvest) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Invest transaction requires invest account',
+        });
+      }
+
+      const parsedDetails = normalizeDetailsJSON(detailsJSON);
+      if (!parsedDetails) {
+        return reply.status(400).send({
+          success: false,
+          error: 'detailsJSON is required for invest transactions',
+        });
+      }
+
+      const existingDetails = normalizeDetailsJSON(existingTransaction.detailsJSON);
+      const nextAssetId = Number(parsedDetails.assetId);
+      const prevAssetId = Number(existingDetails?.assetId);
+
+      if (!Number.isFinite(nextAssetId) || nextAssetId <= 0) {
+        return reply.status(400).send({
+          success: false,
+          error: 'detailsJSON.assetId must be a positive number',
+        });
+      }
+
+      if (!Number.isFinite(prevAssetId) || prevAssetId <= 0) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Existing invest transaction has invalid asset binding',
+        });
+      }
+
+      if (nextAssetId !== prevAssetId) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Asset cannot be changed',
+        });
+      }
+
+      const asset = await dbMoney.getAssetById(nextAssetId, user.id);
+      if (!asset) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Asset not found',
+        });
+      }
+
+      const investValidation = validateInvestPayload({
+        kind,
+        amount,
+        detailsJSON: parsedDetails,
+        assetType: asset.type,
+      });
+
+      if (!investValidation.success) {
+        return reply.status(400).send({
+          success: false,
+          error: investValidation.error,
+        });
+      }
+
+      const changedRows = await dbMoney.updateTransaction(
+        id,
+        dateISO,
+        accountId,
+        investValidation.amount,
+        null,
+        kind,
+        false,
+        notes || null,
+        JSON.stringify(investValidation.detailsJSON),
+        user.id,
+      );
+
+      if (changedRows === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: 'Transaction not found',
+        });
+      }
+
+      reply.send({
+        success: true,
+        message: 'Transaction updated successfully',
+      });
+
+      return;
+    }
+
     if (kind !== existingTransaction.kind) {
       return reply.status(400).send({
         success: false,
@@ -1073,6 +1307,7 @@ export async function updateTransaction(request, reply) {
       kind,
       isGiftBoolean,
       notes || null,
+      null,
       user.id,
     );
 
@@ -1094,6 +1329,111 @@ export async function updateTransaction(request, reply) {
       message: error.message,
     });
   }
+}
+
+function normalizeDetailsJSON(value) {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function toFiniteNumber(value) {
+  const result = Number(value);
+  if (!Number.isFinite(result)) return null;
+  return result;
+}
+
+function validateInvestPayload({ kind, amount, detailsJSON, assetType }) {
+  const assetId = toFiniteNumber(detailsJSON.assetId);
+  if (assetId == null || assetId <= 0) {
+    return {
+      success: false,
+      error: 'detailsJSON.assetId must be a positive number',
+    };
+  }
+
+  if (kind === TRANSACTION_KIND.INVEST_DIVIDEND) {
+    const dividendAmount = toFiniteNumber(amount);
+    if (dividendAmount == null || dividendAmount <= 0) {
+      return {
+        success: false,
+        error: 'amount must be greater than 0',
+      };
+    }
+
+    return {
+      success: true,
+      amount: dividendAmount,
+      detailsJSON: {
+        assetId,
+      },
+    };
+  }
+
+  const quantity = toFiniteNumber(detailsJSON.quantity);
+  const price = toFiniteNumber(detailsJSON.price);
+  const commissionAmount = toFiniteNumber(detailsJSON.commissionAmount) ?? 0;
+  const accruedInterestAmount = toFiniteNumber(detailsJSON.accruedInterestAmount) ?? 0;
+
+  if (quantity == null || quantity <= 0) {
+    return {
+      success: false,
+      error: 'detailsJSON.quantity must be greater than 0',
+    };
+  }
+
+  if (price == null || price <= 0) {
+    return {
+      success: false,
+      error: 'detailsJSON.price must be greater than 0',
+    };
+  }
+
+  if (commissionAmount < 0) {
+    return {
+      success: false,
+      error: 'detailsJSON.commissionAmount must be greater than or equal to 0',
+    };
+  }
+
+  if (accruedInterestAmount < 0) {
+    return {
+      success: false,
+      error: 'detailsJSON.accruedInterestAmount must be greater than or equal to 0',
+    };
+  }
+
+  if (assetType !== ASSET_TYPE.BOND && accruedInterestAmount !== 0) {
+    return {
+      success: false,
+      error: 'detailsJSON.accruedInterestAmount is allowed only for bond assets',
+    };
+  }
+
+  const amountValue =
+    kind === TRANSACTION_KIND.INVEST_BUY
+      ? quantity * price + commissionAmount + accruedInterestAmount
+      : quantity * price - commissionAmount + accruedInterestAmount;
+
+  return {
+    success: true,
+    amount: amountValue,
+    detailsJSON: {
+      assetId,
+      quantity,
+      price,
+      commissionAmount,
+      accruedInterestAmount,
+    },
+  };
 }
 
 export async function deleteTransaction(request, reply) {

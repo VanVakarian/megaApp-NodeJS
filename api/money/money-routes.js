@@ -122,6 +122,13 @@ export async function moneyRoutes(fastify) {
     handler: moneyController.getTransactions,
   });
 
+  fastify.get('/trades', {
+    schema: transactionSchemas.getInvestAssetTrades,
+    preValidation: [authController.authMiddleware],
+    compress: false,
+    handler: moneyController.getInvestAssetTrades,
+  });
+
   fastify.get('/rate-history', {
     schema: rateHistorySchemas.getRateHistory,
     preValidation: [authController.authMiddleware],
