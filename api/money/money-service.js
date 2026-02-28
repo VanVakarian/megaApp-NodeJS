@@ -33,6 +33,7 @@ export function isAccountKindValid(kind) {
 export const ASSET_TYPE = {
   STOCK: 'stock',
   BOND: 'bond',
+  CRYPTO: 'crypto',
 };
 
 export function isAssetTypeValid(type) {

@@ -12,9 +12,18 @@ export const SEED_MONEY_DATA = {
       whitespace: 0,
     },
   ],
+  moneyAccount: [
+    {
+      id: 1,
+      title: 'My Brokerage Account',
+      currencyId: 1,
+      isInvest: 1,
+      kind: 'brokerage',
+    },
+  ],
   moneyAsset: [
-    { id: 1, ticker: 'SBER', title: 'Сбербанк', type: 'stock' },
-    { id: 2, ticker: '29012', title: 'ОФЗ-29012-ПК', type: 'bond' },
+    { id: 1, ticker: 'SBER', title: 'Сбербанк', type: 'stock', accountId: 1 },
+    { id: 2, ticker: '29012', title: 'ОФЗ-29012-ПК', type: 'bond', accountId: 1 },
   ],
 };
 

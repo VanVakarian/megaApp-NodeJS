@@ -238,6 +238,22 @@ export async function countTransactionsByAccount(accountId, userId) {
   return result?.count ?? 0;
 }
 
+export async function countAssetsByAccount(accountId, userId) {
+  const db = await getConnection();
+  const result = await db.get(
+    `
+    SELECT
+      COUNT(*) as count
+    FROM
+      moneyAsset
+    WHERE
+      accountId = ? AND userId = ?;
+    `,
+    [accountId, userId],
+  );
+  return result?.count ?? 0;
+}
+
 export async function createAccount(title, currencyId, isInvest, kind, userId) {
   const db = await getConnection();
   const result = await db.run(
@@ -289,7 +305,7 @@ export async function getAllAssets(userId) {
   return await db.all(
     `
     SELECT
-      id, title, ticker, type
+      id, title, ticker, type, accountId
     FROM
       moneyAsset
     WHERE
@@ -306,7 +322,7 @@ export async function getAssetById(assetId, userId) {
   return await db.get(
     `
     SELECT
-      id, title, ticker, type
+      id, title, ticker, type, accountId
     FROM
       moneyAsset
     WHERE
@@ -336,33 +352,33 @@ export async function countTransactionsByAsset(assetId, userId) {
   return result?.count ?? 0;
 }
 
-export async function createAsset(title, ticker, type, userId) {
+export async function createAsset(title, ticker, type, accountId, userId) {
   const db = await getConnection();
   const result = await db.run(
     `
     INSERT INTO
-      moneyAsset (title, ticker, type, userId)
+      moneyAsset (title, ticker, type, accountId, userId)
     VALUES
-      (?, ?, ?, ?);
+      (?, ?, ?, ?, ?);
     `,
-    [title, ticker, type, userId],
+    [title, ticker, type, accountId, userId],
   );
 
   return result.lastID;
 }
 
-export async function updateAsset(assetId, title, ticker, type, userId) {
+export async function updateAsset(assetId, title, ticker, type, accountId, userId) {
   const db = await getConnection();
   const result = await db.run(
     `
     UPDATE
       moneyAsset
     SET
-      title = ?, ticker = ?, type = ?
+      title = ?, ticker = ?, type = ?, accountId = ?
     WHERE
       id = ? AND userId = ?;
     `,
-    [title, ticker, type, assetId, userId],
+    [title, ticker, type, accountId, assetId, userId],
   );
 
   return result.changes;

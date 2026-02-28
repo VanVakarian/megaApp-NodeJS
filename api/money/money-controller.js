@@ -514,6 +514,14 @@ export async function deleteAccount(request, reply) {
       });
     }
 
+    const linkedAssetsCount = await dbMoney.countAssetsByAccount(id, user.id);
+    if (linkedAssetsCount > 0) {
+      return reply.status(409).send({
+        success: false,
+        error: 'Account is linked to existing assets',
+      });
+    }
+
     const changedRows = await dbMoney.deleteAccount(id, user.id);
 
     if (changedRows === 0) {
@@ -559,13 +567,14 @@ export async function getAssets(request, reply) {
 export async function createAsset(request, reply) {
   try {
     const { user } = request;
-    const { title, ticker, type } = request.body;
+    const { title, ticker, type, accountId } = request.body;
 
     const missingFields = [];
 
     if (!title) missingFields.push('title');
     if (!ticker) missingFields.push('ticker');
     if (!type) missingFields.push('type');
+    if (!accountId) missingFields.push('accountId');
 
     if (missingFields.length > 0) {
       return reply.status(400).send({
@@ -581,7 +590,22 @@ export async function createAsset(request, reply) {
       });
     }
 
-    const assetId = await dbMoney.createAsset(title, ticker, type, user.id);
+    const account = await dbMoney.getAccountById(accountId, user.id);
+    if (!account) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Account not found',
+      });
+    }
+
+    if (account.kind !== ACCOUNT_KIND.BROKERAGE) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Asset account must be brokerage',
+      });
+    }
+
+    const assetId = await dbMoney.createAsset(title, ticker, type, accountId, user.id);
 
     reply.status(201).send({
       success: true,
@@ -600,13 +624,14 @@ export async function updateAsset(request, reply) {
   try {
     const { user } = request;
     const { id } = request.params;
-    const { title, ticker, type } = request.body;
+    const { title, ticker, type, accountId } = request.body;
 
     const missingFields = [];
 
     if (!title) missingFields.push('title');
     if (!ticker) missingFields.push('ticker');
     if (!type) missingFields.push('type');
+    if (!accountId) missingFields.push('accountId');
 
     if (missingFields.length > 0) {
       return reply.status(400).send({
@@ -622,15 +647,40 @@ export async function updateAsset(request, reply) {
       });
     }
 
-    const isAssetExist = await dbMoney.getAssetById(id, user.id);
-    if (!isAssetExist) {
+    const existingAsset = await dbMoney.getAssetById(id, user.id);
+    if (!existingAsset) {
       return reply.status(404).send({
         success: false,
         error: 'Asset not found',
       });
     }
 
-    const changedRows = await dbMoney.updateAsset(id, title, ticker, type, user.id);
+    const account = await dbMoney.getAccountById(accountId, user.id);
+    if (!account) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Account not found',
+      });
+    }
+
+    if (account.kind !== ACCOUNT_KIND.BROKERAGE) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Asset account must be brokerage',
+      });
+    }
+
+    if (Number(existingAsset.accountId) !== Number(accountId)) {
+      const linkedTransactionsCount = await dbMoney.countTransactionsByAsset(id, user.id);
+      if (linkedTransactionsCount > 0) {
+        return reply.status(409).send({
+          success: false,
+          error: 'Asset account cannot be changed for linked asset',
+        });
+      }
+    }
+
+    const changedRows = await dbMoney.updateAsset(id, title, ticker, type, accountId, user.id);
 
     if (changedRows === 0) {
       return reply.status(404).send({
@@ -863,10 +913,10 @@ export async function createTransaction(request, reply) {
     }
 
     if (isInvestKind) {
-      if (!account.isInvest) {
+      if (account.kind !== ACCOUNT_KIND.BROKERAGE) {
         return reply.status(400).send({
           success: false,
-          error: 'Invest transaction requires invest account',
+          error: 'Invest transaction requires brokerage account',
         });
       }
 
@@ -898,6 +948,13 @@ export async function createTransaction(request, reply) {
         return reply.status(400).send({
           success: false,
           error: 'Asset not found',
+        });
+      }
+
+      if (Number(asset.accountId) !== Number(accountId)) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Asset does not belong to selected account',
         });
       }
 
@@ -1158,10 +1215,10 @@ export async function updateTransaction(request, reply) {
         });
       }
 
-      if (!account.isInvest) {
+      if (account.kind !== ACCOUNT_KIND.BROKERAGE) {
         return reply.status(400).send({
           success: false,
-          error: 'Invest transaction requires invest account',
+          error: 'Invest transaction requires brokerage account',
         });
       }
 
@@ -1203,6 +1260,13 @@ export async function updateTransaction(request, reply) {
         return reply.status(400).send({
           success: false,
           error: 'Asset not found',
+        });
+      }
+
+      if (Number(asset.accountId) !== Number(accountId)) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Asset does not belong to selected account',
         });
       }
 

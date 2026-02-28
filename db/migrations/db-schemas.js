@@ -638,10 +638,12 @@ const dbVersion005 = [
   CREATE TABLE IF NOT EXISTS moneyAsset (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     userId INTEGER NOT NULL,
+    accountId INTEGER NOT NULL,
     ticker TEXT NOT NULL,
     title TEXT NOT NULL,
-    type TEXT NOT NULL CHECK(type IN ('stock', 'bond')),
-    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+    type TEXT NOT NULL CHECK(type IN ('stock', 'bond', 'crypto')),
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (accountId) REFERENCES moneyAccount(id) ON DELETE RESTRICT
   );
   `,
 
