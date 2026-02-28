@@ -550,10 +550,11 @@ export async function getAssets(request, reply) {
   try {
     const { user } = request;
     const assets = await dbMoney.getAllAssets(user.id);
+    const normalizedAssets = assets.map((asset) => normalizeAssetFromDB(asset));
 
     reply.send({
       success: true,
-      data: assets,
+      data: normalizedAssets,
     });
   } catch (error) {
     reply.status(500).send({
@@ -567,14 +568,14 @@ export async function getAssets(request, reply) {
 export async function createAsset(request, reply) {
   try {
     const { user } = request;
-    const { title, ticker, type, accountId } = request.body;
+    const { title, ticker, type, accountIds } = request.body;
 
     const missingFields = [];
 
     if (!title) missingFields.push('title');
     if (!ticker) missingFields.push('ticker');
     if (!type) missingFields.push('type');
-    if (!accountId) missingFields.push('accountId');
+    if (!accountIds) missingFields.push('accountIds');
 
     if (missingFields.length > 0) {
       return reply.status(400).send({
@@ -590,22 +591,33 @@ export async function createAsset(request, reply) {
       });
     }
 
-    const account = await dbMoney.getAccountById(accountId, user.id);
-    if (!account) {
+    const normalizedAccountIds = normalizeAccountIds(accountIds);
+    if (normalizedAccountIds.length === 0) {
       return reply.status(400).send({
         success: false,
-        error: 'Account not found',
+        error: 'accountIds must contain at least one brokerage account id',
       });
     }
 
-    if (account.kind !== ACCOUNT_KIND.BROKERAGE) {
-      return reply.status(400).send({
-        success: false,
-        error: 'Asset account must be brokerage',
-      });
+    for (const currentAccountId of normalizedAccountIds) {
+      const account = await dbMoney.getAccountById(currentAccountId, user.id);
+      if (!account) {
+        return reply.status(400).send({
+          success: false,
+          error: `Account not found: ${currentAccountId}`,
+        });
+      }
+
+      if (account.kind !== ACCOUNT_KIND.BROKERAGE) {
+        return reply.status(400).send({
+          success: false,
+          error: `Asset account must be brokerage: ${currentAccountId}`,
+        });
+      }
     }
 
-    const assetId = await dbMoney.createAsset(title, ticker, type, accountId, user.id);
+    const accountIdsJSON = JSON.stringify(normalizedAccountIds);
+    const assetId = await dbMoney.createAsset(title, ticker, type, accountIdsJSON, user.id);
 
     reply.status(201).send({
       success: true,
@@ -624,14 +636,14 @@ export async function updateAsset(request, reply) {
   try {
     const { user } = request;
     const { id } = request.params;
-    const { title, ticker, type, accountId } = request.body;
+    const { title, ticker, type, accountIds } = request.body;
 
     const missingFields = [];
 
     if (!title) missingFields.push('title');
     if (!ticker) missingFields.push('ticker');
     if (!type) missingFields.push('type');
-    if (!accountId) missingFields.push('accountId');
+    if (!accountIds) missingFields.push('accountIds');
 
     if (missingFields.length > 0) {
       return reply.status(400).send({
@@ -647,7 +659,8 @@ export async function updateAsset(request, reply) {
       });
     }
 
-    const existingAsset = await dbMoney.getAssetById(id, user.id);
+    const existingAssetRaw = await dbMoney.getAssetById(id, user.id);
+    const existingAsset = normalizeAssetFromDB(existingAssetRaw);
     if (!existingAsset) {
       return reply.status(404).send({
         success: false,
@@ -655,32 +668,47 @@ export async function updateAsset(request, reply) {
       });
     }
 
-    const account = await dbMoney.getAccountById(accountId, user.id);
-    if (!account) {
+    const normalizedAccountIds = normalizeAccountIds(accountIds);
+    if (normalizedAccountIds.length === 0) {
       return reply.status(400).send({
         success: false,
-        error: 'Account not found',
+        error: 'accountIds must contain at least one brokerage account id',
       });
     }
 
-    if (account.kind !== ACCOUNT_KIND.BROKERAGE) {
-      return reply.status(400).send({
-        success: false,
-        error: 'Asset account must be brokerage',
-      });
-    }
-
-    if (Number(existingAsset.accountId) !== Number(accountId)) {
-      const linkedTransactionsCount = await dbMoney.countTransactionsByAsset(id, user.id);
-      if (linkedTransactionsCount > 0) {
-        return reply.status(409).send({
+    for (const currentAccountId of normalizedAccountIds) {
+      const account = await dbMoney.getAccountById(currentAccountId, user.id);
+      if (!account) {
+        return reply.status(400).send({
           success: false,
-          error: 'Asset account cannot be changed for linked asset',
+          error: `Account not found: ${currentAccountId}`,
+        });
+      }
+
+      if (account.kind !== ACCOUNT_KIND.BROKERAGE) {
+        return reply.status(400).send({
+          success: false,
+          error: `Asset account must be brokerage: ${currentAccountId}`,
         });
       }
     }
 
-    const changedRows = await dbMoney.updateAsset(id, title, ticker, type, accountId, user.id);
+    if (!isSameIdList(existingAsset.accountIds, normalizedAccountIds)) {
+      const linkedAccountIds = await dbMoney.getLinkedTransactionAccountIdsByAsset(id, user.id);
+      const isAnyLinkedAccountRemoved = linkedAccountIds.some(
+        (linkedAccountId) => !normalizedAccountIds.includes(Number(linkedAccountId)),
+      );
+
+      if (isAnyLinkedAccountRemoved) {
+        return reply.status(409).send({
+          success: false,
+          error: 'Asset accounts linked to existing transactions cannot be removed',
+        });
+      }
+    }
+
+    const accountIdsJSON = JSON.stringify(normalizedAccountIds);
+    const changedRows = await dbMoney.updateAsset(id, title, ticker, type, accountIdsJSON, user.id);
 
     if (changedRows === 0) {
       return reply.status(404).send({
@@ -943,7 +971,8 @@ export async function createTransaction(request, reply) {
         });
       }
 
-      const asset = await dbMoney.getAssetById(assetId, user.id);
+      const assetRaw = await dbMoney.getAssetById(assetId, user.id);
+      const asset = normalizeAssetFromDB(assetRaw);
       if (!asset) {
         return reply.status(400).send({
           success: false,
@@ -951,7 +980,7 @@ export async function createTransaction(request, reply) {
         });
       }
 
-      if (Number(asset.accountId) !== Number(accountId)) {
+      if (!assetHasAccountId(asset, accountId)) {
         return reply.status(400).send({
           success: false,
           error: 'Asset does not belong to selected account',
@@ -1255,7 +1284,8 @@ export async function updateTransaction(request, reply) {
         });
       }
 
-      const asset = await dbMoney.getAssetById(nextAssetId, user.id);
+      const assetRaw = await dbMoney.getAssetById(nextAssetId, user.id);
+      const asset = normalizeAssetFromDB(assetRaw);
       if (!asset) {
         return reply.status(400).send({
           success: false,
@@ -1263,7 +1293,7 @@ export async function updateTransaction(request, reply) {
         });
       }
 
-      if (Number(asset.accountId) !== Number(accountId)) {
+      if (!assetHasAccountId(asset, accountId)) {
         return reply.status(400).send({
           success: false,
           error: 'Asset does not belong to selected account',
@@ -1407,6 +1437,59 @@ function normalizeDetailsJSON(value) {
   }
 
   return null;
+}
+
+function normalizeAccountIds(value) {
+  let input = value;
+
+  if (typeof input === 'string') {
+    try {
+      input = JSON.parse(input);
+    } catch {
+      return [];
+    }
+  }
+
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  const normalized = input.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0);
+
+  return Array.from(new Set(normalized)).sort((first, second) => first - second);
+}
+
+function normalizeAssetFromDB(asset) {
+  if (!asset) return null;
+
+  const accountIds = normalizeAccountIds(asset.accountIdsJSON);
+
+  return {
+    id: asset.id,
+    title: asset.title,
+    ticker: asset.ticker,
+    type: asset.type,
+    accountIds,
+  };
+}
+
+function isSameIdList(first, second) {
+  if (first.length !== second.length) return false;
+  for (let index = 0; index < first.length; index += 1) {
+    if (Number(first[index]) !== Number(second[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function assetHasAccountId(asset, accountId) {
+  const accountIdNumber = Number(accountId);
+  if (!Number.isInteger(accountIdNumber) || accountIdNumber <= 0) {
+    return false;
+  }
+
+  return asset.accountIds.includes(accountIdNumber);
 }
 
 function toFiniteNumber(value) {

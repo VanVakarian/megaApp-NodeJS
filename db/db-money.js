@@ -243,13 +243,15 @@ export async function countAssetsByAccount(accountId, userId) {
   const result = await db.get(
     `
     SELECT
-      COUNT(*) as count
+      COUNT(DISTINCT a.id) as count
     FROM
-      moneyAsset
+      moneyAsset a,
+      json_each(a.accountIdsJSON) j
     WHERE
-      accountId = ? AND userId = ?;
+      a.userId = ?
+      AND CAST(j.value AS INTEGER) = ?;
     `,
-    [accountId, userId],
+    [userId, accountId],
   );
   return result?.count ?? 0;
 }
@@ -305,7 +307,7 @@ export async function getAllAssets(userId) {
   return await db.all(
     `
     SELECT
-      id, title, ticker, type, accountId
+      id, title, ticker, type, accountIdsJSON
     FROM
       moneyAsset
     WHERE
@@ -322,7 +324,7 @@ export async function getAssetById(assetId, userId) {
   return await db.get(
     `
     SELECT
-      id, title, ticker, type, accountId
+      id, title, ticker, type, accountIdsJSON
     FROM
       moneyAsset
     WHERE
@@ -352,33 +354,53 @@ export async function countTransactionsByAsset(assetId, userId) {
   return result?.count ?? 0;
 }
 
-export async function createAsset(title, ticker, type, accountId, userId) {
+export async function getLinkedTransactionAccountIdsByAsset(assetId, userId) {
+  const db = await getConnection();
+  const rows = await db.all(
+    `
+    SELECT DISTINCT
+      accountId
+    FROM
+      moneyTransaction
+    WHERE
+      userId = ?
+      AND detailsJSON IS NOT NULL
+      AND json_valid(detailsJSON) = 1
+      AND CAST(json_extract(detailsJSON, '$.assetId') AS INTEGER) = ?;
+    `,
+    [userId, assetId],
+  );
+
+  return rows.map((row) => row.accountId);
+}
+
+export async function createAsset(title, ticker, type, accountIdsJSON, userId) {
   const db = await getConnection();
   const result = await db.run(
     `
     INSERT INTO
-      moneyAsset (title, ticker, type, accountId, userId)
+      moneyAsset (title, ticker, type, accountIdsJSON, userId)
     VALUES
       (?, ?, ?, ?, ?);
     `,
-    [title, ticker, type, accountId, userId],
+    [title, ticker, type, accountIdsJSON, userId],
   );
 
   return result.lastID;
 }
 
-export async function updateAsset(assetId, title, ticker, type, accountId, userId) {
+export async function updateAsset(assetId, title, ticker, type, accountIdsJSON, userId) {
   const db = await getConnection();
   const result = await db.run(
     `
     UPDATE
       moneyAsset
     SET
-      title = ?, ticker = ?, type = ?, accountId = ?
+      title = ?, ticker = ?, type = ?, accountIdsJSON = ?
     WHERE
       id = ? AND userId = ?;
     `,
-    [title, ticker, type, accountId, assetId, userId],
+    [title, ticker, type, accountIdsJSON, assetId, userId],
   );
 
   return result.changes;

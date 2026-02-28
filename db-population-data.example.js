@@ -22,8 +22,8 @@ export const SEED_MONEY_DATA = {
     },
   ],
   moneyAsset: [
-    { id: 1, ticker: 'SBER', title: 'Сбербанк', type: 'stock', accountId: 1 },
-    { id: 2, ticker: '29012', title: 'ОФЗ-29012-ПК', type: 'bond', accountId: 1 },
+    { id: 1, ticker: 'SBER', title: 'Сбербанк', type: 'stock', accountIdsJSON: [1] },
+    { id: 2, ticker: '29012', title: 'ОФЗ-29012-ПК', type: 'bond', accountIdsJSON: [1] },
   ],
 };
 

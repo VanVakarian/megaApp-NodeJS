@@ -44,12 +44,11 @@ export const migration004to005 = [
   CREATE TABLE moneyAsset (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     userId INTEGER NOT NULL,
-    accountId INTEGER NOT NULL,
+    accountIdsJSON TEXT NOT NULL CHECK(json_valid(accountIdsJSON) = 1 AND json_type(accountIdsJSON) = 'array' AND json_array_length(accountIdsJSON) > 0),
     ticker TEXT NOT NULL,
     title TEXT NOT NULL,
     type TEXT NOT NULL CHECK(type IN ('stock', 'bond', 'crypto')),
-    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (accountId) REFERENCES moneyAccount(id) ON DELETE RESTRICT
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
   );
   `,
   `
