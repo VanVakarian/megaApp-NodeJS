@@ -39,6 +39,7 @@ export async function moneyRoutes(fastify) {
   fastify.get('/categories', {
     schema: categorySchemas.getCategories,
     preValidation: [authController.authMiddleware],
+    compress: false,
     handler: moneyController.getCategories,
   });
 
@@ -65,6 +66,7 @@ export async function moneyRoutes(fastify) {
   fastify.get('/accounts', {
     schema: accountSchemas.getAccounts,
     preValidation: [authController.authMiddleware],
+    compress: false,
     handler: moneyController.getAccounts,
   });
 
