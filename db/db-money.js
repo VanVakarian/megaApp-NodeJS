@@ -307,7 +307,7 @@ export async function getAllAssets(userId) {
   return await db.all(
     `
     SELECT
-      id, title, ticker, type, accountIdsJSON
+      id, title, ticker, type, accountIdsJSON, suspendedSince, suspendedUntil
     FROM
       moneyAsset
     WHERE
@@ -324,7 +324,7 @@ export async function getAssetById(assetId, userId) {
   return await db.get(
     `
     SELECT
-      id, title, ticker, type, accountIdsJSON
+      id, title, ticker, type, accountIdsJSON, suspendedSince, suspendedUntil
     FROM
       moneyAsset
     WHERE
@@ -374,33 +374,42 @@ export async function getLinkedTransactionAccountIdsByAsset(assetId, userId) {
   return rows.map((row) => row.accountId);
 }
 
-export async function createAsset(title, ticker, type, accountIdsJSON, userId) {
+export async function createAsset(title, ticker, type, accountIdsJSON, suspendedSince, suspendedUntil, userId) {
   const db = await getConnection();
   const result = await db.run(
     `
     INSERT INTO
-      moneyAsset (title, ticker, type, accountIdsJSON, userId)
+      moneyAsset (title, ticker, type, accountIdsJSON, suspendedSince, suspendedUntil, userId)
     VALUES
-      (?, ?, ?, ?, ?);
+      (?, ?, ?, ?, ?, ?, ?);
     `,
-    [title, ticker, type, accountIdsJSON, userId],
+    [title, ticker, type, accountIdsJSON, suspendedSince, suspendedUntil, userId],
   );
 
   return result.lastID;
 }
 
-export async function updateAsset(assetId, title, ticker, type, accountIdsJSON, userId) {
+export async function updateAsset(
+  assetId,
+  title,
+  ticker,
+  type,
+  accountIdsJSON,
+  suspendedSince,
+  suspendedUntil,
+  userId,
+) {
   const db = await getConnection();
   const result = await db.run(
     `
     UPDATE
       moneyAsset
     SET
-      title = ?, ticker = ?, type = ?, accountIdsJSON = ?
+      title = ?, ticker = ?, type = ?, accountIdsJSON = ?, suspendedSince = ?, suspendedUntil = ?
     WHERE
       id = ? AND userId = ?;
     `,
-    [title, ticker, type, accountIdsJSON, assetId, userId],
+    [title, ticker, type, accountIdsJSON, suspendedSince, suspendedUntil, assetId, userId],
   );
 
   return result.changes;

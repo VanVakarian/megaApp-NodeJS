@@ -642,6 +642,8 @@ const dbVersion005 = [
     ticker TEXT NOT NULL,
     title TEXT NOT NULL,
     type TEXT NOT NULL CHECK(type IN ('stock', 'bond', 'crypto')),
+    suspendedSince TEXT,
+    suspendedUntil TEXT,
     FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
   );
   `,

@@ -616,8 +616,29 @@ export async function createAsset(request, reply) {
       }
     }
 
+    const { suspendedSince = null, suspendedUntil = null } = request.body;
+    const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+    if (suspendedSince !== null && !ISO_DATE.test(suspendedSince)) {
+      return reply.status(400).send({ success: false, error: 'suspendedSince must be a date in YYYY-MM-DD format' });
+    }
+    if (suspendedUntil !== null && !ISO_DATE.test(suspendedUntil)) {
+      return reply.status(400).send({ success: false, error: 'suspendedUntil must be a date in YYYY-MM-DD format' });
+    }
+    if (suspendedUntil !== null && suspendedSince === null) {
+      return reply.status(400).send({ success: false, error: 'suspendedUntil requires suspendedSince to be set' });
+    }
+
     const accountIdsJSON = JSON.stringify(normalizedAccountIds);
-    const assetId = await dbMoney.createAsset(title, ticker, type, accountIdsJSON, user.id);
+    const assetId = await dbMoney.createAsset(
+      title,
+      ticker,
+      type,
+      accountIdsJSON,
+      suspendedSince,
+      suspendedUntil,
+      user.id,
+    );
 
     reply.status(201).send({
       success: true,
@@ -707,8 +728,30 @@ export async function updateAsset(request, reply) {
       }
     }
 
+    const { suspendedSince = null, suspendedUntil = null } = request.body;
+    const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+    if (suspendedSince !== null && !ISO_DATE.test(suspendedSince)) {
+      return reply.status(400).send({ success: false, error: 'suspendedSince must be a date in YYYY-MM-DD format' });
+    }
+    if (suspendedUntil !== null && !ISO_DATE.test(suspendedUntil)) {
+      return reply.status(400).send({ success: false, error: 'suspendedUntil must be a date in YYYY-MM-DD format' });
+    }
+    if (suspendedUntil !== null && suspendedSince === null) {
+      return reply.status(400).send({ success: false, error: 'suspendedUntil requires suspendedSince to be set' });
+    }
+
     const accountIdsJSON = JSON.stringify(normalizedAccountIds);
-    const changedRows = await dbMoney.updateAsset(id, title, ticker, type, accountIdsJSON, user.id);
+    const changedRows = await dbMoney.updateAsset(
+      id,
+      title,
+      ticker,
+      type,
+      accountIdsJSON,
+      suspendedSince,
+      suspendedUntil,
+      user.id,
+    );
 
     if (changedRows === 0) {
       return reply.status(404).send({
@@ -1470,6 +1513,8 @@ function normalizeAssetFromDB(asset) {
     ticker: asset.ticker,
     type: asset.type,
     accountIds,
+    suspendedSince: asset.suspendedSince ?? null,
+    suspendedUntil: asset.suspendedUntil ?? null,
   };
 }
 
