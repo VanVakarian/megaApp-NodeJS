@@ -59,7 +59,7 @@ export const migration004to005 = [
     userId INTEGER NOT NULL,
     dateISO TEXT NOT NULL,
     accountId INTEGER NOT NULL,
-    amount REAL NOT NULL CHECK(amount > 0),
+    amount REAL NOT NULL CHECK(amount >= 0),
     categoryId INTEGER,
     kind TEXT NOT NULL,
     isGift BOOLEAN NOT NULL DEFAULT 0,
