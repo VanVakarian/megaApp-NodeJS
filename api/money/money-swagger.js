@@ -49,6 +49,66 @@ const paramWithID = {
   required: ['id'],
 };
 
+//                                                        ~~~ ORGANIZATIONS ~~~
+
+export const organizationSchemas = {
+  getOrganizations: {
+    tags: ['money'],
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean' },
+          data: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'integer' },
+                title: { type: 'string' },
+                logoBase64: { type: 'string', nullable: true },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+
+  createOrganization: {
+    tags: ['money'],
+    body: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        logoBase64: { type: 'string', nullable: true },
+      },
+      required: ['title'],
+    },
+    response: { 201: responseWithID },
+  },
+
+  updateOrganization: {
+    tags: ['money'],
+    params: paramWithID,
+    body: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        logoBase64: { type: 'string', nullable: true },
+      },
+      required: ['title'],
+    },
+    response: { 200: successResponse },
+  },
+
+  deleteOrganization: {
+    tags: ['money'],
+    params: paramWithID,
+    response: { 200: successResponse, 409: conflictResponse },
+  },
+};
+
 //                                                            ~~~ CURRENCIES ~~~
 
 export const currencySchemas = {
@@ -201,6 +261,7 @@ export const accountSchemas = {
                 currencyId: { type: 'integer' },
                 isInvest: { type: 'boolean' },
                 kind: { type: 'string', enum: ['cash', 'card', 'checking', 'deposit', 'brokerage', 'crypto'] },
+                organizationId: { type: 'integer', nullable: true },
               },
             },
           },
@@ -218,6 +279,7 @@ export const accountSchemas = {
         currencyId: { type: 'integer' },
         isInvest: { type: 'boolean' },
         kind: { type: 'string', enum: ['cash', 'card', 'checking', 'deposit', 'brokerage', 'crypto'] },
+        organizationId: { type: 'integer', nullable: true },
       },
       required: ['title', 'currencyId', 'kind'],
     },
@@ -234,6 +296,7 @@ export const accountSchemas = {
         currencyId: { type: 'integer' },
         isInvest: { type: 'boolean' },
         kind: { type: 'string', enum: ['cash', 'card', 'checking', 'deposit', 'brokerage', 'crypto'] },
+        organizationId: { type: 'integer', nullable: true },
       },
       required: ['title', 'currencyId', 'kind'],
     },

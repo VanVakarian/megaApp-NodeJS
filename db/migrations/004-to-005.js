@@ -29,6 +29,15 @@ export const migration004to005 = [
   );
   `,
   `
+  CREATE TABLE moneyOrganization (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    logoBase64 TEXT,
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+  );
+  `,
+  `
   CREATE TABLE moneyAccount (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     userId INTEGER NOT NULL,
@@ -36,8 +45,10 @@ export const migration004to005 = [
     currencyId INTEGER NOT NULL,
     isInvest BOOLEAN NOT NULL DEFAULT 0,
     kind TEXT NOT NULL,
+    organizationId INTEGER,
     FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (currencyId) REFERENCES moneyCurrency(id) ON DELETE RESTRICT
+    FOREIGN KEY (currencyId) REFERENCES moneyCurrency(id) ON DELETE RESTRICT,
+    FOREIGN KEY (organizationId) REFERENCES moneyOrganization(id) ON DELETE SET NULL
   );
   `,
   `

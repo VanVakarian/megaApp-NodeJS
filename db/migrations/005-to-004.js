@@ -3,6 +3,7 @@ export const migration005to004 = [
   'DROP TABLE IF EXISTS moneyTransaction;',
   'DROP TABLE IF EXISTS moneyAsset;',
   'DROP TABLE IF EXISTS moneyAccount;',
+  'DROP TABLE IF EXISTS moneyOrganization;',
   'DROP TABLE IF EXISTS moneyCategories;',
   `
   CREATE TABLE moneyCategories (

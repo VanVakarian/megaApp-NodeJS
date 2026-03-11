@@ -1,5 +1,99 @@
 import { getConnection } from './db.js';
 
+//                                                        ~~~ ORGANIZATIONS ~~~
+
+export async function getAllOrganizations(userId) {
+  const db = await getConnection();
+  return await db.all(
+    `
+    SELECT
+      id, title, logoBase64
+    FROM
+      moneyOrganization
+    WHERE
+      userId = ?
+    ORDER BY
+      title ASC;
+    `,
+    [userId],
+  );
+}
+
+export async function getOrganizationById(organizationId, userId) {
+  const db = await getConnection();
+  return await db.get(
+    `
+    SELECT
+      id, title, logoBase64
+    FROM
+      moneyOrganization
+    WHERE
+      id = ? AND userId = ?;
+    `,
+    [organizationId, userId],
+  );
+}
+
+export async function countAccountsByOrganization(organizationId, userId) {
+  const db = await getConnection();
+  const result = await db.get(
+    `
+    SELECT
+      COUNT(*) as count
+    FROM
+      moneyAccount
+    WHERE
+      organizationId = ? AND userId = ?;
+    `,
+    [organizationId, userId],
+  );
+  return result?.count ?? 0;
+}
+
+export async function createOrganization(title, logoBase64, userId) {
+  const db = await getConnection();
+  const result = await db.run(
+    `
+    INSERT INTO
+      moneyOrganization (title, logoBase64, userId)
+    VALUES
+      (?, ?, ?);
+    `,
+    [title, logoBase64 ?? null, userId],
+  );
+  return result.lastID;
+}
+
+export async function updateOrganization(organizationId, title, logoBase64, userId) {
+  const db = await getConnection();
+  const result = await db.run(
+    `
+    UPDATE
+      moneyOrganization
+    SET
+      title = ?, logoBase64 = ?
+    WHERE
+      id = ? AND userId = ?;
+    `,
+    [title, logoBase64 ?? null, organizationId, userId],
+  );
+  return result.changes;
+}
+
+export async function deleteOrganization(organizationId, userId) {
+  const db = await getConnection();
+  const result = await db.run(
+    `
+    DELETE FROM
+      moneyOrganization
+    WHERE
+      id = ? AND userId = ?;
+    `,
+    [organizationId, userId],
+  );
+  return result.changes;
+}
+
 //                                                            ~~~ CURRENCIES ~~~
 
 export async function getAllCurrencies(userId) {
@@ -195,7 +289,7 @@ export async function getAllAccounts(userId) {
   return await db.all(
     `
     SELECT
-      id, title, currencyId, isInvest, kind
+      id, title, currencyId, isInvest, kind, organizationId
     FROM
       moneyAccount
     WHERE
@@ -212,7 +306,7 @@ export async function getAccountById(accountId, userId) {
   return await db.get(
     `
     SELECT
-      id, title, currencyId, isInvest, kind
+      id, title, currencyId, isInvest, kind, organizationId
     FROM
       moneyAccount
     WHERE
@@ -256,32 +350,32 @@ export async function countAssetsByAccount(accountId, userId) {
   return result?.count ?? 0;
 }
 
-export async function createAccount(title, currencyId, isInvest, kind, userId) {
+export async function createAccount(title, currencyId, isInvest, kind, organizationId, userId) {
   const db = await getConnection();
   const result = await db.run(
     `
     INSERT INTO
-      moneyAccount (title, currencyId, isInvest, kind, userId)
+      moneyAccount (title, currencyId, isInvest, kind, organizationId, userId)
     VALUES
-      (?, ?, ?, ?, ?);
+      (?, ?, ?, ?, ?, ?);
     `,
-    [title, currencyId, isInvest, kind, userId],
+    [title, currencyId, isInvest, kind, organizationId ?? null, userId],
   );
   return result.lastID;
 }
 
-export async function updateAccount(accountId, title, currencyId, isInvest, kind, userId) {
+export async function updateAccount(accountId, title, currencyId, isInvest, kind, organizationId, userId) {
   const db = await getConnection();
   const result = await db.run(
     `
     UPDATE
       moneyAccount
     SET
-      title = ?, currencyId = ?, isInvest = ?, kind = ?
+      title = ?, currencyId = ?, isInvest = ?, kind = ?, organizationId = ?
     WHERE
       id = ? AND userId = ?;
     `,
-    [title, currencyId, isInvest, kind, accountId, userId],
+    [title, currencyId, isInvest, kind, organizationId ?? null, accountId, userId],
   );
   return result.changes;
 }

@@ -1,3 +1,4 @@
+import sharp from 'sharp';
 import * as dbMoney from '../../db/db-money.js';
 import {
   ACCOUNT_KIND,
@@ -11,6 +12,153 @@ import {
   SYMBOL_POSITION,
   TRANSACTION_KIND,
 } from './money-service.js';
+
+//                                                         ~~~ ORGANIZATIONS ~~~
+
+async function resizeLogoBase64(logoBase64) {
+  if (!logoBase64) return null;
+  const buffer = Buffer.from(logoBase64, 'base64');
+  const metadata = await sharp(buffer).metadata();
+  if (metadata.width <= 32 && metadata.height <= 32) return logoBase64;
+  const resized = await sharp(buffer).resize(32, 32, { fit: 'cover', kernel: sharp.kernel.lanczos3 }).png().toBuffer();
+  return resized.toString('base64');
+}
+
+export async function getOrganizations(request, reply) {
+  try {
+    const { user } = request;
+    const organizations = await dbMoney.getAllOrganizations(user.id);
+
+    reply.send({
+      success: true,
+      data: organizations,
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to get organizations',
+      message: error.message,
+    });
+  }
+}
+
+export async function createOrganization(request, reply) {
+  try {
+    const { user } = request;
+    const { title, logoBase64 } = request.body;
+
+    if (!title) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Missing required fields: title',
+      });
+    }
+
+    const organizationId = await dbMoney.createOrganization(title, await resizeLogoBase64(logoBase64 ?? null), user.id);
+
+    reply.status(201).send({
+      success: true,
+      data: { id: organizationId },
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to create organization',
+      message: error.message,
+    });
+  }
+}
+
+export async function updateOrganization(request, reply) {
+  try {
+    const { user } = request;
+    const { id } = request.params;
+    const { title, logoBase64 } = request.body;
+
+    if (!title) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Missing required fields: title',
+      });
+    }
+
+    const isOrganizationExist = await dbMoney.getOrganizationById(id, user.id);
+    if (!isOrganizationExist) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Organization not found',
+      });
+    }
+
+    const changedRows = await dbMoney.updateOrganization(
+      id,
+      title,
+      await resizeLogoBase64(logoBase64 ?? null),
+      user.id,
+    );
+
+    if (changedRows === 0) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Organization not found',
+      });
+    }
+
+    reply.send({
+      success: true,
+      message: 'Organization updated successfully',
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to update organization',
+      message: error.message,
+    });
+  }
+}
+
+export async function deleteOrganization(request, reply) {
+  try {
+    const { user } = request;
+    const { id } = request.params;
+
+    const organization = await dbMoney.getOrganizationById(id, user.id);
+    if (!organization) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Organization not found',
+      });
+    }
+
+    const linkedAccountsCount = await dbMoney.countAccountsByOrganization(id, user.id);
+    if (linkedAccountsCount > 0) {
+      return reply.status(409).send({
+        success: false,
+        error: 'Organization is linked to existing accounts',
+      });
+    }
+
+    const changedRows = await dbMoney.deleteOrganization(id, user.id);
+
+    if (changedRows === 0) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Organization not found',
+      });
+    }
+
+    reply.send({
+      success: true,
+      message: 'Organization deleted successfully',
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to delete organization',
+      message: error.message,
+    });
+  }
+}
 
 //                                                            ~~~ CURRENCIES ~~~
 
@@ -400,7 +548,7 @@ export async function getAccounts(request, reply) {
 export async function createAccount(request, reply) {
   try {
     const { user } = request;
-    const { title, currencyId, isInvest, kind } = request.body;
+    const { title, currencyId, isInvest, kind, organizationId } = request.body;
 
     const missingFields = [];
 
@@ -422,7 +570,7 @@ export async function createAccount(request, reply) {
       });
     }
 
-    const accountId = await dbMoney.createAccount(title, currencyId, isInvest, kind, user.id);
+    const accountId = await dbMoney.createAccount(title, currencyId, isInvest, kind, organizationId ?? null, user.id);
 
     reply.status(201).send({
       success: true,
@@ -441,7 +589,7 @@ export async function updateAccount(request, reply) {
   try {
     const { user } = request;
     const { id } = request.params;
-    const { title, currencyId, isInvest, kind } = request.body;
+    const { title, currencyId, isInvest, kind, organizationId } = request.body;
 
     const missingFields = [];
 
@@ -471,7 +619,15 @@ export async function updateAccount(request, reply) {
       });
     }
 
-    const changedRows = await dbMoney.updateAccount(id, title, currencyId, isInvest, kind, user.id);
+    const changedRows = await dbMoney.updateAccount(
+      id,
+      title,
+      currencyId,
+      isInvest,
+      kind,
+      organizationId ?? null,
+      user.id,
+    );
 
     if (changedRows === 0) {
       return reply.status(404).send({
@@ -608,10 +764,10 @@ export async function createAsset(request, reply) {
         });
       }
 
-      if (account.kind !== ACCOUNT_KIND.BROKERAGE) {
+      if (account.kind !== ACCOUNT_KIND.BROKERAGE && account.kind !== ACCOUNT_KIND.CRYPTO) {
         return reply.status(400).send({
           success: false,
-          error: `Asset account must be brokerage: ${currentAccountId}`,
+          error: `Asset account must be brokerage or crypto: ${currentAccountId}`,
         });
       }
     }
@@ -706,10 +862,10 @@ export async function updateAsset(request, reply) {
         });
       }
 
-      if (account.kind !== ACCOUNT_KIND.BROKERAGE) {
+      if (account.kind !== ACCOUNT_KIND.BROKERAGE && account.kind !== ACCOUNT_KIND.CRYPTO) {
         return reply.status(400).send({
           success: false,
-          error: `Asset account must be brokerage: ${currentAccountId}`,
+          error: `Asset account must be brokerage or crypto: ${currentAccountId}`,
         });
       }
     }
@@ -984,10 +1140,10 @@ export async function createTransaction(request, reply) {
     }
 
     if (isInvestKind) {
-      if (account.kind !== ACCOUNT_KIND.BROKERAGE) {
+      if (account.kind !== ACCOUNT_KIND.BROKERAGE && account.kind !== ACCOUNT_KIND.CRYPTO) {
         return reply.status(400).send({
           success: false,
-          error: 'Invest transaction requires brokerage account',
+          error: 'Invest transaction requires brokerage or crypto account',
         });
       }
 
@@ -1287,10 +1443,10 @@ export async function updateTransaction(request, reply) {
         });
       }
 
-      if (account.kind !== ACCOUNT_KIND.BROKERAGE) {
+      if (account.kind !== ACCOUNT_KIND.BROKERAGE && account.kind !== ACCOUNT_KIND.CRYPTO) {
         return reply.status(400).send({
           success: false,
-          error: 'Invest transaction requires brokerage account',
+          error: 'Invest transaction requires brokerage or crypto account',
         });
       }
 

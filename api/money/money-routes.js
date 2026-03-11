@@ -5,11 +5,38 @@ import {
   assetSchemas,
   categorySchemas,
   currencySchemas,
+  organizationSchemas,
   rateHistorySchemas,
   transactionSchemas,
 } from './money-swagger.js';
 
 export async function moneyRoutes(fastify) {
+  //                                                      ~~~ ORGANIZATIONS ~~~
+  fastify.get('/organizations', {
+    schema: organizationSchemas.getOrganizations,
+    preValidation: [authController.authMiddleware],
+    compress: false,
+    handler: moneyController.getOrganizations,
+  });
+
+  fastify.post('/organizations', {
+    schema: organizationSchemas.createOrganization,
+    preValidation: [authController.authMiddleware],
+    handler: moneyController.createOrganization,
+  });
+
+  fastify.put('/organizations/:id', {
+    schema: organizationSchemas.updateOrganization,
+    preValidation: [authController.authMiddleware],
+    handler: moneyController.updateOrganization,
+  });
+
+  fastify.delete('/organizations/:id', {
+    schema: organizationSchemas.deleteOrganization,
+    preValidation: [authController.authMiddleware],
+    handler: moneyController.deleteOrganization,
+  });
+
   //                                                          ~~~ CURRENCIES ~~~
   fastify.get('/currencies', {
     schema: currencySchemas.getCurrencies,
