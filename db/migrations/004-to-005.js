@@ -44,6 +44,7 @@ export const migration004to005 = [
     title TEXT NOT NULL,
     currencyId INTEGER NOT NULL,
     isInvest BOOLEAN NOT NULL DEFAULT 0,
+    isArchived BOOLEAN NOT NULL DEFAULT 0,
     kind TEXT NOT NULL,
     organizationId INTEGER,
     FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,

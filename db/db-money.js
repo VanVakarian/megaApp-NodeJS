@@ -289,7 +289,7 @@ export async function getAllAccounts(userId) {
   return await db.all(
     `
     SELECT
-      id, title, currencyId, isInvest, kind, organizationId
+      id, title, currencyId, isInvest, isArchived, kind, organizationId
     FROM
       moneyAccount
     WHERE
@@ -306,7 +306,7 @@ export async function getAccountById(accountId, userId) {
   return await db.get(
     `
     SELECT
-      id, title, currencyId, isInvest, kind, organizationId
+      id, title, currencyId, isInvest, isArchived, kind, organizationId
     FROM
       moneyAccount
     WHERE
@@ -350,32 +350,32 @@ export async function countAssetsByAccount(accountId, userId) {
   return result?.count ?? 0;
 }
 
-export async function createAccount(title, currencyId, isInvest, kind, organizationId, userId) {
+export async function createAccount(title, currencyId, isInvest, isArchived, kind, organizationId, userId) {
   const db = await getConnection();
   const result = await db.run(
     `
     INSERT INTO
-      moneyAccount (title, currencyId, isInvest, kind, organizationId, userId)
+      moneyAccount (title, currencyId, isInvest, isArchived, kind, organizationId, userId)
     VALUES
-      (?, ?, ?, ?, ?, ?);
+      (?, ?, ?, ?, ?, ?, ?);
     `,
-    [title, currencyId, isInvest, kind, organizationId ?? null, userId],
+    [title, currencyId, isInvest, isArchived ?? 0, kind, organizationId ?? null, userId],
   );
   return result.lastID;
 }
 
-export async function updateAccount(accountId, title, currencyId, isInvest, kind, organizationId, userId) {
+export async function updateAccount(accountId, title, currencyId, isInvest, isArchived, kind, organizationId, userId) {
   const db = await getConnection();
   const result = await db.run(
     `
     UPDATE
       moneyAccount
     SET
-      title = ?, currencyId = ?, isInvest = ?, kind = ?, organizationId = ?
+      title = ?, currencyId = ?, isInvest = ?, isArchived = ?, kind = ?, organizationId = ?
     WHERE
       id = ? AND userId = ?;
     `,
-    [title, currencyId, isInvest, kind, organizationId ?? null, accountId, userId],
+    [title, currencyId, isInvest, isArchived ?? 0, kind, organizationId ?? null, accountId, userId],
   );
   return result.changes;
 }

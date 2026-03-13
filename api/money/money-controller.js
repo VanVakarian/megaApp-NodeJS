@@ -548,7 +548,7 @@ export async function getAccounts(request, reply) {
 export async function createAccount(request, reply) {
   try {
     const { user } = request;
-    const { title, currencyId, isInvest, kind, organizationId } = request.body;
+    const { title, currencyId, isInvest, isArchived, kind, organizationId } = request.body;
 
     const missingFields = [];
 
@@ -570,7 +570,15 @@ export async function createAccount(request, reply) {
       });
     }
 
-    const accountId = await dbMoney.createAccount(title, currencyId, isInvest, kind, organizationId ?? null, user.id);
+    const accountId = await dbMoney.createAccount(
+      title,
+      currencyId,
+      isInvest,
+      isArchived ?? false,
+      kind,
+      organizationId ?? null,
+      user.id,
+    );
 
     reply.status(201).send({
       success: true,
@@ -589,7 +597,7 @@ export async function updateAccount(request, reply) {
   try {
     const { user } = request;
     const { id } = request.params;
-    const { title, currencyId, isInvest, kind, organizationId } = request.body;
+    const { title, currencyId, isInvest, isArchived, kind, organizationId } = request.body;
 
     const missingFields = [];
 
@@ -624,6 +632,7 @@ export async function updateAccount(request, reply) {
       title,
       currencyId,
       isInvest,
+      isArchived ?? false,
       kind,
       organizationId ?? null,
       user.id,
