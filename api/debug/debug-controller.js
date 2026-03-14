@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import * as dbFood from '../../db/db-food.js';
 import { AI_PROVIDERS } from '../../env.js';
+import { runDailyQuotesJob } from '../../quotes/quotes-job.js';
 import * as debugService from './debug-service.js';
 
 export async function ping(request, reply) {
@@ -44,10 +45,10 @@ export async function listCatalogueEntries(request, reply) {
         (entry) =>
           (entry.protein !== null && entry.protein > 0) ||
           (entry.fat !== null && entry.fat > 0) ||
-          (entry.carbs !== null && entry.carbs > 0)
+          (entry.carbs !== null && entry.carbs > 0),
       ).length,
       entriesWithDescription: allEntries.filter(
-        (entry) => entry.description !== null && entry.description.trim().length > 0
+        (entry) => entry.description !== null && entry.description.trim().length > 0,
       ).length,
       entriesWithEmbedding: allEntries.filter((entry) => entry.nameVec !== null || entry.descriptionVec !== null)
         .length,
@@ -69,7 +70,7 @@ export async function listCatalogueEntries(request, reply) {
       console.log(
         `  ${entry.id}. "${entry.name}" (${entry.kcals}kcal) ${hasNutrition ? '✅' : '❌'} ${
           hasDescription ? '📝' : '📄'
-        } ${hasEmbedding ? '🔍' : '🔍❌'}`
+        } ${hasEmbedding ? '🔍' : '🔍❌'}`,
       );
     });
 
@@ -264,6 +265,26 @@ export async function importCatalogueFromBackup(request, reply) {
     });
   } catch (error) {
     console.error('❌ Import catalogue error:', error);
+    return reply.code(500).send({
+      result: false,
+      error: error.message,
+    });
+  }
+}
+
+export async function triggerQuotesJob(request, reply) {
+  try {
+    console.log('🔧 Manual quotes job trigger via debug route');
+    const result = await runDailyQuotesJob();
+    return reply.send({
+      result: true,
+      upsertedCount: result.upsertedCount,
+      fromISO: result.fromISO,
+      toISO: result.toISO,
+      errors: result.errors,
+    });
+  } catch (error) {
+    console.error('❌ Manual quotes job error:', error);
     return reply.code(500).send({
       result: false,
       error: error.message,

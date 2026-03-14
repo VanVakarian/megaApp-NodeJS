@@ -20,6 +20,7 @@ export const DB_FILE_NAME = `${DB_NAME}-${DB_ENV}-${DB_VERSION}.db`; // WITH EXT
 export const CRON_SCHEDULE = {
   COEFFS: '00 01 * * *', // Every day at 1 AM GMT
   BACKUP: '00 02 * * *', // Every day at 2 AM GMT
+  QUOTES: '00 03 * * *', // Every day at 3 AM GMT
 };
 
 // AWS S3 BACKUP
@@ -341,3 +342,27 @@ export const IMAGE_GEN_QUEUE_POLL_INTERVAL_MS = 100;
 export const IMAGE_GEN_QUEUE_ERROR_BACKOFF_BASE_SEC = 1;
 export const IMAGE_GEN_QUEUE_ERROR_BACKOFF_INCREMENT_SEC = 5;
 export const IMAGE_GEN_QUEUE_ERROR_BACKOFF_MAX_SEC = 3600;
+
+// QUOTES
+export const QUOTES_FETCH_DAYS = 7;
+export const QUOTES_RETRY_ATTEMPTS = 3;
+export const QUOTES_RETRY_DELAY_MS = 30000;
+
+export const QUOTES_COINGECKO_ID_MAP = {
+  BTC: 'bitcoin',
+  ETH: 'ethereum',
+};
+
+export const QUOTES_CRYPTOCOMPARE_SYMBOL_MAP = {
+  GLM: 'GLM',
+  ARK: 'ARK',
+};
+
+export const QUOTES_YAHOO_CURRENCY_SYMBOL_MAP = {
+  EUR: 'EURUSD=X',
+  RUB: 'USDRUB=X',
+};
+
+export const QUOTES_YAHOO_CURRENCY_INVERT = ['RUB', 'KZT'];
+
+export const QUOTES_FRANKFURTER_SUPPORTED = ['EUR', 'GBP'];

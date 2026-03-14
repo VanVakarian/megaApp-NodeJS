@@ -589,6 +589,86 @@ export async function getAllRateHistory() {
   );
 }
 
+export async function getRateHistoryRange(fromDateISO, toDateISO) {
+  const db = await getConnection();
+  return await db.all(
+    `
+    SELECT
+      id, dateISO, ratesJson
+    FROM
+      moneyRateHistory
+    WHERE
+      dateISO >= ? AND dateISO <= ?
+    ORDER BY
+      dateISO ASC;
+    `,
+    [fromDateISO, toDateISO],
+  );
+}
+
+export async function upsertRateHistoryEntry(dateISO, ratesJson) {
+  const db = await getConnection();
+  return await db.run(
+    `
+    INSERT INTO
+      moneyRateHistory (dateISO, ratesJson)
+    VALUES
+      (?, ?)
+    ON CONFLICT(dateISO) DO UPDATE SET
+      ratesJson = excluded.ratesJson;
+    `,
+    [dateISO, ratesJson],
+  );
+}
+
+export async function getOpenPositionAssets() {
+  const db = await getConnection();
+  return await db.all(
+    `
+    SELECT
+      a.id,
+      a.ticker,
+      a.type,
+      a.suspendedSince,
+      SUM(
+        CASE t.kind
+          WHEN 'invest_buy' THEN CAST(json_extract(t.detailsJSON, '$.quantity') AS REAL)
+          WHEN 'invest_sell' THEN -CAST(json_extract(t.detailsJSON, '$.quantity') AS REAL)
+          ELSE 0
+        END
+      ) AS netQty
+    FROM
+      moneyAsset a
+    JOIN
+      moneyTransaction t
+      ON CAST(json_extract(t.detailsJSON, '$.assetId') AS INTEGER) = a.id
+    WHERE
+      t.kind IN ('invest_buy', 'invest_sell')
+      AND t.detailsJSON IS NOT NULL
+      AND json_valid(t.detailsJSON) = 1
+    GROUP BY
+      a.id, a.ticker, a.type, a.suspendedSince
+    HAVING
+      netQty > 0;
+    `,
+  );
+}
+
+export async function getAllCurrencyTickers() {
+  const db = await getConnection();
+  const rows = await db.all(
+    `
+    SELECT DISTINCT
+      ticker
+    FROM
+      moneyCurrency
+    WHERE
+      ticker != 'USD';
+    `,
+  );
+  return rows.map((r) => r.ticker);
+}
+
 export async function getTransactionById(transactionId, userId) {
   const db = await getConnection();
   return await db.get(
