@@ -93,4 +93,24 @@ export async function debugRoutes(fastify) {
     },
     handler: debugController.importCatalogueFromBackup,
   });
+
+  fastify.get('/run-quotes-job', {
+    schema: {
+      tags: ['debug'],
+      description: 'Manually trigger the daily quotes fetch job',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            result: { type: 'boolean' },
+            upsertedCount: { type: 'number' },
+            fromISO: { type: 'string' },
+            toISO: { type: 'string' },
+            failures: { type: 'array' },
+          },
+        },
+      },
+    },
+    handler: debugController.triggerQuotesJob,
+  });
 }

@@ -19,6 +19,28 @@ const responseWithID = {
   },
 };
 
+const responseWithTransactionIds = {
+  type: 'object',
+  properties: {
+    success: { type: 'boolean' },
+    data: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer' },
+        twinId: { type: 'integer' },
+      },
+    },
+  },
+};
+
+const conflictResponse = {
+  type: 'object',
+  properties: {
+    success: { type: 'boolean' },
+    error: { type: 'string' },
+  },
+};
+
 const paramWithID = {
   type: 'object',
   properties: {
@@ -27,9 +49,67 @@ const paramWithID = {
   required: ['id'],
 };
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~                                                 ~~~ CURRENCIES ~~~                                                ~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//                                                        ~~~ ORGANIZATIONS ~~~
+
+export const organizationSchemas = {
+  getOrganizations: {
+    tags: ['money'],
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean' },
+          data: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'integer' },
+                title: { type: 'string' },
+                logoBase64: { type: 'string', nullable: true },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+
+  createOrganization: {
+    tags: ['money'],
+    body: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        logoBase64: { type: 'string', nullable: true },
+      },
+      required: ['title'],
+    },
+    response: { 201: responseWithID },
+  },
+
+  updateOrganization: {
+    tags: ['money'],
+    params: paramWithID,
+    body: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        logoBase64: { type: 'string', nullable: true },
+      },
+      required: ['title'],
+    },
+    response: { 200: successResponse },
+  },
+
+  deleteOrganization: {
+    tags: ['money'],
+    params: paramWithID,
+    response: { 200: successResponse, 409: conflictResponse },
+  },
+};
+
+//                                                            ~~~ CURRENCIES ~~~
 
 export const currencySchemas = {
   getCurrencies: {
@@ -94,13 +174,11 @@ export const currencySchemas = {
   deleteCurrency: {
     tags: ['money'],
     params: paramWithID,
-    response: { 200: successResponse },
+    response: { 200: successResponse, 409: conflictResponse },
   },
 };
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~                                                 ~~~ CATEGORIES ~~~                                                ~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//                                                            ~~~ CATEGORIES ~~~
 
 export const categorySchemas = {
   getCategories: {
@@ -117,8 +195,8 @@ export const categorySchemas = {
               properties: {
                 id: { type: 'integer' },
                 name: { type: 'string' },
-                usedFor: { type: 'string', enum: ['transaction', 'account', 'asset'] },
-                groupKey: { type: 'string', nullable: true },
+                parentId: { type: 'integer', nullable: true },
+                categoryType: { type: 'string', enum: ['income', 'expense'] },
               },
             },
           },
@@ -133,10 +211,10 @@ export const categorySchemas = {
       type: 'object',
       properties: {
         name: { type: 'string' },
-        usedFor: { type: 'string', enum: ['transaction', 'account', 'asset'] },
-        groupKey: { type: 'string' },
+        parentId: { type: 'integer' },
+        categoryType: { type: 'string', enum: ['income', 'expense'] },
       },
-      required: ['name', 'usedFor'],
+      required: ['name', 'categoryType'],
     },
     response: { 201: responseWithID },
   },
@@ -148,10 +226,10 @@ export const categorySchemas = {
       type: 'object',
       properties: {
         name: { type: 'string' },
-        usedFor: { type: 'string', enum: ['transaction', 'account', 'asset'] },
-        groupKey: { type: 'string' },
+        parentId: { type: 'integer' },
+        categoryType: { type: 'string', enum: ['income', 'expense'] },
       },
-      required: ['name', 'usedFor'],
+      required: ['name', 'categoryType'],
     },
     response: { 200: successResponse },
   },
@@ -159,40 +237,11 @@ export const categorySchemas = {
   deleteCategory: {
     tags: ['money'],
     params: paramWithID,
-    response: { 200: successResponse },
-  },
-
-  updateGroupKey: {
-    tags: ['money'],
-    body: {
-      type: 'object',
-      properties: {
-        oldGroupKey: { type: 'string' },
-        newGroupKey: { type: 'string' },
-      },
-      required: ['oldGroupKey', 'newGroupKey'],
-    },
-    response: {
-      200: {
-        type: 'object',
-        properties: {
-          success: { type: 'boolean' },
-          message: { type: 'string' },
-          data: {
-            type: 'object',
-            properties: {
-              affectedRows: { type: 'integer' },
-            },
-          },
-        },
-      },
-    },
+    response: { 200: successResponse, 409: conflictResponse },
   },
 };
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~                                                  ~~~ ACCOUNTS ~~~                                                 ~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//                                                              ~~~ ACCOUNTS ~~~
 
 export const accountSchemas = {
   getAccounts: {
@@ -211,8 +260,9 @@ export const accountSchemas = {
                 title: { type: 'string' },
                 currencyId: { type: 'integer' },
                 isInvest: { type: 'boolean' },
+                isArchived: { type: 'boolean' },
                 kind: { type: 'string', enum: ['cash', 'card', 'checking', 'deposit', 'brokerage', 'crypto'] },
-                categoryIds: { type: 'string', nullable: true },
+                organizationId: { type: 'integer', nullable: true },
               },
             },
           },
@@ -229,8 +279,9 @@ export const accountSchemas = {
         title: { type: 'string' },
         currencyId: { type: 'integer' },
         isInvest: { type: 'boolean' },
+        isArchived: { type: 'boolean' },
         kind: { type: 'string', enum: ['cash', 'card', 'checking', 'deposit', 'brokerage', 'crypto'] },
-        categoryIds: { type: 'array', items: { type: 'integer' } },
+        organizationId: { type: 'integer', nullable: true },
       },
       required: ['title', 'currencyId', 'kind'],
     },
@@ -246,8 +297,9 @@ export const accountSchemas = {
         title: { type: 'string' },
         currencyId: { type: 'integer' },
         isInvest: { type: 'boolean' },
+        isArchived: { type: 'boolean' },
         kind: { type: 'string', enum: ['cash', 'card', 'checking', 'deposit', 'brokerage', 'crypto'] },
-        categoryIds: { type: 'array', items: { type: 'integer' } },
+        organizationId: { type: 'integer', nullable: true },
       },
       required: ['title', 'currencyId', 'kind'],
     },
@@ -257,13 +309,95 @@ export const accountSchemas = {
   deleteAccount: {
     tags: ['money'],
     params: paramWithID,
-    response: { 200: successResponse },
+    response: { 200: successResponse, 409: conflictResponse },
   },
 };
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~                                                ~~~ TRANSACTIONS ~~~                                               ~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//                                                                ~~~ ASSETS ~~~
+
+export const assetSchemas = {
+  getAssets: {
+    tags: ['money'],
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean' },
+          data: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'integer' },
+                title: { type: 'string' },
+                ticker: { type: 'string' },
+                type: { type: 'string', enum: ['stock', 'bond', 'crypto'] },
+                accountIds: {
+                  type: 'array',
+                  items: { type: 'integer' },
+                  minItems: 1,
+                },
+                suspendedSince: { type: 'string', nullable: true },
+                suspendedUntil: { type: 'string', nullable: true },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+
+  createAsset: {
+    tags: ['money'],
+    body: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        ticker: { type: 'string' },
+        type: { type: 'string', enum: ['stock', 'bond', 'crypto'] },
+        accountIds: {
+          type: 'array',
+          items: { type: 'integer' },
+          minItems: 1,
+        },
+        suspendedSince: { type: 'string', nullable: true },
+        suspendedUntil: { type: 'string', nullable: true },
+      },
+      required: ['title', 'ticker', 'type', 'accountIds'],
+    },
+    response: { 201: responseWithID },
+  },
+
+  updateAsset: {
+    tags: ['money'],
+    params: paramWithID,
+    body: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        ticker: { type: 'string' },
+        type: { type: 'string', enum: ['stock', 'bond', 'crypto'] },
+        accountIds: {
+          type: 'array',
+          items: { type: 'integer' },
+          minItems: 1,
+        },
+        suspendedSince: { type: 'string', nullable: true },
+        suspendedUntil: { type: 'string', nullable: true },
+      },
+      required: ['title', 'ticker', 'type', 'accountIds'],
+    },
+    response: { 200: successResponse },
+  },
+
+  deleteAsset: {
+    tags: ['money'],
+    params: paramWithID,
+    response: { 200: successResponse, 409: conflictResponse },
+  },
+};
+
+//                                                          ~~~ TRANSACTIONS ~~~
 
 export const transactionSchemas = {
   getTransactions: {
@@ -282,11 +416,51 @@ export const transactionSchemas = {
                 dateISO: { type: 'string', format: 'date' },
                 accountId: { type: 'integer' },
                 amount: { type: 'number' },
-                categoryIds: { type: 'string', nullable: true },
-                kind: { type: 'string', enum: ['income', 'expense'] },
+                categoryId: { type: 'integer', nullable: true },
+                kind: {
+                  type: 'string',
+                  enum: ['income', 'expense', 'transfer', 'invest_buy', 'invest_sell', 'invest_dividend'],
+                },
                 isGift: { type: 'boolean' },
                 notes: { type: 'string', nullable: true },
-                details: { type: 'string', nullable: true },
+                detailsJSON: {
+                  anyOf: [{ type: 'string' }, { type: 'object' }, { type: 'null' }],
+                },
+                twinId: { type: 'integer', nullable: true },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+
+  getInvestAssetTrades: {
+    tags: ['money'],
+    description: 'Returns invest buy/sell trades used to build opened positions on Assets tab',
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean' },
+          data: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'integer' },
+                dateISO: { type: 'string', format: 'date' },
+                accountId: { type: 'integer' },
+                amount: { type: 'number' },
+                kind: { type: 'string', enum: ['invest_buy', 'invest_sell'] },
+                notes: { type: 'string', nullable: true },
+                detailsJSON: {
+                  anyOf: [{ type: 'string' }, { type: 'object' }, { type: 'null' }],
+                },
+                assetId: { type: 'integer', nullable: true },
+                assetTitle: { type: 'string', nullable: true },
+                assetTicker: { type: 'string', nullable: true },
+                assetType: { type: 'string', enum: ['stock', 'bond', 'crypto'], nullable: true },
               },
             },
           },
@@ -303,14 +477,29 @@ export const transactionSchemas = {
         dateISO: { type: 'string', format: 'date' },
         accountId: { type: 'integer' },
         amount: { type: 'number', minimum: 0 },
-        categoryIds: { type: 'array', items: { type: 'integer' } },
-        kind: { type: 'string', enum: ['income', 'expense'] },
+        twinAccountId: { type: 'integer' },
+        twinAmount: { type: 'number', minimum: 0 },
+        categoryId: { type: 'integer' },
+        kind: {
+          type: 'string',
+          enum: ['income', 'expense', 'transfer', 'invest_buy', 'invest_sell', 'invest_dividend'],
+        },
         isGift: { type: 'boolean' },
         notes: { type: 'string' },
+        detailsJSON: {
+          type: 'object',
+          properties: {
+            assetId: { type: 'number' },
+            quantity: { type: 'number' },
+            price: { type: 'number' },
+            commissionAmount: { type: 'number' },
+            accruedInterestAmount: { type: 'number' },
+          },
+        },
       },
-      required: ['dateISO', 'accountId', 'amount', 'kind'],
+      required: ['dateISO', 'accountId', 'kind'],
     },
-    response: { 201: responseWithID },
+    response: { 201: responseWithTransactionIds },
   },
 
   updateTransaction: {
@@ -322,12 +511,27 @@ export const transactionSchemas = {
         dateISO: { type: 'string', format: 'date' },
         accountId: { type: 'integer' },
         amount: { type: 'number', minimum: 0 },
-        categoryIds: { type: 'array', items: { type: 'integer' } },
-        kind: { type: 'string', enum: ['income', 'expense'] },
+        twinAccountId: { type: 'integer' },
+        twinAmount: { type: 'number', minimum: 0 },
+        categoryId: { type: 'integer' },
+        kind: {
+          type: 'string',
+          enum: ['income', 'expense', 'transfer', 'invest_buy', 'invest_sell', 'invest_dividend'],
+        },
         isGift: { type: 'boolean' },
         notes: { type: 'string' },
+        detailsJSON: {
+          type: 'object',
+          properties: {
+            assetId: { type: 'number' },
+            quantity: { type: 'number' },
+            price: { type: 'number' },
+            commissionAmount: { type: 'number' },
+            accruedInterestAmount: { type: 'number' },
+          },
+        },
       },
-      required: ['dateISO', 'accountId', 'amount', 'kind'],
+      required: ['dateISO', 'accountId', 'kind'],
     },
     response: { 200: successResponse },
   },
@@ -336,5 +540,32 @@ export const transactionSchemas = {
     tags: ['money'],
     params: paramWithID,
     response: { 200: successResponse },
+  },
+};
+
+export const rateHistorySchemas = {
+  getRateHistory: {
+    tags: ['money'],
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean' },
+          data: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'integer' },
+                dateISO: { type: 'string', format: 'date' },
+                ratesJson: {
+                  anyOf: [{ type: 'string' }, { type: 'object' }],
+                },
+              },
+            },
+          },
+        },
+      },
+    },
   },
 };

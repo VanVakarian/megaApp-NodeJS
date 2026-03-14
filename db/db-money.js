@@ -1,8 +1,100 @@
 import { getConnection } from './db.js';
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~                                                 ~~~ CURRENCIES ~~~                                                ~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//                                                        ~~~ ORGANIZATIONS ~~~
+
+export async function getAllOrganizations(userId) {
+  const db = await getConnection();
+  return await db.all(
+    `
+    SELECT
+      id, title, logoBase64
+    FROM
+      moneyOrganization
+    WHERE
+      userId = ?
+    ORDER BY
+      title ASC;
+    `,
+    [userId],
+  );
+}
+
+export async function getOrganizationById(organizationId, userId) {
+  const db = await getConnection();
+  return await db.get(
+    `
+    SELECT
+      id, title, logoBase64
+    FROM
+      moneyOrganization
+    WHERE
+      id = ? AND userId = ?;
+    `,
+    [organizationId, userId],
+  );
+}
+
+export async function countAccountsByOrganization(organizationId, userId) {
+  const db = await getConnection();
+  const result = await db.get(
+    `
+    SELECT
+      COUNT(*) as count
+    FROM
+      moneyAccount
+    WHERE
+      organizationId = ? AND userId = ?;
+    `,
+    [organizationId, userId],
+  );
+  return result?.count ?? 0;
+}
+
+export async function createOrganization(title, logoBase64, userId) {
+  const db = await getConnection();
+  const result = await db.run(
+    `
+    INSERT INTO
+      moneyOrganization (title, logoBase64, userId)
+    VALUES
+      (?, ?, ?);
+    `,
+    [title, logoBase64 ?? null, userId],
+  );
+  return result.lastID;
+}
+
+export async function updateOrganization(organizationId, title, logoBase64, userId) {
+  const db = await getConnection();
+  const result = await db.run(
+    `
+    UPDATE
+      moneyOrganization
+    SET
+      title = ?, logoBase64 = ?
+    WHERE
+      id = ? AND userId = ?;
+    `,
+    [title, logoBase64 ?? null, organizationId, userId],
+  );
+  return result.changes;
+}
+
+export async function deleteOrganization(organizationId, userId) {
+  const db = await getConnection();
+  const result = await db.run(
+    `
+    DELETE FROM
+      moneyOrganization
+    WHERE
+      id = ? AND userId = ?;
+    `,
+    [organizationId, userId],
+  );
+  return result.changes;
+}
+
+//                                                            ~~~ CURRENCIES ~~~
 
 export async function getAllCurrencies(userId) {
   const db = await getConnection();
@@ -17,7 +109,7 @@ export async function getAllCurrencies(userId) {
     ORDER BY
       title ASC;
     `,
-    [userId]
+    [userId],
   );
 }
 
@@ -32,8 +124,24 @@ export async function getCurrencyById(currencyId, userId) {
     WHERE
       id = ? AND userId = ?;
     `,
-    [currencyId, userId]
+    [currencyId, userId],
   );
+}
+
+export async function countAccountsByCurrency(currencyId, userId) {
+  const db = await getConnection();
+  const result = await db.get(
+    `
+    SELECT
+      COUNT(*) as count
+    FROM
+      moneyAccount
+    WHERE
+      currencyId = ? AND userId = ?;
+    `,
+    [currencyId, userId],
+  );
+  return result?.count ?? 0;
 }
 
 export async function createCurrency(title, ticker, symbol, symbolPosEnum, whitespace, userId) {
@@ -45,7 +153,7 @@ export async function createCurrency(title, ticker, symbol, symbolPosEnum, white
     VALUES
       (?, ?, ?, ?, ?, ?);
     `,
-    [title, ticker, symbol, symbolPosEnum, whitespace, userId]
+    [title, ticker, symbol, symbolPosEnum, whitespace, userId],
   );
   return result.lastID;
 }
@@ -61,7 +169,7 @@ export async function updateCurrency(currencyId, title, ticker, symbol, symbolPo
     WHERE
       id = ? AND userId = ?;
     `,
-    [title, ticker, symbol, symbolPosEnum, whitespace, currencyId, userId]
+    [title, ticker, symbol, symbolPosEnum, whitespace, currencyId, userId],
   );
   return result.changes;
 }
@@ -75,29 +183,27 @@ export async function deleteCurrency(currencyId, userId) {
     WHERE
       id = ? AND userId = ?;
     `,
-    [currencyId, userId]
+    [currencyId, userId],
   );
   return result.changes;
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~                                                 ~~~ CATEGORIES ~~~                                                ~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//                                                            ~~~ CATEGORIES ~~~
 
 export async function getAllCategories(userId) {
   const db = await getConnection();
   return await db.all(
     `
     SELECT
-      id, name, usedFor, groupKey
+      id, name, parentId, categoryType
     FROM
       moneyCategories
     WHERE
       userId = ?
     ORDER BY
-      usedFor ASC, groupKey ASC, name ASC;
+      categoryType ASC, parentId ASC, name ASC;
     `,
-    [userId]
+    [userId],
   );
 }
 
@@ -106,42 +212,58 @@ export async function getCategoryById(categoryId, userId) {
   return await db.get(
     `
     SELECT
-      id, name, usedFor, groupKey
+      id, name, parentId, categoryType
     FROM
       moneyCategories
     WHERE
       id = ? AND userId = ?;
     `,
-    [categoryId, userId]
+    [categoryId, userId],
   );
 }
 
-export async function createCategory(name, usedFor, groupKey, userId) {
+export async function countChildCategories(categoryId, userId) {
+  const db = await getConnection();
+  const result = await db.get(
+    `
+    SELECT
+      COUNT(*) as count
+    FROM
+      moneyCategories
+    WHERE
+      parentId = ? AND userId = ?;
+    `,
+    [categoryId, userId],
+  );
+  return result?.count ?? 0;
+}
+
+export async function createCategory(name, categoryType, parentId, userId) {
   const db = await getConnection();
   const result = await db.run(
     `
     INSERT INTO
-      moneyCategories (name, usedFor, groupKey, userId, parentId)
+      moneyCategories (name, categoryType, userId, parentId)
     VALUES
-      (?, ?, ?, ?, NULL);
+      (?, ?, ?, ?);
     `,
-    [name, usedFor, groupKey, userId]
+    [name, categoryType, userId, parentId],
   );
   return result.lastID;
 }
 
-export async function updateCategory(categoryId, name, usedFor, groupKey, userId) {
+export async function updateCategory(categoryId, name, categoryType, parentId, userId) {
   const db = await getConnection();
   const result = await db.run(
     `
     UPDATE
       moneyCategories
     SET
-      name = ?, usedFor = ?, groupKey = ?
+      name = ?, categoryType = ?, parentId = ?
     WHERE
       id = ? AND userId = ?;
     `,
-    [name, usedFor, groupKey, categoryId, userId]
+    [name, categoryType, parentId, categoryId, userId],
   );
   return result.changes;
 }
@@ -155,37 +277,19 @@ export async function deleteCategory(categoryId, userId) {
     WHERE
       id = ? AND userId = ?;
     `,
-    [categoryId, userId]
+    [categoryId, userId],
   );
   return result.changes;
 }
 
-export async function updateGroupKey(oldGroupKey, newGroupKey, userId) {
-  const db = await getConnection();
-  const result = await db.run(
-    `
-    UPDATE
-      moneyCategories
-    SET
-      groupKey = ?
-    WHERE
-      groupKey = ? AND userId = ?;
-    `,
-    [newGroupKey, oldGroupKey, userId]
-  );
-  return result.changes;
-}
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~                                                  ~~~ ACCOUNTS ~~~                                                 ~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//                                                              ~~~ ACCOUNTS ~~~
 
 export async function getAllAccounts(userId) {
   const db = await getConnection();
   return await db.all(
     `
     SELECT
-      id, title, currencyId, isInvest, kind, categoryIds
+      id, title, currencyId, isInvest, isArchived, kind, organizationId
     FROM
       moneyAccount
     WHERE
@@ -193,7 +297,7 @@ export async function getAllAccounts(userId) {
     ORDER BY
       title ASC;
     `,
-    [userId]
+    [userId],
   );
 }
 
@@ -202,42 +306,76 @@ export async function getAccountById(accountId, userId) {
   return await db.get(
     `
     SELECT
-      id, title, currencyId, isInvest, kind, categoryIds
+      id, title, currencyId, isInvest, isArchived, kind, organizationId
     FROM
       moneyAccount
     WHERE
       id = ? AND userId = ?;
     `,
-    [accountId, userId]
+    [accountId, userId],
   );
 }
 
-export async function createAccount(title, currencyId, isInvest, kind, categoryIds, userId) {
+export async function countTransactionsByAccount(accountId, userId) {
+  const db = await getConnection();
+  const result = await db.get(
+    `
+    SELECT
+      COUNT(*) as count
+    FROM
+      moneyTransaction
+    WHERE
+      accountId = ? AND userId = ?;
+    `,
+    [accountId, userId],
+  );
+  return result?.count ?? 0;
+}
+
+export async function countAssetsByAccount(accountId, userId) {
+  const db = await getConnection();
+  const result = await db.get(
+    `
+    SELECT
+      COUNT(DISTINCT a.id) as count
+    FROM
+      moneyAsset a,
+      json_each(a.accountIdsJSON) j
+    WHERE
+      a.userId = ?
+      AND CAST(j.value AS INTEGER) = ?;
+    `,
+    [userId, accountId],
+  );
+  return result?.count ?? 0;
+}
+
+export async function createAccount(title, currencyId, isInvest, isArchived, kind, organizationId, userId) {
   const db = await getConnection();
   const result = await db.run(
     `
     INSERT INTO
-      moneyAccount (title, currencyId, isInvest, kind, categoryIds, userId)
+      moneyAccount (title, currencyId, isInvest, isArchived, kind, organizationId, userId)
     VALUES
-      (?, ?, ?, ?, ?, ?);
+      (?, ?, ?, ?, ?, ?, ?);
     `,
-    [title, currencyId, isInvest, kind, categoryIds, userId]
+    [title, currencyId, isInvest, isArchived ?? 0, kind, organizationId ?? null, userId],
   );
   return result.lastID;
 }
 
-export async function updateAccount(accountId, title, currencyId, isInvest, kind, categoryIds, userId) {
+export async function updateAccount(accountId, title, currencyId, isInvest, isArchived, kind, organizationId, userId) {
   const db = await getConnection();
   const result = await db.run(
     `
     UPDATE
       moneyAccount
     SET
-      title = ?, currencyId = ?, isInvest = ?, kind = ?, categoryIds = ?
+      title = ?, currencyId = ?, isInvest = ?, isArchived = ?, kind = ?, organizationId = ?
     WHERE
       id = ? AND userId = ?;
     `,
-    [title, currencyId, isInvest, kind, categoryIds, accountId, userId]
+    [title, currencyId, isInvest, isArchived ?? 0, kind, organizationId ?? null, accountId, userId],
   );
   return result.changes;
 }
@@ -251,30 +389,284 @@ export async function deleteAccount(accountId, userId) {
     WHERE
       id = ? AND userId = ?;
     `,
-    [accountId, userId]
+    [accountId, userId],
   );
   return result.changes;
 }
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~                                                ~~~ TRANSACTIONS ~~~                                               ~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//                                                                ~~~ ASSETS ~~~
+
+export async function getAllAssets(userId) {
+  const db = await getConnection();
+  return await db.all(
+    `
+    SELECT
+      id, title, ticker, type, accountIdsJSON, suspendedSince, suspendedUntil
+    FROM
+      moneyAsset
+    WHERE
+      userId = ?
+    ORDER BY
+      title ASC;
+    `,
+    [userId],
+  );
+}
+
+export async function getAssetById(assetId, userId) {
+  const db = await getConnection();
+  return await db.get(
+    `
+    SELECT
+      id, title, ticker, type, accountIdsJSON, suspendedSince, suspendedUntil
+    FROM
+      moneyAsset
+    WHERE
+      id = ? AND userId = ?;
+    `,
+    [assetId, userId],
+  );
+}
+
+export async function countTransactionsByAsset(assetId, userId) {
+  const db = await getConnection();
+  const result = await db.get(
+    `
+    SELECT
+      COUNT(*) as count
+    FROM
+      moneyTransaction
+    WHERE
+      userId = ?
+      AND detailsJSON IS NOT NULL
+      AND json_valid(detailsJSON) = 1
+      AND CAST(json_extract(detailsJSON, '$.assetId') AS INTEGER) = ?;
+    `,
+    [userId, assetId],
+  );
+
+  return result?.count ?? 0;
+}
+
+export async function getLinkedTransactionAccountIdsByAsset(assetId, userId) {
+  const db = await getConnection();
+  const rows = await db.all(
+    `
+    SELECT DISTINCT
+      accountId
+    FROM
+      moneyTransaction
+    WHERE
+      userId = ?
+      AND detailsJSON IS NOT NULL
+      AND json_valid(detailsJSON) = 1
+      AND CAST(json_extract(detailsJSON, '$.assetId') AS INTEGER) = ?;
+    `,
+    [userId, assetId],
+  );
+
+  return rows.map((row) => row.accountId);
+}
+
+export async function createAsset(title, ticker, type, accountIdsJSON, suspendedSince, suspendedUntil, userId) {
+  const db = await getConnection();
+  const result = await db.run(
+    `
+    INSERT INTO
+      moneyAsset (title, ticker, type, accountIdsJSON, suspendedSince, suspendedUntil, userId)
+    VALUES
+      (?, ?, ?, ?, ?, ?, ?);
+    `,
+    [title, ticker, type, accountIdsJSON, suspendedSince, suspendedUntil, userId],
+  );
+
+  return result.lastID;
+}
+
+export async function updateAsset(
+  assetId,
+  title,
+  ticker,
+  type,
+  accountIdsJSON,
+  suspendedSince,
+  suspendedUntil,
+  userId,
+) {
+  const db = await getConnection();
+  const result = await db.run(
+    `
+    UPDATE
+      moneyAsset
+    SET
+      title = ?, ticker = ?, type = ?, accountIdsJSON = ?, suspendedSince = ?, suspendedUntil = ?
+    WHERE
+      id = ? AND userId = ?;
+    `,
+    [title, ticker, type, accountIdsJSON, suspendedSince, suspendedUntil, assetId, userId],
+  );
+
+  return result.changes;
+}
+
+export async function deleteAsset(assetId, userId) {
+  const db = await getConnection();
+  const result = await db.run(
+    `
+    DELETE FROM
+      moneyAsset
+    WHERE
+      id = ? AND userId = ?;
+    `,
+    [assetId, userId],
+  );
+
+  return result.changes;
+}
+
+//                                                          ~~~ TRANSACTIONS ~~~
 
 export async function getAllTransactions(userId) {
   const db = await getConnection();
   return await db.all(
     `
     SELECT
-      id, dateISO, accountId, amount, categoryIds, kind, isGift, notes, details
+      id, dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, twinId
     FROM
       moneyTransaction
     WHERE
       userId = ?
     ORDER BY
-      dateISO DESC;
+      dateISO DESC, id DESC;
     `,
-    [userId]
+    [userId],
   );
+}
+
+export async function getInvestAssetTrades(userId) {
+  const db = await getConnection();
+  return await db.all(
+    `
+    SELECT
+      t.id,
+      t.dateISO,
+      t.accountId,
+      t.amount,
+      t.kind,
+      t.notes,
+      t.detailsJSON,
+      a.id as assetId,
+      a.title as assetTitle,
+      a.ticker as assetTicker,
+      a.type as assetType
+    FROM
+      moneyTransaction t
+    LEFT JOIN
+      moneyAsset a
+      ON a.id = CAST(json_extract(t.detailsJSON, '$.assetId') AS INTEGER)
+      AND a.userId = t.userId
+    WHERE
+      t.userId = ?
+      AND t.kind IN ('invest_buy', 'invest_sell')
+    ORDER BY
+      t.dateISO DESC, t.id DESC;
+    `,
+    [userId],
+  );
+}
+
+export async function getAllRateHistory() {
+  const db = await getConnection();
+  return await db.all(
+    `
+    SELECT
+      id, dateISO, ratesJson
+    FROM
+      moneyRateHistory
+    ORDER BY
+      dateISO ASC;
+    `,
+  );
+}
+
+export async function getRateHistoryRange(fromDateISO, toDateISO) {
+  const db = await getConnection();
+  return await db.all(
+    `
+    SELECT
+      id, dateISO, ratesJson
+    FROM
+      moneyRateHistory
+    WHERE
+      dateISO >= ? AND dateISO <= ?
+    ORDER BY
+      dateISO ASC;
+    `,
+    [fromDateISO, toDateISO],
+  );
+}
+
+export async function upsertRateHistoryEntry(dateISO, ratesJson) {
+  const db = await getConnection();
+  return await db.run(
+    `
+    INSERT INTO
+      moneyRateHistory (dateISO, ratesJson)
+    VALUES
+      (?, ?)
+    ON CONFLICT(dateISO) DO UPDATE SET
+      ratesJson = excluded.ratesJson;
+    `,
+    [dateISO, ratesJson],
+  );
+}
+
+export async function getOpenPositionAssets() {
+  const db = await getConnection();
+  return await db.all(
+    `
+    SELECT
+      a.id,
+      a.ticker,
+      a.type,
+      a.suspendedSince,
+      SUM(
+        CASE t.kind
+          WHEN 'invest_buy' THEN CAST(json_extract(t.detailsJSON, '$.quantity') AS REAL)
+          WHEN 'invest_sell' THEN -CAST(json_extract(t.detailsJSON, '$.quantity') AS REAL)
+          ELSE 0
+        END
+      ) AS netQty
+    FROM
+      moneyAsset a
+    JOIN
+      moneyTransaction t
+      ON CAST(json_extract(t.detailsJSON, '$.assetId') AS INTEGER) = a.id
+    WHERE
+      t.kind IN ('invest_buy', 'invest_sell')
+      AND t.detailsJSON IS NOT NULL
+      AND json_valid(t.detailsJSON) = 1
+    GROUP BY
+      a.id, a.ticker, a.type, a.suspendedSince
+    HAVING
+      netQty > 0;
+    `,
+  );
+}
+
+export async function getAllCurrencyTickers() {
+  const db = await getConnection();
+  const rows = await db.all(
+    `
+    SELECT DISTINCT
+      ticker
+    FROM
+      moneyCurrency
+    WHERE
+      ticker != 'USD';
+    `,
+  );
+  return rows.map((r) => r.ticker);
 }
 
 export async function getTransactionById(transactionId, userId) {
@@ -282,28 +674,115 @@ export async function getTransactionById(transactionId, userId) {
   return await db.get(
     `
     SELECT
-      id, dateISO, accountId, amount, categoryIds, kind, isGift, notes, details
+      id, dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, twinId
     FROM
       moneyTransaction
     WHERE
       id = ? AND userId = ?;
     `,
-    [transactionId, userId]
+    [transactionId, userId],
   );
 }
 
-export async function createTransaction(dateISO, accountId, amount, categoryIds, kind, isGift, notes, userId) {
+export async function countTransactionsByCategory(categoryId, userId) {
+  const db = await getConnection();
+  const result = await db.get(
+    `
+    SELECT
+      COUNT(*) as count
+    FROM
+      moneyTransaction
+    WHERE
+      categoryId = ? AND userId = ?;
+    `,
+    [categoryId, userId],
+  );
+  return result?.count ?? 0;
+}
+
+export async function createTransaction(
+  dateISO,
+  accountId,
+  amount,
+  categoryId,
+  kind,
+  isGift,
+  notes,
+  detailsJSON,
+  userId,
+) {
   const db = await getConnection();
   const result = await db.run(
     `
     INSERT INTO
-      moneyTransaction (dateISO, accountId, amount, categoryIds, kind, isGift, notes, details, userId, twinTransactionId)
+      moneyTransaction (dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, userId, twinId)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL);
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL);
     `,
-    [dateISO, accountId, amount, categoryIds, kind, isGift, notes, userId]
+    [dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, userId],
   );
   return result.lastID;
+}
+
+export async function createTransferTransactions(
+  dateISO,
+  fromAccountId,
+  fromAmount,
+  toAccountId,
+  toAmount,
+  notes,
+  userId,
+) {
+  const db = await getConnection();
+  await db.exec('BEGIN');
+
+  try {
+    const fromDetailsStr = JSON.stringify({ direction: 'out' });
+    const toDetailsStr = JSON.stringify({ direction: 'in' });
+
+    const fromResult = await db.run(
+      `
+      INSERT INTO
+        moneyTransaction (dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, userId, twinId)
+      VALUES
+        (?, ?, ?, NULL, 'transfer', 0, ?, ?, ?, NULL);
+      `,
+      [dateISO, fromAccountId, fromAmount, notes, fromDetailsStr, userId],
+    );
+
+    const fromId = fromResult.lastID;
+
+    const toResult = await db.run(
+      `
+      INSERT INTO
+        moneyTransaction (dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, userId, twinId)
+      VALUES
+        (?, ?, ?, NULL, 'transfer', 0, ?, ?, ?, ?);
+      `,
+      [dateISO, toAccountId, toAmount, notes, toDetailsStr, userId, fromId],
+    );
+
+    const toId = toResult.lastID;
+
+    await db.run(
+      `
+      UPDATE
+        moneyTransaction
+      SET
+        twinId = ?
+      WHERE
+        id = ? AND userId = ?;
+      `,
+      [toId, fromId, userId],
+    );
+
+    await db.exec('COMMIT');
+
+    return { fromId, toId };
+  } catch (error) {
+    await db.exec('ROLLBACK');
+    throw error;
+  }
 }
 
 export async function updateTransaction(
@@ -311,11 +790,12 @@ export async function updateTransaction(
   dateISO,
   accountId,
   amount,
-  categoryIds,
+  categoryId,
   kind,
   isGift,
   notes,
-  userId
+  detailsJSON,
+  userId,
 ) {
   const db = await getConnection();
   const result = await db.run(
@@ -323,13 +803,51 @@ export async function updateTransaction(
     UPDATE
       moneyTransaction
     SET
-      dateISO = ?, accountId = ?, amount = ?, categoryIds = ?, kind = ?, isGift = ?, notes = ?
+      dateISO = ?, accountId = ?, amount = ?, categoryId = ?, kind = ?, isGift = ?, notes = ?, detailsJSON = ?
     WHERE
       id = ? AND userId = ?;
     `,
-    [dateISO, accountId, amount, categoryIds, kind, isGift, notes, transactionId, userId]
+    [dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, transactionId, userId],
   );
   return result.changes;
+}
+
+export async function updateTransferTransactions(fromId, toId, dateISO, fromAmount, toAmount, notes, userId) {
+  const db = await getConnection();
+  await db.exec('BEGIN');
+
+  try {
+    const fromResult = await db.run(
+      `
+      UPDATE
+        moneyTransaction
+      SET
+        dateISO = ?, amount = ?, notes = ?
+      WHERE
+        id = ? AND userId = ?;
+      `,
+      [dateISO, fromAmount, notes, fromId, userId],
+    );
+
+    const toResult = await db.run(
+      `
+      UPDATE
+        moneyTransaction
+      SET
+        dateISO = ?, amount = ?, notes = ?
+      WHERE
+        id = ? AND userId = ?;
+      `,
+      [dateISO, toAmount, notes, toId, userId],
+    );
+
+    await db.exec('COMMIT');
+
+    return fromResult.changes + toResult.changes;
+  } catch (error) {
+    await db.exec('ROLLBACK');
+    throw error;
+  }
 }
 
 export async function deleteTransaction(transactionId, userId) {
@@ -341,7 +859,7 @@ export async function deleteTransaction(transactionId, userId) {
     WHERE
       id = ? AND userId = ?;
     `,
-    [transactionId, userId]
+    [transactionId, userId],
   );
   return result.changes;
 }

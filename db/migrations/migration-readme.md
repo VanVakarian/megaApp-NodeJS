@@ -17,7 +17,7 @@ Examples:
 
 ### Command Format
 ```bash
-node db/migrations/run-migration.js --migration={migration-key} --source={source-database}
+node db/migrations/run-migration.js --migration={migration-key} --source={source-database} [--target={target-database}]
 ```
 
 ### Parameters
@@ -33,6 +33,12 @@ node db/migrations/run-migration.js --migration={migration-key} --source={source
   - Or filename without extension: `megaapp-prod-002`
   - Or partial pattern: `megaapp-prod` (if only one version exists)
 
+- **`--target`** (optional): Target database file name/path
+  - If omitted, target is auto-generated from source: `{name}-{env}-{targetVersion}.db`
+  - Can be full filename: `megaapp-test-003.db`
+  - Or filename without extension: `megaapp-test-003`
+  - Must contain the migration target version in filename
+
 ### Examples
 
 ```bash
@@ -44,6 +50,9 @@ node db/migrations/run-migration.js --migration=002to003 --source=megaapp-test-0
 
 # If only one database in directory, can use pattern
 node db/migrations/run-migration.js --migration=002to003 --source=megaapp-prod
+
+# Custom target (e.g. migrate prod source into test target)
+node db/migrations/run-migration.js --migration=004to005 --source=megaapp-prod-004 --target=megaapp-test-005
 ```
 
 ## Key Features
@@ -52,6 +61,7 @@ node db/migrations/run-migration.js --migration=002to003 --source=megaapp-prod
 - The script automatically extracts database name and environment from the filename
 - No need to modify `env.js` before running migrations
 - Migration version is verified against source database version
+- Optional `--target` allows overriding auto-generated environment/name for destination file
 
 ### Smart File Discovery
 - If multiple files match the pattern, script will ask for clarification

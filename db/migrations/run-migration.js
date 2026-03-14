@@ -9,6 +9,8 @@ import { migration003to002 } from './003-to-002.js';
 import { migration003to004populateData as migration003to004withPopulateData } from './003-to-004-and-populate-data.js';
 import { migration003to004 } from './003-to-004.js';
 import { migration004to003 } from './004-to-003.js';
+import { migration004to005 } from './004-to-005.js';
+import { migration005to004 } from './005-to-004.js';
 
 const availableMigrations = {
   '001to002': {
@@ -52,6 +54,18 @@ const availableMigrations = {
     queries: migration004to003,
     sourceVersion: '004',
     targetVersion: '003',
+  },
+  '004to005': {
+    name: 'Migration from version 004 to 005 (Money categories v2)',
+    queries: migration004to005,
+    sourceVersion: '004',
+    targetVersion: '005',
+  },
+  '005to004': {
+    name: 'Rollback from version 005 to 004',
+    queries: migration005to004,
+    sourceVersion: '005',
+    targetVersion: '004',
   },
 };
 
@@ -101,7 +115,7 @@ function findDatabaseFile(searchPattern, currentDir = '.') {
     // Try exact match first (with or without .db)
     const searchWithoutExt = searchPattern.endsWith('.db') ? searchPattern.slice(0, -3) : searchPattern;
     const exactMatch = dbFiles.find(
-      (f) => f === searchPattern || f === `${searchPattern}.db` || f.slice(0, -3) === searchWithoutExt
+      (f) => f === searchPattern || f === `${searchPattern}.db` || f.slice(0, -3) === searchWithoutExt,
     );
 
     if (exactMatch) {
@@ -139,7 +153,7 @@ function validateMigrationVersion(migration, sourceDbVersion) {
   if (migration.sourceVersion !== sourceDbVersion) {
     throw new Error(
       `Migration version mismatch: source database is version ${sourceDbVersion}, ` +
-        `but migration ${migration.sourceVersion}→${migration.targetVersion} expects version ${migration.sourceVersion}`
+        `but migration ${migration.sourceVersion}→${migration.targetVersion} expects version ${migration.sourceVersion}`,
     );
   }
 }
@@ -174,7 +188,27 @@ async function createBackup(sourceFilePath) {
 /**
  * Main migration function
  */
-async function runMigration(migrationKey, sourceDbPattern) {
+function resolveTargetFilePath(targetPattern, sourceDir, migration) {
+  if (!targetPattern) {
+    return null;
+  }
+
+  const targetWithExt = targetPattern.endsWith('.db') ? targetPattern : `${targetPattern}.db`;
+  const targetFileName = path.basename(targetWithExt);
+  const targetParsed = parseDbFileName(targetFileName);
+
+  if (targetParsed.version !== migration.targetVersion) {
+    throw new Error(
+      `Target version mismatch: migration ${migration.sourceVersion}→${migration.targetVersion} requires target version ${migration.targetVersion}, ` +
+        `but target file is version ${targetParsed.version}`,
+    );
+  }
+
+  const hasDirectory = targetWithExt.includes('/') || targetWithExt.includes('\\');
+  return hasDirectory ? path.resolve(targetWithExt) : path.join(sourceDir, targetFileName);
+}
+
+async function runMigration(migrationKey, sourceDbPattern, targetDbPattern) {
   // Validate migration key
   if (!migrationKey) {
     console.error('Error: Please specify migration to run using --migration=<key>');
@@ -223,10 +257,11 @@ async function runMigration(migrationKey, sourceDbPattern) {
     validateMigrationVersion(migration, sourceParsed.version);
     console.log(`✓ Migration version matches source database version: ${sourceParsed.version}`);
 
-    // Construct target filename
-    const targetFileName = `${sourceParsed.name}-${sourceParsed.env}-${migration.targetVersion}.db`;
     const sourceDir = path.dirname(sourceFilePath);
-    const targetFilePath = path.join(sourceDir, targetFileName);
+    const autoTargetFileName = `${sourceParsed.name}-${sourceParsed.env}-${migration.targetVersion}.db`;
+    const targetFilePath =
+      resolveTargetFilePath(targetDbPattern, sourceDir, migration) ?? path.join(sourceDir, autoTargetFileName);
+    const targetFileName = path.basename(targetFilePath);
 
     // Check if target already exists
     if (fs.existsSync(targetFilePath)) {
@@ -293,6 +328,8 @@ function parseCliArguments() {
       result.migration = arg.split('=')[1];
     } else if (arg.startsWith('--source=')) {
       result.source = arg.split('=')[1];
+    } else if (arg.startsWith('--target=')) {
+      result.target = arg.split('=')[1];
     }
   }
 
@@ -300,9 +337,9 @@ function parseCliArguments() {
 }
 
 // Main execution
-const { migration, source } = parseCliArguments();
+const { migration, source, target } = parseCliArguments();
 
-runMigration(migration, source)
+runMigration(migration, source, target)
   .then(() => {
     process.exit(0);
   })
