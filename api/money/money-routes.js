@@ -1,12 +1,43 @@
 import * as authController from '../auth/auth-controller.js';
 import * as moneyController from './money-controller.js';
-import { accountSchemas, categorySchemas, currencySchemas, transactionSchemas } from './money-swagger.js';
+import {
+  accountSchemas,
+  assetSchemas,
+  categorySchemas,
+  currencySchemas,
+  organizationSchemas,
+  rateHistorySchemas,
+  transactionSchemas,
+} from './money-swagger.js';
 
 export async function moneyRoutes(fastify) {
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  // ~                                                ~~~ CURRENCIES ~~~                                               ~
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  //                                                      ~~~ ORGANIZATIONS ~~~
+  fastify.get('/organizations', {
+    schema: organizationSchemas.getOrganizations,
+    preValidation: [authController.authMiddleware],
+    compress: false,
+    handler: moneyController.getOrganizations,
+  });
 
+  fastify.post('/organizations', {
+    schema: organizationSchemas.createOrganization,
+    preValidation: [authController.authMiddleware],
+    handler: moneyController.createOrganization,
+  });
+
+  fastify.put('/organizations/:id', {
+    schema: organizationSchemas.updateOrganization,
+    preValidation: [authController.authMiddleware],
+    handler: moneyController.updateOrganization,
+  });
+
+  fastify.delete('/organizations/:id', {
+    schema: organizationSchemas.deleteOrganization,
+    preValidation: [authController.authMiddleware],
+    handler: moneyController.deleteOrganization,
+  });
+
+  //                                                          ~~~ CURRENCIES ~~~
   fastify.get('/currencies', {
     schema: currencySchemas.getCurrencies,
     preValidation: [authController.authMiddleware],
@@ -31,13 +62,11 @@ export async function moneyRoutes(fastify) {
     handler: moneyController.deleteCurrency,
   });
 
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  // ~                                                ~~~ CATEGORIES ~~~                                               ~
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
+  //                                                          ~~~ CATEGORIES ~~~
   fastify.get('/categories', {
     schema: categorySchemas.getCategories,
     preValidation: [authController.authMiddleware],
+    compress: false,
     handler: moneyController.getCategories,
   });
 
@@ -59,19 +88,12 @@ export async function moneyRoutes(fastify) {
     handler: moneyController.deleteCategory,
   });
 
-  fastify.put('/categories/group-key', {
-    schema: categorySchemas.updateGroupKey,
-    preValidation: [authController.authMiddleware],
-    handler: moneyController.updateGroupKey,
-  });
-
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  // ~                                                 ~~~ ACCOUNTS ~~~                                                ~
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  //                                                            ~~~ ACCOUNTS ~~~
 
   fastify.get('/accounts', {
     schema: accountSchemas.getAccounts,
     preValidation: [authController.authMiddleware],
+    compress: false,
     handler: moneyController.getAccounts,
   });
 
@@ -93,14 +115,53 @@ export async function moneyRoutes(fastify) {
     handler: moneyController.deleteAccount,
   });
 
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  // ~                                               ~~~ TRANSACTIONS ~~~                                              ~
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  //                                                              ~~~ ASSETS ~~~
+
+  fastify.get('/assets', {
+    schema: assetSchemas.getAssets,
+    preValidation: [authController.authMiddleware],
+    compress: false,
+    handler: moneyController.getAssets,
+  });
+
+  fastify.post('/assets', {
+    schema: assetSchemas.createAsset,
+    preValidation: [authController.authMiddleware],
+    handler: moneyController.createAsset,
+  });
+
+  fastify.put('/assets/:id', {
+    schema: assetSchemas.updateAsset,
+    preValidation: [authController.authMiddleware],
+    handler: moneyController.updateAsset,
+  });
+
+  fastify.delete('/assets/:id', {
+    schema: assetSchemas.deleteAsset,
+    preValidation: [authController.authMiddleware],
+    handler: moneyController.deleteAsset,
+  });
+
+  //                                                        ~~~ TRANSACTIONS ~~~
 
   fastify.get('/transactions', {
     schema: transactionSchemas.getTransactions,
     preValidation: [authController.authMiddleware],
+    compress: false,
     handler: moneyController.getTransactions,
+  });
+
+  fastify.get('/trades', {
+    schema: transactionSchemas.getInvestAssetTrades,
+    preValidation: [authController.authMiddleware],
+    compress: false,
+    handler: moneyController.getInvestAssetTrades,
+  });
+
+  fastify.get('/rate-history', {
+    schema: rateHistorySchemas.getRateHistory,
+    preValidation: [authController.authMiddleware],
+    handler: moneyController.getRateHistory,
   });
 
   fastify.post('/transactions', {

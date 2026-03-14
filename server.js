@@ -30,6 +30,7 @@ import { startCoefficientsCalculation } from './coefficients/coeffs-service.js';
 import { initDatabase } from './db/init.js';
 import { APP_IP, APP_PORT, CRON_SCHEDULE, DEV_MODE, JWT_SECRET, S3_CONFIG } from './env.js';
 import { loggingHooks } from './logger/logger.js';
+import { runDailyQuotesJob } from './quotes/quotes-job.js';
 import { performBackup } from './s3-backup-service.js';
 import { swaggerConfig, swaggerCorsConfig, swaggerUiConfig } from './swagger-config.js';
 
@@ -49,6 +50,10 @@ if (S3_CONFIG.ENABLED) {
     await performBackup();
   });
 }
+
+cron.schedule(CRON_SCHEDULE.QUOTES, async () => {
+  await runDailyQuotesJob();
+});
 
 const server = Fastify({ logger: true });
 

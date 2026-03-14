@@ -782,18 +782,20 @@ export async function saveProductData(id, productData) {
   try {
     const { name, kcals, protein, fat, carbs, fiber, description } = productData;
 
-    if (
-      !name ||
-      kcals === undefined ||
-      protein === undefined ||
-      fat === undefined ||
-      carbs === undefined ||
-      fiber === undefined ||
-      !description
-    ) {
+    const missingFields = [];
+
+    if (!name) missingFields.push('name');
+    if (kcals === undefined) missingFields.push('kcals');
+    if (protein === undefined) missingFields.push('protein');
+    if (fat === undefined) missingFields.push('fat');
+    if (carbs === undefined) missingFields.push('carbs');
+    if (fiber === undefined) missingFields.push('fiber');
+    if (!description) missingFields.push('description');
+
+    if (missingFields.length > 0) {
       return {
         success: false,
-        error: 'Missing required fields',
+        error: `Missing required fields: ${missingFields.join(', ')}`,
       };
     }
 

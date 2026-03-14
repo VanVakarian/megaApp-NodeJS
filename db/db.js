@@ -14,6 +14,8 @@ export const getConnection = async () => {
     driver: sqlite3.Database,
   });
 
+  await db.exec('PRAGMA foreign_keys = ON;');
+
   connectionCache = db;
 
   return db;

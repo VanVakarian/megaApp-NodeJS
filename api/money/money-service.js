@@ -7,14 +7,13 @@ export function isSymbolPositionValid(symbolPosEnum) {
   return Object.values(SYMBOL_POSITION).includes(symbolPosEnum);
 }
 
-export const USED_FOR = {
-  TRANSACTION: 'transaction',
-  ACCOUNT: 'account',
-  ASSET: 'asset',
+export const CATEGORY_TYPE = {
+  INCOME: 'income',
+  EXPENSE: 'expense',
 };
 
-export function isUsedForValid(usedFor) {
-  return Object.values(USED_FOR).includes(usedFor);
+export function isCategoryTypeValid(categoryType) {
+  return Object.values(CATEGORY_TYPE).includes(categoryType);
 }
 
 export const ACCOUNT_KIND = {
@@ -31,9 +30,23 @@ export function isAccountKindValid(kind) {
   return Object.values(ACCOUNT_KIND).includes(kind);
 }
 
+export const ASSET_TYPE = {
+  STOCK: 'stock',
+  BOND: 'bond',
+  CRYPTO: 'crypto',
+};
+
+export function isAssetTypeValid(type) {
+  return Object.values(ASSET_TYPE).includes(type);
+}
+
 export const TRANSACTION_KIND = {
   INCOME: 'income',
   EXPENSE: 'expense',
+  TRANSFER: 'transfer',
+  INVEST_BUY: 'invest_buy',
+  INVEST_SELL: 'invest_sell',
+  INVEST_DIVIDEND: 'invest_dividend',
 };
 
 export function isTransactionKindValid(kind) {
