@@ -164,6 +164,12 @@ export async function moneyRoutes(fastify) {
     handler: moneyController.getRateHistory,
   });
 
+  fastify.get('/snapshot', {
+    preValidation: [authController.authMiddleware],
+    compress: false,
+    handler: moneyController.getSnapshot,
+  });
+
   fastify.post('/transactions', {
     schema: transactionSchemas.createTransaction,
     preValidation: [authController.authMiddleware],

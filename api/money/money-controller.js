@@ -1004,7 +1004,7 @@ export async function getTransactions(request, reply) {
 export async function getInvestAssetTrades(request, reply) {
   try {
     const { user } = request;
-    const trades = await dbMoney.getInvestAssetTrades(user.id);
+    const trades = await dbMoney.getAllInvestAssetTrades(user.id);
 
     reply.send({
       success: true,
@@ -1032,6 +1032,46 @@ export async function getRateHistory(request, reply) {
     return reply.status(500).send({
       success: false,
       error: 'Failed to get money rate history',
+      message: error.message,
+    });
+  }
+}
+
+//                                                              ~~~ SNAPSHOT ~~~
+
+export async function getSnapshot(request, reply) {
+  try {
+    const { user } = request;
+
+    const [currencies, categories, organizations, accounts, assets, transactions, rateHistory, investAssetTrades] =
+      await Promise.all([
+        dbMoney.getAllCurrencies(user.id),
+        dbMoney.getAllCategories(user.id),
+        dbMoney.getAllOrganizations(user.id),
+        dbMoney.getAllAccounts(user.id),
+        dbMoney.getAllAssets(user.id),
+        dbMoney.getAllTransactions(user.id),
+        dbMoney.getAllRateHistory(),
+        dbMoney.getAllInvestAssetTrades(user.id),
+      ]);
+
+    reply.send({
+      success: true,
+      data: {
+        currencies,
+        categories,
+        organizations,
+        accounts,
+        assets: assets.map((asset) => normalizeAssetFromDB(asset)),
+        transactions,
+        rateHistory: Array.isArray(rateHistory) ? rateHistory : [],
+        investAssetTrades,
+      },
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to get money snapshot',
       message: error.message,
     });
   }
