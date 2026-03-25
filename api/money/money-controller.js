@@ -1004,7 +1004,7 @@ export async function getTransactions(request, reply) {
 export async function getInvestAssetTrades(request, reply) {
   try {
     const { user } = request;
-    const trades = await dbMoney.getInvestAssetTrades(user.id);
+    const trades = await dbMoney.getAllInvestAssetTrades(user.id);
 
     reply.send({
       success: true,
@@ -1032,6 +1032,55 @@ export async function getRateHistory(request, reply) {
     return reply.status(500).send({
       success: false,
       error: 'Failed to get money rate history',
+      message: error.message,
+    });
+  }
+}
+
+//                                                              ~~~ SNAPSHOT ~~~
+
+export async function getSnapshot(request, reply) {
+  try {
+    const { user } = request;
+
+    const [currencies, categories, organizations, accounts, assets, transactions, rateHistory, investAssetTrades] =
+      await Promise.all([
+        dbMoney.getAllCurrencies(user.id),
+        dbMoney.getAllCategories(user.id),
+        dbMoney.getAllOrganizations(user.id),
+        dbMoney.getAllAccounts(user.id),
+        dbMoney.getAllAssets(user.id),
+        dbMoney.getAllTransactions(user.id),
+        dbMoney.getAllRateHistory(),
+        dbMoney.getAllInvestAssetTrades(user.id),
+      ]);
+
+    const normalizedAssets = assets.map((asset) => normalizeAssetFromDB(asset));
+    const currencyTickers = new Set(currencies.map((c) => c.ticker));
+    const eomHeld = computeEomHeldTickers(investAssetTrades);
+    const filteredRateHistory = filterRateHistory(
+      Array.isArray(rateHistory) ? rateHistory : [],
+      currencyTickers,
+      eomHeld,
+    );
+
+    reply.send({
+      success: true,
+      data: {
+        currencies,
+        categories,
+        organizations,
+        accounts,
+        assets: normalizedAssets,
+        transactions,
+        rateHistory: filteredRateHistory,
+        investAssetTrades,
+      },
+    });
+  } catch (error) {
+    reply.status(500).send({
+      success: false,
+      error: 'Failed to get money snapshot',
       message: error.message,
     });
   }
@@ -1818,4 +1867,107 @@ export async function deleteTransaction(request, reply) {
       message: error.message,
     });
   }
+}
+
+//                                               ~~~ SNAPSHOT RATE FILTERING ~~~
+
+function computeEomHeldTickers(investAssetTrades) {
+  const trades = investAssetTrades
+    .map((t) => {
+      let details = t.detailsJSON;
+      if (typeof details === 'string') {
+        try {
+          details = JSON.parse(details);
+        } catch {
+          return null;
+        }
+      }
+      const qty = parseFloat(details?.quantity);
+      if (!t.assetTicker || !Number.isFinite(qty) || qty <= 0) return null;
+      return {
+        dateISO: t.dateISO,
+        ticker: t.assetTicker,
+        qty: t.kind === 'invest_buy' ? qty : -qty,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.dateISO.localeCompare(b.dateISO));
+
+  if (!trades.length) return new Map();
+
+  const firstYear = Number(trades[0].dateISO.substring(0, 4));
+  const firstMonth = Number(trades[0].dateISO.substring(5, 7));
+  const today = new Date();
+  const lastYear = today.getFullYear();
+  const lastMonth = today.getMonth() + 1;
+
+  const eomHeld = new Map();
+  const cumulativeQty = new Map();
+  let tradeIdx = 0;
+  let y = firstYear;
+  let m = firstMonth;
+
+  while (y < lastYear || (y === lastYear && m <= lastMonth)) {
+    const eomDay = new Date(y, m, 0).getDate();
+    const eomISO = `${y}-${String(m).padStart(2, '0')}-${String(eomDay).padStart(2, '0')}`;
+    const monthKey = `${y}-${String(m).padStart(2, '0')}`;
+
+    while (tradeIdx < trades.length && trades[tradeIdx].dateISO <= eomISO) {
+      const t = trades[tradeIdx++];
+      cumulativeQty.set(t.ticker, (cumulativeQty.get(t.ticker) ?? 0) + t.qty);
+    }
+
+    const held = new Set();
+    cumulativeQty.forEach((qty, ticker) => {
+      if (qty > 1e-9) held.add(ticker);
+    });
+    eomHeld.set(monthKey, held);
+
+    m++;
+    if (m > 12) {
+      m = 1;
+      y++;
+    }
+  }
+
+  return eomHeld;
+}
+
+function filterRateHistory(rateHistory, currencyTickers, eomHeld) {
+  const result = [];
+
+  for (const record of rateHistory) {
+    let ratesJson = record.ratesJson;
+    if (typeof ratesJson === 'string') {
+      try {
+        ratesJson = JSON.parse(ratesJson);
+      } catch {
+        continue;
+      }
+    }
+    if (!ratesJson || typeof ratesJson !== 'object') continue;
+
+    const year = Number(record.dateISO.substring(0, 4));
+    const mo = Number(record.dateISO.substring(5, 7));
+    const day = Number(record.dateISO.substring(8, 10));
+    const eomDay = new Date(year, mo, 0).getDate();
+    const isEom = day === eomDay;
+    const monthKey = record.dateISO.substring(0, 7);
+
+    const allowedTickers = new Set(currencyTickers);
+    if (isEom) {
+      eomHeld.get(monthKey)?.forEach((ticker) => allowedTickers.add(ticker));
+    }
+
+    const filteredRates = {};
+    for (const [ticker, rate] of Object.entries(ratesJson)) {
+      if (allowedTickers.has(ticker)) filteredRates[ticker] = rate;
+    }
+
+    if (Object.keys(filteredRates).length === 0) continue;
+
+    result.push({ id: record.id, dateISO: record.dateISO, ratesJson: filteredRates });
+  }
+
+  return result;
 }

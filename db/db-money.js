@@ -543,7 +543,7 @@ export async function getAllTransactions(userId) {
   );
 }
 
-export async function getInvestAssetTrades(userId) {
+export async function getAllInvestAssetTrades(userId) {
   const db = await getConnection();
   return await db.all(
     `
