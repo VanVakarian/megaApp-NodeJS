@@ -12,6 +12,7 @@ export const WS_MESSAGE_TYPES = {
   DIARY_ENTRY_CREATED: 'DIARY_ENTRY_CREATED',
   DIARY_ENTRY_UPDATED: 'DIARY_ENTRY_UPDATED',
   DIARY_ENTRY_DELETED: 'DIARY_ENTRY_DELETED',
+  DIARY_DAY_DELETED: 'DIARY_DAY_DELETED',
   BODY_WEIGHT_UPDATED: 'BODY_WEIGHT_UPDATED',
   START_VOICE_RECORDING: 'START_VOICE_RECORDING',
   STOP_VOICE_RECORDING: 'STOP_VOICE_RECORDING',
@@ -72,13 +73,13 @@ export async function getFoodDiaryFullUpdateRange(request, reply) {
     bodyWeightPrepped,
     stats,
     userGoal,
-    targetKcals
+    targetKcals,
   );
 
   const consumedNutrients = foodService.calculateConsumedNutrientsForRange(
     datesIsoList,
     foodDiaryPrepped,
-    catalogueMap
+    catalogueMap,
   );
 
   const consumedKcals = {};
@@ -92,7 +93,7 @@ export async function getFoodDiaryFullUpdateRange(request, reply) {
     targetNutrients,
     consumedNutrients,
     targetKcals,
-    consumedKcals
+    consumedKcals,
   );
 
   return reply.code(200).send(JSON.stringify(diaryResult));
@@ -126,7 +127,7 @@ export async function createDiaryEntry(request, reply) {
             history,
           },
         },
-        clientId
+        clientId,
       );
       return reply.code(201).send({ result: true, diaryId: resId });
     }
@@ -157,7 +158,7 @@ export async function editDiaryEntry(request, reply) {
           newHistoryEntry: diaryEntry.history[0],
         },
       },
-      clientId
+      clientId,
     );
     return reply.code(200).send({ result: result, diaryId: diaryEntry.id });
   }
@@ -181,13 +182,44 @@ export async function deleteDiaryEntry(request, reply) {
           type: WS_MESSAGE_TYPES.DIARY_ENTRY_DELETED,
           payload: { deletedDiaryEntryId: parseInt(diaryId) },
         },
-        clientId
+        clientId,
       );
       return reply.code(200).send({ result: true });
     }
     return reply.code(404).send({ result: false, error: 'Entry not found' });
   } catch (error) {
     console.error('Error deleting diary entry:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
+}
+
+export async function deleteDiaryEntriesForDay(request, reply) {
+  const { dateISO } = request.params;
+  const userId = request.user.id;
+
+  try {
+    const result = await foodService.deleteDiaryEntriesForDay(dateISO, userId);
+
+    if (!result.success) {
+      const statusCode = result.error === 'Entries not found' ? 404 : 400;
+      return reply.code(statusCode).send({ result: false, error: result.error });
+    }
+
+    updateUserDataLastModified(userId);
+    request.server.scheduleStatsRecalculation(userId);
+    const clientId = request.server.getClientId(request);
+    request.server.broadcastToUser(
+      userId,
+      {
+        type: WS_MESSAGE_TYPES.DIARY_DAY_DELETED,
+        payload: { dateISO },
+      },
+      clientId,
+    );
+
+    return reply.code(200).send({ result: true, deletedEntriesCount: result.deletedEntriesCount });
+  } catch (error) {
+    console.error('Error deleting diary entries for day:', error);
     return reply.code(500).send({ result: false, error: 'Internal server error' });
   }
 }
@@ -287,7 +319,7 @@ export async function saveProduct(request, reply) {
           type: WS_MESSAGE_TYPES.CATALOGUE_ENTRY_SAVED,
           payload: result.data.catalogueEntry,
         },
-        clientId
+        clientId,
       );
 
       const statusCode = id ? 200 : 201;
@@ -460,7 +492,7 @@ export async function processWeight(request, reply) {
           type: WS_MESSAGE_TYPES.BODY_WEIGHT_UPDATED,
           payload: { dateISO, newBodyWeight: weight },
         },
-        clientId
+        clientId,
       );
       return reply.code(201).send({ result: true });
     } else {

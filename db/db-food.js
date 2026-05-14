@@ -102,6 +102,24 @@ export async function dbDeleteDiaryEntry(diaryId, userId) {
   }
 }
 
+export async function dbDeleteDiaryEntriesByDate(dateISO, userId) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      DELETE FROM
+        foodDiary
+      WHERE
+        dateISO = ?
+        AND usersId = ?;
+    `;
+    const result = await connection.run(query, [dateISO, userId]);
+    return result.changes > 0;
+  } catch (error) {
+    console.error(error);
+    return false;
+  }
+}
+
 export async function getDiaryEntriesForDay(startOfDay, endOfDay) {
   const connection = await getConnection();
   try {
@@ -741,7 +759,7 @@ export async function searchCatalogueEntriesByEmbedding(
   nameEmbeddingArray,
   descriptionEmbeddingArray,
   nameWeight = 0.5,
-  descriptionWeight = 0.5
+  descriptionWeight = 0.5,
 ) {
   const connection = await getConnection();
   try {

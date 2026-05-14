@@ -23,14 +23,34 @@ export const CRON_SCHEDULE = {
   QUOTES: '00 03 * * *', // Every day at 3 AM GMT
 };
 
-// AWS S3 BACKUP
+// S3-COMPATIBLE BACKUP
+export const BACKUP_STORAGE_PROVIDER = {
+  AWS: 'aws',
+  BACKBLAZE: 'backblaze',
+};
+
 export const S3_CONFIG = {
   ENABLED: true,
   TEMP_DIR: 'backups',
-  REGION: 'eu-north-1',
-  BUCKET_NAME: 'bucket-name',
-  ACCESS_KEY_ID: 'iam-user-access-key-id',
-  SECRET_ACCESS_KEY: 'iam-user-secret-access-key',
+  PROVIDER: BACKUP_STORAGE_PROVIDER.BACKBLAZE,
+  AWS: {
+    REGION: 'eu-north-1',
+    BUCKET_NAME: 'bucket-name',
+    ENDPOINT: null,
+    FORCE_PATH_STYLE: false,
+    STORAGE_CLASS: 'STANDARD_IA',
+    ACCESS_KEY_ID: 'aws-access-key-id',
+    SECRET_ACCESS_KEY: 'aws-secret-access-key',
+  },
+  BACKBLAZE: {
+    REGION: 'eu-central-003',
+    BUCKET_NAME: 'bucket-name',
+    ENDPOINT: 'https://s3.eu-central-003.backblazeb2.com',
+    FORCE_PATH_STYLE: false,
+    STORAGE_CLASS: null,
+    ACCESS_KEY_ID: 'backblaze-access-key-id',
+    SECRET_ACCESS_KEY: 'backblaze-secret-access-key',
+  },
 };
 
 // LOGGING

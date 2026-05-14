@@ -50,6 +50,21 @@ export async function foodRoutes(fastify) {
     handler: foodController.deleteDiaryEntry,
   });
 
+  fastify.delete('/diary/day/:dateISO', {
+    schema: {
+      tags: ['food'],
+      params: {
+        type: 'object',
+        properties: {
+          dateISO: { type: 'string', format: 'date' },
+        },
+        required: ['dateISO'],
+      },
+    },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.deleteDiaryEntriesForDay,
+  });
+
   // ========================================================================================= MAIN CATALOGUE ROUTES ===
   fastify.get('/catalogue', {
     schema: { tags: ['food'] },
