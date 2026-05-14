@@ -1,88 +1,161 @@
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { createReadStream } from 'fs';
 import fs from 'fs/promises';
+import { crc32, deflateRawSync } from 'node:zlib';
 import path from 'path';
+import { buildBackupStorageClient, getActiveBackupStorageConfig, getBackupStorageLabel } from './backup-storage.js';
 import { getConnection } from './db/db.js';
-import { DB_ENV, DB_NAME, DB_VERSION, S3_CONFIG } from './env.js';
+import { DB_ENV, DB_NAME, DB_VERSION } from './env.js';
 
-const s3Client = new S3Client({
-  region: S3_CONFIG.REGION,
-  credentials: {
-    accessKeyId: S3_CONFIG.ACCESS_KEY_ID,
-    secretAccessKey: S3_CONFIG.SECRET_ACCESS_KEY,
-  },
-});
+const escapeSqliteString = (value) => value.replaceAll("'", "''");
+const buildTimestamp = () => new Date().toISOString().replaceAll(':', '-');
+const buildArchiveBaseName = (timestamp) => `${DB_NAME}-${DB_ENV}-${DB_VERSION}-${timestamp}`;
 
 export async function performBackup() {
-  console.log('Starting S3 backup process...');
-  console.time('S3 backup completed in');
+  const storageConfig = getActiveBackupStorageConfig();
+  const storageLabel = getBackupStorageLabel();
+  const timestamp = buildTimestamp();
+  const archiveBaseName = buildArchiveBaseName(timestamp);
+  const snapshotPath = path.join(storageConfig.TEMP_DIR, `${archiveBaseName}.snapshot.db`);
+  const archivePath = path.join(storageConfig.TEMP_DIR, `${archiveBaseName}.zip`);
+
+  console.log(`Starting ${storageLabel} backup process...`);
+  console.time('Backup completed in');
 
   try {
-    await fs.mkdir(S3_CONFIG.TEMP_DIR, { recursive: true });
-    const backupFile = await createDbBackup();
-    await uploadDbBackupToS3(backupFile);
-    await cleanupTempFile(backupFile);
+    await ensureTempDirectory();
+    await cleanupLocalFiles([snapshotPath, archivePath]);
+    await createSnapshot(snapshotPath);
+    await createZipArchive(snapshotPath, archivePath);
+    await uploadArchiveToStorage(archivePath);
 
-    console.timeEnd('S3 backup completed in');
+    console.timeEnd('Backup completed in');
   } catch (error) {
-    console.error('Daily S3 backup failed:', error);
+    console.error(`Daily ${storageLabel} backup failed:`, error);
+  } finally {
+    await cleanupLocalFiles([snapshotPath, archivePath]);
   }
 }
 
-async function createDbBackup() {
-  const dateISO = new Date().toISOString().split('T')[0];
-  const backupFileName = `${DB_NAME}-${DB_ENV}-${DB_VERSION}-${dateISO}.db`;
-  const backupPath = path.join(S3_CONFIG.TEMP_DIR, backupFileName);
+async function ensureTempDirectory() {
+  const storageConfig = getActiveBackupStorageConfig();
+  await fs.mkdir(storageConfig.TEMP_DIR, { recursive: true });
+}
 
-  console.log(`Creating database backup: ${backupFileName}`);
-
-  try {
-    await fs.unlink(backupPath);
-    console.log(`Removed existing backup file: ${backupFileName}`);
-  } catch (error) {}
+async function createSnapshot(snapshotPath) {
+  console.log(`Creating database snapshot: ${path.basename(snapshotPath)}`);
 
   const connection = await getConnection();
   try {
-    await connection.exec(`VACUUM INTO '${backupPath}'`);
-    console.log(`Database backup created: ${backupPath}`);
-    return backupPath;
+    await connection.exec(`VACUUM INTO '${escapeSqliteString(snapshotPath)}'`);
+    console.log(`Database snapshot created: ${snapshotPath}`);
   } catch (error) {
-    console.error('Error creating database backup:', error);
+    console.error('Error creating database snapshot:', error);
     throw error;
   }
 }
 
-async function uploadDbBackupToS3(filePath) {
-  const fileName = path.basename(filePath);
-  const s3Key = `${DB_ENV}-${DB_VERSION}/${fileName}`;
+async function createZipArchive(snapshotPath, archivePath) {
+  const fileName = path.basename(snapshotPath);
+  const fileData = await fs.readFile(snapshotPath);
+  const compressed = deflateRawSync(fileData);
+  const crc = crc32(fileData);
 
-  console.log(`Uploading to S3: ${s3Key}`);
+  const now = new Date();
+  const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+  const nameBuffer = Buffer.from(fileName, 'utf8');
 
-  const fileStream = createReadStream(filePath);
-  const fileStats = await fs.stat(filePath);
+  const localHeader = Buffer.allocUnsafe(30 + nameBuffer.length);
+  localHeader.writeUInt32LE(0x04034b50, 0);
+  localHeader.writeUInt16LE(20, 4);
+  localHeader.writeUInt16LE(0x0800, 6);
+  localHeader.writeUInt16LE(8, 8);
+  localHeader.writeUInt16LE(dosTime, 10);
+  localHeader.writeUInt16LE(dosDate, 12);
+  localHeader.writeUInt32LE(crc, 14);
+  localHeader.writeUInt32LE(compressed.length, 18);
+  localHeader.writeUInt32LE(fileData.length, 22);
+  localHeader.writeUInt16LE(nameBuffer.length, 26);
+  localHeader.writeUInt16LE(0, 28);
+  nameBuffer.copy(localHeader, 30);
+
+  const centralDirOffset = localHeader.length + compressed.length;
+
+  const centralHeader = Buffer.allocUnsafe(46 + nameBuffer.length);
+  centralHeader.writeUInt32LE(0x02014b50, 0);
+  centralHeader.writeUInt16LE(20, 4);
+  centralHeader.writeUInt16LE(20, 6);
+  centralHeader.writeUInt16LE(0x0800, 8);
+  centralHeader.writeUInt16LE(8, 10);
+  centralHeader.writeUInt16LE(dosTime, 12);
+  centralHeader.writeUInt16LE(dosDate, 14);
+  centralHeader.writeUInt32LE(crc, 16);
+  centralHeader.writeUInt32LE(compressed.length, 20);
+  centralHeader.writeUInt32LE(fileData.length, 24);
+  centralHeader.writeUInt16LE(nameBuffer.length, 28);
+  centralHeader.writeUInt16LE(0, 30);
+  centralHeader.writeUInt16LE(0, 32);
+  centralHeader.writeUInt16LE(0, 34);
+  centralHeader.writeUInt16LE(0, 36);
+  centralHeader.writeUInt32LE(0, 38);
+  centralHeader.writeUInt32LE(0, 42);
+  nameBuffer.copy(centralHeader, 46);
+
+  const endRecord = Buffer.allocUnsafe(22);
+  endRecord.writeUInt32LE(0x06054b50, 0);
+  endRecord.writeUInt16LE(0, 4);
+  endRecord.writeUInt16LE(0, 6);
+  endRecord.writeUInt16LE(1, 8);
+  endRecord.writeUInt16LE(1, 10);
+  endRecord.writeUInt32LE(centralHeader.length, 12);
+  endRecord.writeUInt32LE(centralDirOffset, 16);
+  endRecord.writeUInt16LE(0, 20);
+
+  await fs.writeFile(archivePath, Buffer.concat([localHeader, compressed, centralHeader, endRecord]));
+  console.log(`Database archive created: ${archivePath}`);
+}
+
+async function uploadArchiveToStorage(archivePath) {
+  const storageConfig = getActiveBackupStorageConfig();
+  const storageLabel = getBackupStorageLabel();
+  const archiveFileName = path.basename(archivePath);
+  const s3Key = `${DB_ENV}-${DB_VERSION}/${archiveFileName}`;
+
+  console.log(`Uploading to ${storageLabel}: ${s3Key}`);
+
+  const fileStream = createReadStream(archivePath);
+  const fileStats = await fs.stat(archivePath);
 
   const uploadParams = {
-    Bucket: S3_CONFIG.BUCKET_NAME,
+    Bucket: storageConfig.BUCKET_NAME,
     Key: s3Key,
     Body: fileStream,
-    ContentType: 'application/x-sqlite3',
-    StorageClass: 'STANDARD_IA',
+    ContentType: 'application/zip',
   };
 
+  if (storageConfig.STORAGE_CLASS) {
+    uploadParams.StorageClass = storageConfig.STORAGE_CLASS;
+  }
+
   try {
-    await s3Client.send(new PutObjectCommand(uploadParams));
-    console.log(`Successfully uploaded to S3: ${s3Key} (${(fileStats.size / 1024 / 1024).toFixed(2)}MB)`);
+    await buildBackupStorageClient().send(new PutObjectCommand(uploadParams));
+    console.log(`Successfully uploaded to ${storageLabel}: ${s3Key} (${(fileStats.size / 1024 / 1024).toFixed(2)}MB)`);
   } catch (error) {
-    console.error('Error uploading to S3:', error);
+    console.error(`Error uploading to ${storageLabel}:`, error);
     throw error;
   }
 }
 
-async function cleanupTempFile(file) {
-  try {
-    await fs.unlink(file);
-    console.log(`Cleaned up local file: ${path.basename(file)}`);
-  } catch (error) {
-    console.error(`Error cleaning up file ${file}:`, error);
+async function cleanupLocalFiles(pathsToDelete) {
+  for (const filePath of pathsToDelete) {
+    try {
+      await fs.unlink(filePath);
+      console.log(`Cleaned up local file: ${path.basename(filePath)}`);
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        console.error(`Error cleaning up file ${filePath}:`, error);
+      }
+    }
   }
 }

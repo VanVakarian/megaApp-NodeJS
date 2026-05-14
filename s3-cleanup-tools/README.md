@@ -1,6 +1,6 @@
-# S3 Backup Cleanup Utility
+# S3-Compatible Backup Cleanup Utility
 
-Utility for automatic cleanup of old S3 backups. Keeps one file per past month, removes duplicate backups.
+Utility for automatic cleanup of old zip backups stored in AWS S3 or Backblaze B2. Keeps one file per past month, removes duplicate backups.
 
 ## Usage
 
@@ -17,8 +17,8 @@ node s3-cleanup-tools/start-cleanup.js dev-002
 
 ## How it works
 
-1. **Scans folder** in S3 and reads file list
-2. **Groups by month** based on date in filename (format YYYY-MM-DD)
+1. **Scans folder** in the active storage and reads file list
+2. **Groups by month** based on object `LastModified`
 3. **Determines what to delete:**
    - Current month → keep **ALL** files
    - Past months → keep only **LAST** (newest) file
@@ -49,18 +49,18 @@ node s3-cleanup-tools/start-cleanup.js dev-002
 📁 2025-12:
    Total files: 15
    Total size: 78.92 MB
-   ❌ DELETE prod-001/db-backup-2025-12-01.db
-   ❌ DELETE prod-001/db-backup-2025-12-05.db
-   ✅ KEEP   prod-001/db-backup-2025-12-31.db (newest)
+   ❌ DELETE prod-001/megaapp-prod-001-2025-12-01T02-00-00.000Z.zip
+   ❌ DELETE prod-001/megaapp-prod-001-2025-12-05T02-00-00.000Z.zip
+   ✅ KEEP   prod-001/megaapp-prod-001-2025-12-31T02-00-00.000Z.zip (newest)
    ...
 
 🔵 2026-01 (CURRENT):
    Total files: 20
    Total size: 105.67 MB
-   ✅ KEEP   prod-001/db-backup-2026-01-01.db
-   ✅ KEEP   prod-001/db-backup-2026-01-05.db
-   ✅ KEEP   prod-001/db-backup-2026-01-10.db
-   ✅ KEEP   prod-001/db-backup-2026-01-28.db (newest)
+   ✅ KEEP   prod-001/megaapp-prod-001-2026-01-01T02-00-00.000Z.zip
+   ✅ KEEP   prod-001/megaapp-prod-001-2026-01-05T02-00-00.000Z.zip
+   ✅ KEEP   prod-001/megaapp-prod-001-2026-01-10T02-00-00.000Z.zip
+   ✅ KEEP   prod-001/megaapp-prod-001-2026-01-28T02-00-00.000Z.zip (newest)
    ...
 
 ================================================================================
@@ -71,7 +71,7 @@ node s3-cleanup-tools/start-cleanup.js dev-002
 💾 Space to free:   115.34 MB
 ================================================================================
 
-⚠️  WARNING: You are about to DELETE files from S3!
+⚠️  WARNING: You are about to DELETE files from backup storage!
 ⚠️  This action CANNOT be undone!
 
 Press ENTER to proceed with deletion
@@ -83,19 +83,39 @@ Press ANY OTHER KEY to cancel
 Script uses settings from `env.js`:
 
 ```javascript
+export const BACKUP_STORAGE_PROVIDER = {
+  AWS: 'aws',
+  BACKBLAZE: 'backblaze',
+};
+
 export const S3_CONFIG = {
-  REGION: 'eu-north-1',
-  BUCKET_NAME: 'your-bucket-name',
-  ACCESS_KEY_ID: 'your-access-key',
-  SECRET_ACCESS_KEY: 'your-secret-key',
+  PROVIDER: BACKUP_STORAGE_PROVIDER.BACKBLAZE,
+  AWS: {
+    REGION: 'eu-north-1',
+    BUCKET_NAME: 'your-aws-bucket-name',
+    ENDPOINT: null,
+    FORCE_PATH_STYLE: false,
+    STORAGE_CLASS: 'STANDARD_IA',
+    ACCESS_KEY_ID: 'your-aws-access-key',
+    SECRET_ACCESS_KEY: 'your-aws-secret-key',
+  },
+  BACKBLAZE: {
+    REGION: 'eu-central-003',
+    BUCKET_NAME: 'your-backblaze-bucket-name',
+    ENDPOINT: 'https://s3.eu-central-003.backblazeb2.com',
+    FORCE_PATH_STYLE: false,
+    STORAGE_CLASS: null,
+    ACCESS_KEY_ID: 'your-backblaze-access-key',
+    SECRET_ACCESS_KEY: 'your-backblaze-secret-key',
+  },
 };
 ```
 
 ## Requirements
 
 - Node.js 16+
-- Configured `env.js` with valid AWS credentials
-- IAM permissions: `s3:ListBucket`, `s3:DeleteObject`
+- Configured `env.js` with a valid active storage profile
+- Credentials with `ListBucket` and `DeleteObject` access for the active provider
 - Package `@aws-sdk/client-s3` (already installed in project)
 
 ## Errors
@@ -103,5 +123,5 @@ export const S3_CONFIG = {
 | Error | Solution |
 |-------|----------|
 | `Missing required parameter` | Specify folder: `node start-cleanup.js prod-001` |
-| `Access Denied` | Check credentials and IAM permissions in env.js |
-| `Cannot parse date` | File must contain date in YYYY-MM-DD format |
+| `Access Denied` | Check active provider credentials and bucket permissions in env.js |
+| `Missing LastModified` | Check object metadata returned by the active storage provider |
