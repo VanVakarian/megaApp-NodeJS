@@ -1,34 +1,23 @@
-import { DeleteObjectsCommand, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectsCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import readline from 'readline';
-import { S3_CONFIG } from '../env.js';
+import { buildBackupStorageClient, getActiveBackupStorageConfig, getBackupStorageLabel } from '../backup-storage.js';
 
-const s3Client = new S3Client({
-  region: S3_CONFIG.REGION,
-  credentials: {
-    accessKeyId: S3_CONFIG.ACCESS_KEY_ID,
-    secretAccessKey: S3_CONFIG.SECRET_ACCESS_KEY,
-  },
-});
-
-function parseDate(fileName) {
-  const datePattern = /(\d{4}-\d{2}-\d{2})/;
-  const match = fileName.match(datePattern);
-  if (!match) return null;
-  return new Date(match[1]);
-}
+const storageConfig = getActiveBackupStorageConfig();
+const storageLabel = getBackupStorageLabel();
+const s3Client = buildBackupStorageClient();
 
 function getMonthKey(date) {
   if (!date || isNaN(date.getTime())) return null;
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 function groupFilesByMonth(files) {
   const grouped = new Map();
 
   for (const file of files) {
-    const date = parseDate(file.Key);
+    const date = file.LastModified;
     if (!date) {
-      console.warn(`⚠️  Cannot parse date from file: ${file.Key}`);
+      console.warn(`⚠️  Missing LastModified for file: ${file.Key}`);
       continue;
     }
 
@@ -48,7 +37,7 @@ function groupFilesByMonth(files) {
   }
 
   for (const [month, files] of grouped.entries()) {
-    files.sort((a, b) => a.date - b.date);
+    files.sort((a, b) => a.date.getTime() - b.date.getTime());
   }
 
   return grouped;
@@ -114,7 +103,7 @@ function displayAnalysisResults(grouped, toDelete, toKeep) {
         const label = idx === files.length - 1 ? ' (newest)' : '';
 
         console.log(`   ${status} ${file.key}${label}`);
-        console.log(`        Date: ${file.date.toISOString().split('T')[0]}, Size: ${formatBytes(file.size)}`);
+        console.log(`        Date: ${file.date.toISOString()}, Size: ${formatBytes(file.size)}`);
       });
     }
   }
@@ -141,7 +130,7 @@ async function listAllFiles(folder) {
 
   do {
     const command = new ListObjectsV2Command({
-      Bucket: S3_CONFIG.BUCKET_NAME,
+      Bucket: storageConfig.BUCKET_NAME,
       Prefix: folder.endsWith('/') ? folder : `${folder}/`,
       ContinuationToken: continuationToken,
     });
@@ -166,7 +155,7 @@ async function listAllFiles(folder) {
 
 async function waitForConfirmation() {
   return new Promise((resolve) => {
-    console.log('⚠️  WARNING: You are about to DELETE files from S3!');
+    console.log('⚠️  WARNING: You are about to DELETE files from backup storage!');
     console.log('⚠️  This action CANNOT be undone!');
     console.log('\nPress ENTER to proceed with deletion');
     console.log('Press ANY OTHER KEY to cancel\n');
@@ -218,7 +207,7 @@ async function deleteFiles(filesToDelete) {
 
     try {
       const command = new DeleteObjectsCommand({
-        Bucket: S3_CONFIG.BUCKET_NAME,
+        Bucket: storageConfig.BUCKET_NAME,
         Delete: {
           Objects: batch.map((file) => ({ Key: file.key })),
           Quiet: false,
@@ -265,10 +254,11 @@ async function main() {
       process.exit(1);
     }
 
-    console.log('🚀 S3 BACKUP CLEANUP UTILITY');
-    console.log(`\n📦 Bucket: ${S3_CONFIG.BUCKET_NAME}`);
+    console.log('🚀 S3-COMPATIBLE BACKUP CLEANUP UTILITY');
+    console.log(`\n🧩 Provider: ${storageLabel}`);
+    console.log(`📦 Bucket: ${storageConfig.BUCKET_NAME}`);
     console.log(`📁 Folder: ${folder}`);
-    console.log(`🌍 Region: ${S3_CONFIG.REGION}\n`);
+    console.log(`🌍 Region: ${storageConfig.REGION}\n`);
 
     const files = await listAllFiles(folder);
 
