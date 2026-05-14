@@ -133,6 +133,25 @@ export async function makeUpdatedHistoryString(diaryId, userId, newHistoryEntry)
   return historyString;
 }
 
+export async function deleteDiaryEntriesForDay(dateISO, userId) {
+  const dayEntries = await dbFood.getRangeOfUsersDiaryEntries(userId, dateISO, dateISO);
+
+  if (!dayEntries?.length) {
+    return { success: false, error: 'Entries not found' };
+  }
+
+  const result = await dbFood.dbDeleteDiaryEntriesByDate(dateISO, userId);
+
+  if (!result) {
+    return { success: false, error: 'Failed to delete entries' };
+  }
+
+  return {
+    success: true,
+    deletedEntriesCount: dayEntries.length,
+  };
+}
+
 export async function calculateTargetKcals(userId, endDate) {
   const DAYS_AVG_7 = 7;
   const DAYS_AVG_60 = 60;
