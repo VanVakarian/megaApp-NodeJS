@@ -72,6 +72,21 @@ export async function foodRoutes(fastify) {
     handler: foodController.getCatalogue,
   });
 
+  fastify.get('/catalogue/:catalogueId', {
+    schema: {
+      tags: ['food'],
+      params: {
+        type: 'object',
+        properties: {
+          catalogueId: { type: 'string', pattern: '^[0-9]+$' },
+        },
+        required: ['catalogueId'],
+      },
+    },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.getCatalogueEntry,
+  });
+
   fastify.post('/catalogue/', {
     schema: {
       tags: ['food'],
@@ -103,6 +118,21 @@ export async function foodRoutes(fastify) {
     },
     preValidation: [authController.authMiddleware],
     handler: foodController.editCatalogueEntry,
+  });
+
+  fastify.delete('/catalogue/:catalogueId', {
+    schema: {
+      tags: ['food'],
+      params: {
+        type: 'object',
+        properties: {
+          catalogueId: { type: 'string', pattern: '^[0-9]+$' },
+        },
+        required: ['catalogueId'],
+      },
+    },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.deleteCatalogueEntry,
   });
 
   // =========================================================================================== NEW SEMANTIC SEARCH ===

@@ -231,6 +231,17 @@ export async function getCatalogue(request, reply) {
   return reply.code(200).send(JSON.stringify(catalogue));
 }
 
+export async function getCatalogueEntry(request, reply) {
+  const { catalogueId } = request.params;
+  const catalogueEntry = await foodService.getCatalogueEntryDetails(parseInt(catalogueId, 10));
+
+  if (!catalogueEntry) {
+    return reply.code(404).send({ result: false, error: 'Product not found' });
+  }
+
+  return reply.code(200).send({ result: true, data: catalogueEntry });
+}
+
 export async function createCatalogueEntry(request, reply) {
   const { foodName, foodKcals } = request.body;
   const userId = request.user.id;
@@ -336,6 +347,34 @@ export async function saveProduct(request, reply) {
     return reply.code(400).send({ result: false, error: result.error });
   } catch (error) {
     console.error('Error in saveProduct:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
+}
+
+export async function deleteCatalogueEntry(request, reply) {
+  const { catalogueId } = request.params;
+  const userId = request.user.id;
+
+  try {
+    const result = await foodService.deleteProduct(parseInt(catalogueId, 10));
+
+    if (!result.success) {
+      if (result.error === 'Product not found') {
+        return reply.code(404).send({ result: false, error: result.error });
+      }
+
+      if (result.error === 'Product is used in diary entries') {
+        return reply.code(409).send({ result: false, error: result.error });
+      }
+
+      return reply.code(400).send({ result: false, error: result.error });
+    }
+
+    updateUserDataLastModified(userId);
+
+    return reply.code(200).send({ result: true, data: result.data });
+  } catch (error) {
+    console.error('Error deleting catalogue entry:', error);
     return reply.code(500).send({ result: false, error: 'Internal server error' });
   }
 }

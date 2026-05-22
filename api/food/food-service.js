@@ -66,6 +66,28 @@ export async function formFoodCatalogue() {
   return foodCataloguePrepped;
 }
 
+export async function getCatalogueEntryDetails(catalogueId) {
+  const catalogueEntry = await dbFood.getCatalogueEntryByIdForAPI(catalogueId);
+
+  if (!catalogueEntry) {
+    return null;
+  }
+
+  const diaryEntriesCount = await dbFood.countDiaryEntriesByFoodCatalogueId(catalogueId);
+
+  if (diaryEntriesCount === null) {
+    return {
+      ...catalogueEntry,
+      canDelete: false,
+    };
+  }
+
+  return {
+    ...catalogueEntry,
+    canDelete: diaryEntriesCount === 0,
+  };
+}
+
 function prepFoodCatalogue(catalogueArray) {
   const catalogueObj = {};
   for (const entry of catalogueArray) {
@@ -889,7 +911,7 @@ export async function saveProductData(id, productData) {
         );
       }
 
-      const createdEntry = await dbFood.getCatalogueEntryByIdForAPI(catalogueId);
+      const createdEntry = await getCatalogueEntryDetails(catalogueId);
 
       imageService.requestProductImageGeneration(catalogueId, name, description);
 
@@ -956,7 +978,7 @@ export async function saveProductData(id, productData) {
         }
       }
 
-      const updatedEntry = await dbFood.getCatalogueEntryByIdForAPI(id);
+      const updatedEntry = await getCatalogueEntryDetails(id);
 
       return {
         success: true,
@@ -972,6 +994,49 @@ export async function saveProductData(id, productData) {
       error: 'Internal server error',
     };
   }
+}
+
+export async function deleteProduct(catalogueId) {
+  const existingEntry = await dbFood.getCatalogueEntryByIdForAPI(catalogueId);
+
+  if (!existingEntry) {
+    return {
+      success: false,
+      error: 'Product not found',
+    };
+  }
+
+  const diaryEntriesCount = await dbFood.countDiaryEntriesByFoodCatalogueId(catalogueId);
+
+  if (diaryEntriesCount === null) {
+    return {
+      success: false,
+      error: 'Failed to check product usage',
+    };
+  }
+
+  if (diaryEntriesCount > 0) {
+    return {
+      success: false,
+      error: 'Product is used in diary entries',
+    };
+  }
+
+  const deleted = await dbFood.deleteFoodCatalogueEntry(catalogueId);
+
+  if (!deleted) {
+    return {
+      success: false,
+      error: 'Failed to delete product',
+    };
+  }
+
+  return {
+    success: true,
+    data: {
+      catalogueId,
+    },
+  };
 }
 
 export async function createGeneralizedCatalogueEntry(description) {
