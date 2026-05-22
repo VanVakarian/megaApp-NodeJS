@@ -460,11 +460,30 @@ export async function deleteFoodCatalogueEntry(id) {
       WHERE
         id = ?;
     `;
-    await connection.run(query, [id]);
-    return true;
+    const result = await connection.run(query, [id]);
+    return result.changes > 0;
   } catch (error) {
     console.error(error);
     return false;
+  }
+}
+
+export async function countDiaryEntriesByFoodCatalogueId(catalogueId) {
+  const connection = await getConnection();
+  try {
+    const query = `
+      SELECT
+        COUNT(*) as count
+      FROM
+        foodDiary
+      WHERE
+        foodCatalogueId = ?;
+    `;
+    const result = await connection.get(query, [catalogueId]);
+    return result?.count ?? 0;
+  } catch (error) {
+    console.error(error);
+    return null;
   }
 }
 
