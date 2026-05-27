@@ -224,6 +224,41 @@ export async function deleteDiaryEntriesForDay(request, reply) {
   }
 }
 
+export async function restoreDiaryEntriesForDay(request, reply) {
+  const { dateISO } = request.params;
+  const { entries } = request.body;
+  const userId = request.user.id;
+
+  try {
+    const result = await foodService.restoreDiaryEntriesForDay(dateISO, entries, userId);
+
+    if (!result.success) {
+      const statusCode = result.error === 'Entries not found' ? 400 : 500;
+      return reply.code(statusCode).send({ result: false, error: result.error });
+    }
+
+    updateUserDataLastModified(userId);
+    request.server.scheduleStatsRecalculation(userId);
+    const clientId = request.server.getClientId(request);
+
+    result.diaryEntries.forEach((diaryEntry) => {
+      request.server.broadcastToUser(
+        userId,
+        {
+          type: WS_MESSAGE_TYPES.DIARY_ENTRY_CREATED,
+          payload: diaryEntry,
+        },
+        clientId,
+      );
+    });
+
+    return reply.code(201).send({ result: true, diaryEntries: result.diaryEntries });
+  } catch (error) {
+    console.error('Error restoring diary entries for day:', error);
+    return reply.code(500).send({ result: false, error: 'Internal server error' });
+  }
+}
+
 // ================================================================================================== MAIN CATALOGUE ===
 
 export async function getCatalogue(request, reply) {

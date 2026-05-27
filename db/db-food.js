@@ -21,6 +21,49 @@ export async function dbCreateDiaryEntry(dateISO, foodCatalogueId, foodWeight, h
   }
 }
 
+export async function dbCreateDiaryEntriesBatch(diaryEntries, userId) {
+  const connection = await getConnection();
+  const insertedEntries = [];
+
+  try {
+    const query = `
+      INSERT INTO
+        foodDiary (dateISO, foodCatalogueId, foodWeight, history, usersId, ver, del)
+      VALUES
+        (?, ?, ?, ?, ?, ?, ?);
+    `;
+
+    await connection.run('BEGIN TRANSACTION;');
+
+    for (const diaryEntry of diaryEntries) {
+      const result = await connection.run(query, [
+        diaryEntry.dateISO,
+        diaryEntry.foodCatalogueId,
+        diaryEntry.foodWeight,
+        JSON.stringify(diaryEntry.history),
+        userId,
+        0,
+        0,
+      ]);
+
+      insertedEntries.push({
+        id: result.lastID,
+        dateISO: diaryEntry.dateISO,
+        foodCatalogueId: diaryEntry.foodCatalogueId,
+        foodWeight: diaryEntry.foodWeight,
+        history: diaryEntry.history,
+      });
+    }
+
+    await connection.run('COMMIT;');
+    return insertedEntries;
+  } catch (error) {
+    await connection.run('ROLLBACK;').catch(() => null);
+    console.error(error);
+    return null;
+  }
+}
+
 export async function dbGetDiaryEntriesHistory(diaryId, userId) {
   const connection = await getConnection();
   try {

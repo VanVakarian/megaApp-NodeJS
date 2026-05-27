@@ -65,6 +65,39 @@ export async function foodRoutes(fastify) {
     handler: foodController.deleteDiaryEntriesForDay,
   });
 
+  fastify.post('/diary/day/:dateISO/restore', {
+    schema: {
+      tags: ['food'],
+      params: {
+        type: 'object',
+        properties: {
+          dateISO: { type: 'string', format: 'date' },
+        },
+        required: ['dateISO'],
+      },
+      body: {
+        type: 'object',
+        properties: {
+          entries: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                foodCatalogueId: { type: 'integer' },
+                foodWeight: { type: 'integer' },
+                history: { type: 'array' },
+              },
+              required: ['foodCatalogueId', 'foodWeight', 'history'],
+            },
+          },
+        },
+        required: ['entries'],
+      },
+    },
+    preValidation: [authController.authMiddleware],
+    handler: foodController.restoreDiaryEntriesForDay,
+  });
+
   // ========================================================================================= MAIN CATALOGUE ROUTES ===
   fastify.get('/catalogue', {
     schema: { tags: ['food'] },

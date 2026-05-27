@@ -174,6 +174,33 @@ export async function deleteDiaryEntriesForDay(dateISO, userId) {
   };
 }
 
+export async function restoreDiaryEntriesForDay(dateISO, diaryEntries, userId) {
+  if (!Array.isArray(diaryEntries) || !diaryEntries.length) {
+    return { success: false, error: 'Entries not found' };
+  }
+
+  const normalizedEntries = diaryEntries.map((entry) => ({
+    dateISO,
+    foodCatalogueId: entry.foodCatalogueId,
+    foodWeight: entry.foodWeight,
+    history:
+      Array.isArray(entry.history) && entry.history.length
+        ? entry.history
+        : [{ action: 'init', value: entry.foodWeight }],
+  }));
+
+  const restoredEntries = await dbFood.dbCreateDiaryEntriesBatch(normalizedEntries, userId);
+
+  if (!restoredEntries?.length) {
+    return { success: false, error: 'Failed to restore entries' };
+  }
+
+  return {
+    success: true,
+    diaryEntries: restoredEntries,
+  };
+}
+
 export async function calculateTargetKcals(userId, endDate) {
   const DAYS_AVG_7 = 7;
   const DAYS_AVG_60 = 60;
