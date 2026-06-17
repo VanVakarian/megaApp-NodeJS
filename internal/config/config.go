@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -14,9 +15,14 @@ type Config struct {
 	AppHost         string
 	AppPort         int
 	LogLevel        string
+	DataDir         string
+	DatabaseName    string
+	DatabaseEnv     string
+	DatabaseVersion string
 	DatabasePath    string
 	MigrationsDir   string
 	PublicDir       string
+	JWTSecret       string
 	ShutdownTimeout time.Duration
 	BuildVersion    string
 	BuildCommit     string
@@ -25,17 +31,33 @@ type Config struct {
 }
 
 func Load() (Config, error) {
+	if err := LoadEnvFiles(); err != nil {
+		return Config{}, fmt.Errorf("load env files: %w", err)
+	}
+
+	appEnv := getString("APP_ENV", "dev")
+	databaseEnv := getString("DB_ENV", appEnv)
+	databaseName := getString("DB_NAME", "megaapp")
+	databaseVersion := getString("DB_VERSION", "005")
+	dataDir := getString("DATA_DIR", "./data")
+	databasePath := getString("DATABASE_PATH", filepath.Join(dataDir, buildDatabaseFileName(databaseName, databaseEnv, databaseVersion)))
+
 	cfg := Config{
-		AppEnv:        getString("APP_ENV", "dev"),
-		AppHost:       getString("APP_HOST", "127.0.0.1"),
-		LogLevel:      strings.ToLower(getString("LOG_LEVEL", "info")),
-		DatabasePath:  getString("DATABASE_PATH", "./app.db"),
-		MigrationsDir: getString("MIGRATIONS_DIR", "./migrations"),
-		PublicDir:     getString("PUBLIC_DIR", "./public"),
-		BuildVersion:  getString("APP_BUILD_VERSION", "dev"),
-		BuildCommit:   getString("APP_BUILD_COMMIT", "local"),
-		BuildTime:     getString("APP_BUILD_TIME", "unknown"),
-		GoVersion:     runtime.Version(),
+		AppEnv:          appEnv,
+		AppHost:         getString("APP_HOST", "127.0.0.1"),
+		LogLevel:        strings.ToLower(getString("LOG_LEVEL", "info")),
+		DataDir:         dataDir,
+		DatabaseName:    databaseName,
+		DatabaseEnv:     databaseEnv,
+		DatabaseVersion: databaseVersion,
+		DatabasePath:    databasePath,
+		MigrationsDir:   getString("MIGRATIONS_DIR", "./migrations"),
+		PublicDir:       getString("PUBLIC_DIR", "./public"),
+		JWTSecret:       getString("JWT_SECRET", "dev-insecure-jwt-secret"),
+		BuildVersion:    getString("APP_BUILD_VERSION", "dev"),
+		BuildCommit:     getString("APP_BUILD_COMMIT", "local"),
+		BuildTime:       getString("APP_BUILD_TIME", "unknown"),
+		GoVersion:       runtime.Version(),
 	}
 
 	port, err := getInt("APP_PORT", 3000)
@@ -64,6 +86,18 @@ func (c Config) Validate() error {
 	if c.AppPort <= 0 || c.AppPort > 65535 {
 		return fmt.Errorf("validate config: APP_PORT must be between 1 and 65535")
 	}
+	if strings.TrimSpace(c.DataDir) == "" {
+		return fmt.Errorf("validate config: DATA_DIR is required")
+	}
+	if strings.TrimSpace(c.DatabaseName) == "" {
+		return fmt.Errorf("validate config: DB_NAME is required")
+	}
+	if strings.TrimSpace(c.DatabaseEnv) == "" {
+		return fmt.Errorf("validate config: DB_ENV is required")
+	}
+	if strings.TrimSpace(c.DatabaseVersion) == "" {
+		return fmt.Errorf("validate config: DB_VERSION is required")
+	}
 	if strings.TrimSpace(c.DatabasePath) == "" {
 		return fmt.Errorf("validate config: DATABASE_PATH is required")
 	}
@@ -72,6 +106,9 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.PublicDir) == "" {
 		return fmt.Errorf("validate config: PUBLIC_DIR is required")
+	}
+	if strings.TrimSpace(c.JWTSecret) == "" {
+		return fmt.Errorf("validate config: JWT_SECRET is required")
 	}
 	if c.ShutdownTimeout <= 0 {
 		return fmt.Errorf("validate config: SHUTDOWN_TIMEOUT_SECONDS must be greater than 0")
@@ -88,6 +125,10 @@ func (c Config) Validate() error {
 
 func (c Config) HTTPAddress() string {
 	return fmt.Sprintf("%s:%d", c.AppHost, c.AppPort)
+}
+
+func buildDatabaseFileName(name string, env string, version string) string {
+	return fmt.Sprintf("%s-%s-%s.db", name, env, version)
 }
 
 func getString(key string, fallback string) string {

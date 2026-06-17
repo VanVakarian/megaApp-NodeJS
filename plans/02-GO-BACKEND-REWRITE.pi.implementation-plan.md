@@ -1,6 +1,6 @@
 # Go Backend Rewrite — Implementation Plan
 
-> Цель: переписать `megaapp-back` на Go по блокам, тестировать по блокам, но деплоить один раз целиком после полной функциональной готовности и полной проверки.
+> Цель: переписать `megaapp-back` на Go по stepам, тестировать по stepам, но деплоить один раз целиком после полной функциональной готовности и полной проверки.
 
 ---
 
@@ -9,9 +9,9 @@
 Этот документ фиксирует верхнеуровневую последовательность реализации.
 
 Он intentionally грубый и будет уточняться по мере движения. Документ ведём append-only:
-- уже зафиксированные блоки не переписываем заново
-- после завершения блока добавляем только краткий Result
-- детализацию конкретного блока выносим в отдельный implementation plan, когда до него доходим
+- уже зафиксированные stepы не переписываем заново
+- после завершения stepа добавляем только краткий Result
+- детализацию конкретного stepа выносим в отдельный implementation plan, когда до него доходим
 
 ---
 
@@ -19,16 +19,16 @@
 
 - Старый backend остаётся рабочим до финального cutover.
 - Исходный JavaScript-код хранится рядом как reference implementation.
-- Реализация идёт по независимым или слабо связанным блокам.
-- Каждый блок доводится до локальной работоспособности, покрывается обычными Go tests и отдельно проверяется в UI вручную.
-- Промежуточные блоки не деплоятся в production по отдельности.
+- Реализация идёт по независимым или слабо связанным stepам.
+- Каждый step доводится до локальной работоспособности, покрывается обычными Go tests и отдельно проверяется вручную только через простые mouse-driven сценарии.
+- Промежуточные stepы не деплоятся в production по отдельности.
 - Финальный deploy делается один раз, когда весь backend на Go проходит интеграционную и ручную проверку.
 
 ---
 
-## 3. Правила разбиения на блоки
+## 3. Правила разбиения на stepы
 
-Порядок блоков строим по зависимостям:
+Порядок stepов строим по зависимостям:
 - сначала platform и общие контуры
 - потом auth и settings
 - потом самые простые CRUD/read-модули
@@ -36,11 +36,11 @@
 - потом realtime, jobs и AI
 - потом финальная parity-проверка и cutover
 
-Критерии хорошего блока:
+Критерии хорошего stepа:
 - у него понятная граница
 - у него есть измеримый результат
 - у него есть локальные automated tests
-- у него есть короткий список ручных UI-проверок
+- у него есть короткий список ручных UI-проверок только для того, что можно прокликать мышкой
 - его можно завершить без частичного production deploy
 
 ---
@@ -55,9 +55,9 @@
 
 ---
 
-## 5. Основная последовательность блоков
+## 5. Основная последовательность stepов
 
-## Block 01. Migration Workspace And Freeze
+## Step 01. Migration Workspace And Freeze
 
 ### Goal
 Подготовить безопасную рабочую площадку для Go-реализации и зафиксировать reference boundaries.
@@ -81,19 +81,19 @@
 
 ### Result
 - Status: Done
-- Test status: Not applicable for product logic in this block.
-- Findings: Reference JS source is isolated in `megaapp-back/old-js`. Go workspace root is now reserved for the rewrite. Critical HTTP/WS contracts, repository shape, final deploy model and current SQLite migration stance are frozen in `megaapp-back/plans/backup/03-GO-BACKEND-REWRITE.pi.workspace-freeze.md`.
+- Test status: Not applicable for product logic in this step.
+- Findings: Reference JS source is isolated in `megaapp-back/old-js`. Go workspace root is now reserved for the rewrite. Critical HTTP/WS contracts, repository shape, final deploy model and current SQLite migration stance are frozen in `megaapp-back/plans/03-GO-BACKEND-REWRITE.pi.workspace-freeze.md`.
 - Issues and resolutions: The rewrite still needs Go-side migration infrastructure later, but the current plan does not require a mandatory production schema/data migration for cutover as long as Go stays compatible with the current SQLite schema.
 
 ---
 
-## Block 02. Platform Foundation
+## Step 02. Platform Foundation
 
 ### Goal
 Собрать минимальный Go runtime, на который дальше будут навешиваться все домены.
 
 ### Depends On
-- Block 01
+- Step 01
 
 ### Includes
 - project bootstrap
@@ -115,25 +115,27 @@
 - app startup/shutdown integration test
 
 ### Manual Check
-- открыть health/readiness/build-info endpoints
-- проверить, что сервер стартует и корректно останавливается
-- проверить, что статика может быть отдана базовым способом, если это уже включено в блок
+- запустить Go backend обычной командой без ручной передачи env-переменных
+- открыть в браузере `/health`, `/readiness`, `/build-info`
+- убедиться, что страницы открываются без ошибок
+- остановить сервер и убедиться, что он завершается нормально
 
 ### Result
 - Status: Done
 - Test status: `go test ./...` in `megaapp-back` passed.
-- Findings: Go module, startup entry point, config validation, structured logging, chi router, ops endpoints, SQLite wrapper, migration runner foundation, graceful shutdown and base HTTP/DB tests are in place. Detailed block artifact: `megaapp-back/plans/04-GO-BACKEND-REWRITE.pi.platform-foundation.md`.
-- Issues and resolutions: Static serving parity with old backend was intentionally left out of this block because no current domain flow depends on it yet. Migration foundation was added without introducing a mandatory production schema rewrite.
+- Manual check status: User verified `/health`, `/readiness`, `/build-info`, startup from `.env`, and normal shutdown.
+- Findings: Go module, startup entry point, dotenv-based config loading, DB naming convention, structured logging, chi router, ops endpoints, SQLite wrapper, migration runner foundation, graceful shutdown and base HTTP/DB tests are in place. Detailed step artifact: `megaapp-back/plans/04-GO-BACKEND-REWRITE.pi.platform-foundation.md`.
+- Issues and resolutions: Static serving parity with old backend was intentionally left out of this step because no current domain flow depends on it yet. Migration foundation was added without introducing a mandatory production schema rewrite. SQLite clean shutdown now performs WAL checkpoint/truncate so the main `.db` remains the primary file for copying and backups.
 
 ---
 
-## Block 03. Auth Core
+## Step 03. Auth Core
 
 ### Goal
 Перенести authentication boundary так, чтобы весь остальной backend мог строиться уже на Go auth middleware.
 
 ### Depends On
-- Block 02
+- Step 02
 
 ### Includes
 - register
@@ -151,23 +153,28 @@
 - protected route integration tests
 
 ### Manual Check
-- в UI: login
-- обновление страницы с активной сессией
-- refresh flow после истечения access token
-- logout и повторный вход
+- открыть экран `Settings`
+- войти под существующим пользователем через форму логина
+- обновить страницу после входа и убедиться, что сессия не пропала сразу
+- на экране `Settings` нажать кнопку `Выйти`
+- снова войти через ту же форму
 
 ### Result
-- Status: Pending
+- Status: Done
+- Test status: `go test ./...` in `megaapp-back` passed after auth integration.
+- Manual check status: User verified login on `Settings`, page refresh with preserved session, logout, and repeated login through the UI.
+- Findings: Go auth routes, bcrypt password hashing, JWT issue/verify, refresh flow and bearer auth middleware are implemented. Detailed step artifact: `megaapp-back/plans/05-GO-BACKEND-REWRITE.pi.auth-core.md`.
+- Issues and resolutions: WebSocket auth wiring is intentionally deferred to the dedicated WebSocket step. Current auth step only establishes the shared verification foundation needed by later protected HTTP and WS flows.
 
 ---
 
-## Block 04. Settings
+## Step 04. Settings
 
 ### Goal
 Закрыть самый маленький пользовательский домен и получить первый полноценный auth-protected CRUD flow на Go.
 
 ### Depends On
-- Block 03
+- Step 03
 
 ### Includes
 - `GET /api/settings/`
@@ -193,13 +200,13 @@
 
 ---
 
-## Block 05. WebSocket Foundation
+## Step 05. WebSocket Foundation
 
 ### Goal
 Поднять Go WebSocket hub отдельно от food/money logic, чтобы realtime-функции дальше подключались поверх стабильного транспорта.
 
 ### Depends On
-- Block 03
+- Step 03
 
 ### Includes
 - connection auth
@@ -227,15 +234,15 @@
 
 ---
 
-## Block 06. Food Read Model Foundation
+## Step 06. Food Read Model Foundation
 
 ### Goal
 Перенести простые read-side части food, от которых зависят остальные food flows.
 
 ### Depends On
-- Block 03
-- Block 04
-- Block 05 partially
+- Step 03
+- Step 04
+- Step 05 partially
 
 ### Includes
 - food catalogue read path
@@ -261,13 +268,13 @@
 
 ---
 
-## Block 07. Food Write Core
+## Step 07. Food Write Core
 
 ### Goal
 Перенести базовые mutating сценарии food без AI-части.
 
 ### Depends On
-- Block 06
+- Step 06
 
 ### Includes
 - create/edit/delete diary entry
@@ -297,13 +304,13 @@
 
 ---
 
-## Block 08. Food Stats And Coefficients
+## Step 08. Food Stats And Coefficients
 
 ### Goal
 Перенести чувствительную food-математику и убедиться, что Go-версия считает те же значения.
 
 ### Depends On
-- Block 07
+- Step 07
 
 ### Includes
 - stats calculation engine
@@ -328,15 +335,15 @@
 
 ---
 
-## Block 09. Food Search And AI Text Flows
+## Step 09. Food Search And AI Text Flows
 
 ### Goal
 Перенести food semantic search и текстовые AI-сценарии без image generation queue.
 
 ### Depends On
-- Block 06
-- Block 07
-- Block 05
+- Step 06
+- Step 07
+- Step 05
 
 ### Includes
 - websocket realtime search
@@ -366,13 +373,13 @@
 
 ---
 
-## Block 10. Food Images, Lab, Debug
+## Step 10. Food Images, Lab, Debug
 
 ### Goal
 Перенести периферийные food-подсистемы после закрытия core food flows.
 
 ### Depends On
-- Block 09
+- Step 09
 
 ### Includes
 - image analysis endpoint parity
@@ -397,14 +404,14 @@
 
 ---
 
-## Block 11. Money Setup Foundation
+## Step 11. Money Setup Foundation
 
 ### Goal
 Перенести money read/write foundation для справочных сущностей в порядке их зависимостей.
 
 ### Depends On
-- Block 03
-- Block 04
+- Step 03
+- Step 04
 
 ### Includes
 - organizations CRUD
@@ -436,13 +443,13 @@
 
 ---
 
-## Block 12. Money Assets
+## Step 12. Money Assets
 
 ### Goal
-Перенести assets как отдельный блок до транзакций, потому что invest flows зависят от готового asset registry.
+Перенести assets как отдельный step до транзакций, потому что invest flows зависят от готового asset registry.
 
 ### Depends On
-- Block 11
+- Step 11
 
 ### Includes
 - assets CRUD
@@ -467,13 +474,13 @@
 
 ---
 
-## Block 13. Money Transactions Core
+## Step 13. Money Transactions Core
 
 ### Goal
 Перенести non-invest transaction engine и парные transfer flows.
 
 ### Depends On
-- Block 11
+- Step 11
 
 ### Includes
 - income
@@ -503,14 +510,14 @@
 
 ---
 
-## Block 14. Money Invest Transactions
+## Step 14. Money Invest Transactions
 
 ### Goal
 Перенести invest-specific rules после того, как assets и basic transactions уже готовы.
 
 ### Depends On
-- Block 12
-- Block 13
+- Step 12
+- Step 13
 
 ### Includes
 - invest_buy
@@ -538,16 +545,16 @@
 
 ---
 
-## Block 15. Money Snapshot And Rate History
+## Step 15. Money Snapshot And Rate History
 
 ### Goal
 Перенести главный money projection contract, от которого зависит весь frontend money analytics.
 
 ### Depends On
-- Block 11
-- Block 12
-- Block 13
-- Block 14
+- Step 11
+- Step 12
+- Step 13
+- Step 14
 
 ### Includes
 - `GET /api/money/transactions`
@@ -575,13 +582,13 @@
 
 ---
 
-## Block 16. Quotes Job
+## Step 16. Quotes Job
 
 ### Goal
 Перенести quotes ingestion после готовности money rate-history domain.
 
 ### Depends On
-- Block 15
+- Step 15
 
 ### Includes
 - provider fallback logic
@@ -605,13 +612,13 @@
 
 ---
 
-## Block 17. Backup Job
+## Step 17. Backup Job
 
 ### Goal
 Перенести production-critical backup flow отдельно от business domains.
 
 ### Depends On
-- Block 02
+- Step 02
 
 ### Includes
 - SQLite snapshot creation
@@ -637,13 +644,13 @@
 
 ---
 
-## Block 18. Final Parity Pass
+## Step 18. Final Parity Pass
 
 ### Goal
 Свести все куски в единый backend и закрыть cross-domain регрессии перед cutover.
 
 ### Depends On
-- Blocks 02 through 17
+- Steps 02 through 17
 
 ### Includes
 - full automated test run
@@ -670,13 +677,13 @@
 
 ---
 
-## Block 19. Cutover And One-Shot Deploy
+## Step 19. Cutover And One-Shot Deploy
 
 ### Goal
-Переключить приложение на Go backend одним deploy после завершения всех предыдущих блоков.
+Переключить приложение на Go backend одним deploy после завершения всех предыдущих stepов.
 
 ### Depends On
-- Block 18
+- Step 18
 
 ### Includes
 - final build and packaging
@@ -729,9 +736,9 @@
 
 ## 8. Первый ожидаемый детальный follow-up
 
-Первым детальным implementation plan логично делать Block 02.
+Первым детальным implementation plan логично делать Step 02.
 
 Причина:
 - он открывает всю остальную работу
 - он минимально зависит от продуктовой специфики food/money
-- он задаёт testing scaffold, config model, startup model и observability seams для всех следующих блоков
+- он задаёт testing scaffold, config model, startup model и observability seams для всех следующих stepов

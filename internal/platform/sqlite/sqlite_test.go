@@ -22,6 +22,34 @@ func TestOpenConfiguresAndPingsDatabase(t *testing.T) {
 	}
 }
 
+func TestCloseTruncatesWALArtifactsOnCleanShutdown(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "nested", "test.db")
+
+	db, err := Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+
+	if _, err := db.SQL().ExecContext(context.Background(), `CREATE TABLE sample (id INTEGER PRIMARY KEY, title TEXT NOT NULL);`); err != nil {
+		t.Fatalf("ExecContext() error = %v", err)
+	}
+	if _, err := db.SQL().ExecContext(context.Background(), `INSERT INTO sample(title) VALUES('ok')`); err != nil {
+		t.Fatalf("ExecContext() error = %v", err)
+	}
+
+	if err := db.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	if _, err := os.Stat(dbPath + "-wal"); !os.IsNotExist(err) {
+		t.Fatalf("wal file state error = %v, want not exists", err)
+	}
+	if _, err := os.Stat(dbPath + "-shm"); !os.IsNotExist(err) {
+		t.Fatalf("shm file state error = %v, want not exists", err)
+	}
+}
+
 func TestApplyMigrationsCreatesSchemaMigrationsAndRunsFiles(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")

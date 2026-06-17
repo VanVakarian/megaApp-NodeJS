@@ -530,7 +530,7 @@ Snapshot должен быть preserved as-is. Это один из самых 
 
 Новый принцип:
 - никаких секретов в repo
-- всё через env/config file outside source
+- всё через `.env` / `.env.<env>` и env overrides
 - startup validation: приложение не стартует при неполной конфигурации
 
 Группы конфигурации:
@@ -545,6 +545,11 @@ Snapshot должен быть preserved as-is. Это один из самых 
 - image generation
 
 Для dev/test/prod — явные config profiles без дублирования бизнес-логики.
+
+Отдельно фиксируем:
+- рабочие SQLite-файлы живут в `data/`, а не в корне проекта
+- naming базы сохраняется в формате `{DB_NAME}-{DB_ENV}-{DB_VERSION}.db`
+- при штатной остановке backend должен выполнять checkpoint/truncate WAL, чтобы основной `.db` оставался главным файлом для копирования и backup workflows
 
 ---
 

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"megaapp-back/internal/auth"
 	"megaapp-back/internal/config"
 	sqliteplatform "megaapp-back/internal/platform/sqlite"
 
@@ -38,6 +39,11 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 		return nil, err
 	}
 
+	authRepo := auth.NewRepository(db.SQL())
+	authTokenManager := auth.NewTokenManager(cfg.JWTSecret, auth.AccessTokenTTL(), auth.RefreshTokenTTL())
+	authService := auth.NewService(authRepo, authTokenManager)
+	authHandler := auth.NewHandler(authService)
+
 	router := chi.NewRouter()
 	router.Use(chimiddleware.RequestID)
 	router.Use(chimiddleware.RealIP)
@@ -47,6 +53,7 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 	router.Get("/health", HealthHandler())
 	router.Get("/readiness", ReadinessHandler(db.PingContext))
 	router.Get("/build-info", BuildInfoHandler(cfg))
+	auth.RegisterRoutes(router, authHandler)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddress(),

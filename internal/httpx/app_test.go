@@ -19,9 +19,14 @@ func TestAppServeAndShutdown(t *testing.T) {
 		AppHost:         "127.0.0.1",
 		AppPort:         3000,
 		LogLevel:        "info",
-		DatabasePath:    filepath.Join(tempDir, "test.db"),
+		DataDir:         filepath.Join(tempDir, "data"),
+		DatabaseName:    "megaapp",
+		DatabaseEnv:     "test",
+		DatabaseVersion: "005",
+		DatabasePath:    filepath.Join(tempDir, "data", "megaapp-test-005.db"),
 		MigrationsDir:   filepath.Join(tempDir, "migrations"),
 		PublicDir:       filepath.Join(tempDir, "public"),
+		JWTSecret:       "test-secret",
 		ShutdownTimeout: time.Second,
 	}
 

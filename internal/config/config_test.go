@@ -6,12 +6,18 @@ import (
 )
 
 func TestLoadUsesDefaults(t *testing.T) {
+	t.Setenv("APP_ENV", "")
 	t.Setenv("APP_PORT", "")
 	t.Setenv("APP_HOST", "")
 	t.Setenv("LOG_LEVEL", "")
+	t.Setenv("DATA_DIR", "")
+	t.Setenv("DB_NAME", "")
+	t.Setenv("DB_ENV", "")
+	t.Setenv("DB_VERSION", "")
 	t.Setenv("DATABASE_PATH", "")
 	t.Setenv("MIGRATIONS_DIR", "")
 	t.Setenv("PUBLIC_DIR", "")
+	t.Setenv("JWT_SECRET", "")
 	t.Setenv("SHUTDOWN_TIMEOUT_SECONDS", "")
 
 	cfg, err := Load()
@@ -28,14 +34,29 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.LogLevel != "info" {
 		t.Fatalf("LogLevel = %q, want info", cfg.LogLevel)
 	}
-	if cfg.DatabasePath != "./app.db" {
-		t.Fatalf("DatabasePath = %q, want ./app.db", cfg.DatabasePath)
+	if cfg.DataDir != "./data" {
+		t.Fatalf("DataDir = %q, want ./data", cfg.DataDir)
+	}
+	if cfg.DatabaseName != "megaapp" {
+		t.Fatalf("DatabaseName = %q, want megaapp", cfg.DatabaseName)
+	}
+	if cfg.DatabaseEnv != "dev" {
+		t.Fatalf("DatabaseEnv = %q, want dev", cfg.DatabaseEnv)
+	}
+	if cfg.DatabaseVersion != "005" {
+		t.Fatalf("DatabaseVersion = %q, want 005", cfg.DatabaseVersion)
+	}
+	if cfg.DatabasePath != "./data/megaapp-dev-005.db" && cfg.DatabasePath != "data/megaapp-dev-005.db" {
+		t.Fatalf("DatabasePath = %q, want ./data/megaapp-dev-005.db", cfg.DatabasePath)
 	}
 	if cfg.MigrationsDir != "./migrations" {
 		t.Fatalf("MigrationsDir = %q, want ./migrations", cfg.MigrationsDir)
 	}
 	if cfg.PublicDir != "./public" {
 		t.Fatalf("PublicDir = %q, want ./public", cfg.PublicDir)
+	}
+	if cfg.JWTSecret != "dev-insecure-jwt-secret" {
+		t.Fatalf("JWTSecret = %q, want dev-insecure-jwt-secret", cfg.JWTSecret)
 	}
 	if cfg.ShutdownTimeout != 10*time.Second {
 		t.Fatalf("ShutdownTimeout = %v, want 10s", cfg.ShutdownTimeout)
@@ -56,9 +77,14 @@ func TestValidateRejectsInvalidLogLevel(t *testing.T) {
 		AppHost:         "127.0.0.1",
 		AppPort:         3000,
 		LogLevel:        "trace",
-		DatabasePath:    "./app.db",
+		DataDir:         "./data",
+		DatabaseName:    "megaapp",
+		DatabaseEnv:     "test",
+		DatabaseVersion: "005",
+		DatabasePath:    "./data/megaapp-test-005.db",
 		MigrationsDir:   "./migrations",
 		PublicDir:       "./public",
+		JWTSecret:       "secret",
 		ShutdownTimeout: time.Second,
 	}
 

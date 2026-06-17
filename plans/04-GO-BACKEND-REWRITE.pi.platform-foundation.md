@@ -1,14 +1,15 @@
 # Go Backend Rewrite — Platform Foundation
 
-> Block 02 artifact. Фиксирует, что именно было заложено в базовый Go runtime до начала продуктовых доменов.
+> Step 02 artifact. Фиксирует, что именно было заложено в базовый Go runtime до начала продуктовых доменов.
 
 ---
 
-## 1. Scope of the block
+## 1. Scope of the step
 
-Block 02 закрывает только общую платформу:
+Step 02 закрывает только общую платформу:
 - bootstrap
 - config
+- dotenv-based config profiles
 - logging
 - graceful shutdown
 - base router
@@ -18,7 +19,7 @@ Block 02 закрывает только общую платформу:
 - testing scaffold
 - instrumentation seams
 
-Блок сознательно не включает:
+Step сознательно не включает:
 - auth logic
 - settings domain logic
 - food domain logic
@@ -31,8 +32,13 @@ Block 02 закрывает только общую платформу:
 
 Добавлены базовые директории и файлы:
 - `megaapp-back/go.mod`
+- `megaapp-back/.gitignore`
+- `megaapp-back/.env.example`
+- `megaapp-back/.env.dev.example`
+- `megaapp-back/.env.test.example`
 - `megaapp-back/cmd/server/main.go`
 - `megaapp-back/internal/config/config.go`
+- `megaapp-back/internal/config/dotenv.go`
 - `megaapp-back/internal/httpx/app.go`
 - `megaapp-back/internal/httpx/middleware.go`
 - `megaapp-back/internal/httpx/observer.go`
@@ -50,7 +56,7 @@ Block 02 закрывает только общую платформу:
 
 ---
 
-## 3. Runtime decisions fixed by this block
+## 3. Runtime decisions fixed by this step
 
 ## 3.1 Entry point
 
@@ -66,20 +72,27 @@ Block 02 закрывает только общую платформу:
 
 ## 3.2 Config model
 
-Config сейчас читается из env и валидируется на старте.
+Config сейчас читается из `.env` / `.env.<APP_ENV>` и env, затем валидируется на старте.
 
 Заложены поля:
 - `APP_ENV`
 - `APP_HOST`
 - `APP_PORT`
 - `LOG_LEVEL`
+- `DATA_DIR`
+- `DB_NAME`
+- `DB_ENV`
+- `DB_VERSION`
 - `DATABASE_PATH`
 - `MIGRATIONS_DIR`
 - `PUBLIC_DIR`
+- `JWT_SECRET`
 - `SHUTDOWN_TIMEOUT_SECONDS`
 - `APP_BUILD_VERSION`
 - `APP_BUILD_COMMIT`
 - `APP_BUILD_TIME`
+
+Базовый path для SQLite теперь строится по naming convention `{DB_NAME}-{DB_ENV}-{DB_VERSION}.db` внутри `DATA_DIR`. `DATABASE_PATH` остаётся override-механизмом, но обычный запуск должен работать без ручной передачи path в терминале.
 
 Если config невалиден, приложение не стартует.
 
@@ -131,6 +144,12 @@ Config сейчас читается из env и валидируется на �
 
 Также фиксированы connection settings под single-node SQLite runtime.
 
+На clean shutdown выполняются:
+- `PRAGMA wal_checkpoint(TRUNCATE)`
+- `PRAGMA optimize`
+
+Цель: после штатной остановки WAL/SHM не должны хранить уникально важные данные, а основной `.db` остаётся главным файлом для копирования и бэкапа.
+
 ## 3.7 Migration foundation
 
 Введён migration runner foundation:
@@ -140,7 +159,7 @@ Config сейчас читается из env и валидируется на �
 - каждая миграция записывается в `schema_migrations`
 - повторно применённые миграции пропускаются
 
-На текущем шаге migration runner используется как infrastructure foundation. Production schema rewrite этим блоком не запускается.
+На текущем шаге migration runner используется как infrastructure foundation. Production schema rewrite этим stepом не запускается.
 
 ## 3.8 Graceful shutdown
 
@@ -151,7 +170,7 @@ Config сейчас читается из env и валидируется на �
 
 ---
 
-## 4. Test coverage introduced in this block
+## 4. Test coverage introduced in this step
 
 ## 4.1 Config tests
 
@@ -159,11 +178,13 @@ Config сейчас читается из env и валидируется на �
 - defaults
 - invalid env values
 - validation of log level and numeric settings
+- derived database path and DB naming convention
 
 ## 4.2 SQLite tests
 
 Покрыто:
 - DB open and ping
+- WAL cleanup on clean shutdown
 - migration table creation
 - execution of SQL migration files
 
@@ -179,7 +200,7 @@ Config сейчас читается из env и валидируется на �
 
 ## 5. Non-goals intentionally left for later
 
-В этом блоке намеренно не делались:
+В этом stepе намеренно не делались:
 - static file serving parity with old backend
 - auth middleware
 - domain route groups
@@ -192,7 +213,7 @@ Config сейчас читается из env и валидируется на �
 
 ## 6. Exit condition reached
 
-Block 02 можно считать закрытым, потому что:
+Step 02 можно считать закрытым, потому что:
 - Go module и dependency base созданы
 - приложение стартует как отдельный Go server
 - config validated on startup
@@ -207,7 +228,7 @@ Block 02 можно считать закрытым, потому что:
 
 ## 7. What opens next
 
-Этот блок открывает следующие шаги без архитектурной переделки foundation:
-- Block 03: Auth Core
-- Block 04: Settings
+Этот step открывает следующие шаги без архитектурной переделки foundation:
+- Step 03: Auth Core
+- Step 04: Settings
 - later domain route registration under the same app/runtime

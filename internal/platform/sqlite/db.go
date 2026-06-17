@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -14,6 +16,10 @@ type DB struct {
 }
 
 func Open(ctx context.Context, path string) (*DB, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("create sqlite directory: %w", err)
+	}
+
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
@@ -43,7 +49,22 @@ func (d *DB) PingContext(ctx context.Context) error {
 }
 
 func (d *DB) Close() error {
-	return d.conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if _, err := d.conn.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE);"); err != nil {
+		return fmt.Errorf("checkpoint sqlite wal: %w", err)
+	}
+
+	if _, err := d.conn.ExecContext(ctx, "PRAGMA optimize;"); err != nil {
+		return fmt.Errorf("optimize sqlite: %w", err)
+	}
+
+	if err := d.conn.Close(); err != nil {
+		return fmt.Errorf("close sqlite: %w", err)
+	}
+
+	return nil
 }
 
 func (d *DB) configure(ctx context.Context) error {

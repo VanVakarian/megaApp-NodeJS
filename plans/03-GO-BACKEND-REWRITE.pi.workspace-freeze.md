@@ -1,6 +1,6 @@
 # Go Backend Rewrite — Workspace Freeze
 
-> Block 01 artifact. Фиксирует рабочую площадку, reference boundaries и инварианты, которые считаются замороженными перед началом Go-реализации.
+> Step 01 artifact. Фиксирует рабочую площадку, reference boundaries и инварианты, которые считаются замороженными перед началом Go-реализации.
 
 ---
 
@@ -8,8 +8,8 @@
 
 Текущая роль директорий:
 - `megaapp-back/old-js` — reference implementation на JavaScript. Source of truth по текущему runtime behavior.
-- `megaapp-back/plans` — активные design docs и implementation plans для Go rewrite.
-- `megaapp-back/plans/backup` — append-only planning artifacts и block-level документы.
+- `megaapp-back/data` — рабочие SQLite-копии для Go backend. Не коммитятся в Git.
+- `megaapp-back/plans` — активные planning artifacts, design docs, implementation plans и step-level документы.
 - `megaapp-front` — reference consumer backend contracts. Source of truth по фактическим ожиданиям frontend.
 
 Go-реализация дальше строится в корне `megaapp-back` и не должна смешиваться с `old-js`.
@@ -48,8 +48,8 @@ Go-реализация дальше строится в корне `megaapp-bac
 ## 3. Frozen delivery model
 
 Зафиксировано:
-- реализация идёт по блокам
-- тестирование идёт по блокам
+- реализация идёт по stepам
+- тестирование идёт по stepам
 - production deploy по частям не делаем
 - cutover делаем один раз, когда весь Go backend готов
 - до cutover старый JS backend остаётся reference implementation
@@ -82,7 +82,7 @@ Go-реализация дальше строится в корне `megaapp-bac
 - `public`
 - `plans`
 
-Это freeze-level target shape. Она может уточняться внутри модулей, но не должна переизобретаться на каждом следующем блоке.
+Это freeze-level target shape. Она может уточняться внутри модулей, но не должна переизобретаться на каждом следующем stepе.
 
 ---
 
@@ -101,6 +101,11 @@ Go-реализация дальше строится в корне `megaapp-bac
 - останавливаем старый backend
 - поднимаем Go backend поверх той же SQLite database
 - не делаем отдельную data migration для production
+
+Рабочая практика до cutover:
+- `megaapp-back/old-js/megaapp-test-005.db` остаётся эталонной старой базой
+- Go backend работает со своей копией в `megaapp-back/data`
+- naming базы сохраняется в формате `{DB_NAME}-{DB_ENV}-{DB_VERSION}.db`
 
 ## 5.3 Why migration runner still exists in plans
 
@@ -231,7 +236,7 @@ Critical WS message types to preserve:
 - auth token lifecycle
 - frontend-visible settings behavior
 
-Именно они считаются top-priority regression targets в следующих блоках.
+Именно они считаются top-priority regression targets в следующих stepах.
 
 ---
 
@@ -240,13 +245,13 @@ Critical WS message types to preserve:
 Prometheus feature пока не реализуем, но freeze-level архитектурное требование уже принято:
 - HTTP, DB, jobs и external calls должны иметь понятные instrumentation seams
 - metrics domain можно будет добавить позже без распила core architecture
-- `/metrics` не входит в ближайшие блоки, но возможность его безопасно добавить считается обязательным design constraint
+- `/metrics` не входит в ближайшие stepы, но возможность его безопасно добавить считается обязательным design constraint
 
 ---
 
-## 9. Exit criteria for Block 01
+## 9. Exit criteria for Step 01
 
-Block 01 считается закрытым, если:
+Step 01 считается закрытым, если:
 - reference JS source изолирован и подтверждён как `old-js`
 - planning location зафиксирован
 - target Go repo shape зафиксирован
