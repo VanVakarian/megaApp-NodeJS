@@ -11,6 +11,7 @@ import (
 
 	"megaapp-back/internal/auth"
 	"megaapp-back/internal/config"
+	"megaapp-back/internal/food"
 	sqliteplatform "megaapp-back/internal/platform/sqlite"
 	"megaapp-back/internal/settings"
 	"megaapp-back/internal/ws"
@@ -49,6 +50,9 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 	settingsRepo := settings.NewRepository(db.SQL())
 	settingsService := settings.NewService(settingsRepo)
 	settingsHandler := settings.NewHandler(settingsService)
+	foodRepo := food.NewRepository(db.SQL())
+	foodService := food.NewService(foodRepo)
+	foodHandler := food.NewHandler(foodService)
 	wsHub := ws.NewHub(30*time.Second, ws.NewSyncState())
 	wsHandler := ws.NewHandler(authService, wsHub)
 
@@ -64,6 +68,7 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 
 	auth.RegisterRoutes(router, authHandler)
 	settings.RegisterRoutes(router, authService, settingsHandler)
+	food.RegisterRoutes(router, authService, foodHandler)
 	ws.RegisterRoutes(router, wsHandler)
 
 	server := &http.Server{

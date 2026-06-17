@@ -273,13 +273,19 @@
 - stats read behavior
 
 ### Manual Check
-- в UI: открыть food screen
-- проверить загрузку diary
-- проверить загрузку catalogue search base data
-- проверить загрузку stats screen без write operations
+- открыть `Food` под залогиненным пользователем
+- открыть DevTools -> Network
+- убедиться, что проходят `GET /api/food/diary-full-update`, `GET /api/food/catalogue`, `GET /api/food/coefficients`, `GET /api/food/stats`
+- убедиться, что `Food` экран открывается без пустого белого состояния и без auth redirect
+- проверить, что на экране видны diary данные, catalogue-backed элементы и stats screen открывается без write operations
+- убедиться, что нет `401`, `404`, `500` и нет frontend ошибок из-за shape mismatch в этих read endpoints
 
 ### Result
-- Status: Pending
+- Status: Done
+- Test status: `go test ./...` in `megaapp-back` passed after food read integration.
+- Manual check status: User verified the `Food` screen in the UI, confirmed successful food read requests in DevTools Network, and reported no functional errors. The only observed non-200 request was `commit-info`, which is outside the current food read scope.
+- Findings: Go food read routes for diary full-update, catalogue, coefficients, stats, and single catalogue entry are implemented and frontend-compatible for the current UI flow.
+- Issues and resolutions: No food read contract issue was found during manual verification. The unrelated `commit-info` failure remains outside this step scope.
 
 ---
 
