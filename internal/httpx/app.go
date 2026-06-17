@@ -12,6 +12,7 @@ import (
 	"megaapp-back/internal/auth"
 	"megaapp-back/internal/config"
 	sqliteplatform "megaapp-back/internal/platform/sqlite"
+	"megaapp-back/internal/settings"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -43,6 +44,9 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 	authTokenManager := auth.NewTokenManager(cfg.JWTSecret, auth.AccessTokenTTL(), auth.RefreshTokenTTL())
 	authService := auth.NewService(authRepo, authTokenManager)
 	authHandler := auth.NewHandler(authService)
+	settingsRepo := settings.NewRepository(db.SQL())
+	settingsService := settings.NewService(settingsRepo)
+	settingsHandler := settings.NewHandler(settingsService)
 
 	router := chi.NewRouter()
 	router.Use(chimiddleware.RequestID)
@@ -53,7 +57,9 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 	router.Get("/health", HealthHandler())
 	router.Get("/readiness", ReadinessHandler(db.PingContext))
 	router.Get("/build-info", BuildInfoHandler(cfg))
+
 	auth.RegisterRoutes(router, authHandler)
+	settings.RegisterRoutes(router, authService, settingsHandler)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddress(),

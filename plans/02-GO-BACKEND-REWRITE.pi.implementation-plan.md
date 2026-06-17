@@ -190,13 +190,18 @@
 - invalid field rejection
 
 ### Manual Check
-- в UI: переключить тему
-- переключить выбранную главу
-- изменить height или другой простой setting
-- перезагрузить страницу и убедиться, что значения сохраняются
+- открыть экран `Settings` под залогиненным пользователем
+- включить или выключить `Тёмная тема`
+- переключить `Дневник питания` или `Дневник финансов`
+- изменить поле `Рост`
+- перезагрузить страницу и убедиться, что значения сохранились
 
 ### Result
-- Status: Pending
+- Status: Done
+- Test status: `go test ./...` in `megaapp-back` passed after settings integration.
+- Manual check status: User verified settings screen in the UI, including theme toggle, chapter toggles, height save, page refresh with persisted values, and auth flow still working after the settings changes.
+- Findings: Go settings routes, settings upsert/read/update behavior, auth-protected settings handlers, default settings bootstrap, and compatibility `POST /api/settings/` path are implemented.
+- Issues and resolutions: Initial concern about height rendering was not reproducible after repeated verification. Current behavior matches the expected UI flow on the working database.
 
 ---
 
