@@ -1,0 +1,737 @@
+# Go Backend Rewrite — Implementation Plan
+
+> Цель: переписать `megaapp-back` на Go по блокам, тестировать по блокам, но деплоить один раз целиком после полной функциональной готовности и полной проверки.
+
+---
+
+## 1. Назначение документа
+
+Этот документ фиксирует верхнеуровневую последовательность реализации.
+
+Он intentionally грубый и будет уточняться по мере движения. Документ ведём append-only:
+- уже зафиксированные блоки не переписываем заново
+- после завершения блока добавляем только краткий Result
+- детализацию конкретного блока выносим в отдельный implementation plan, когда до него доходим
+
+---
+
+## 2. Рабочая модель миграции
+
+- Старый backend остаётся рабочим до финального cutover.
+- Исходный JavaScript-код хранится рядом как reference implementation.
+- Реализация идёт по независимым или слабо связанным блокам.
+- Каждый блок доводится до локальной работоспособности, покрывается обычными Go tests и отдельно проверяется в UI вручную.
+- Промежуточные блоки не деплоятся в production по отдельности.
+- Финальный deploy делается один раз, когда весь backend на Go проходит интеграционную и ручную проверку.
+
+---
+
+## 3. Правила разбиения на блоки
+
+Порядок блоков строим по зависимостям:
+- сначала platform и общие контуры
+- потом auth и settings
+- потом самые простые CRUD/read-модули
+- потом stateful и transactional части
+- потом realtime, jobs и AI
+- потом финальная parity-проверка и cutover
+
+Критерии хорошего блока:
+- у него понятная граница
+- у него есть измеримый результат
+- у него есть локальные automated tests
+- у него есть короткий список ручных UI-проверок
+- его можно завершить без частичного production deploy
+
+---
+
+## 4. Заранее принятые ограничения
+
+- Стек: Go monolith, без тяжёлого framework.
+- Хранилище: SQLite сохраняется.
+- Контракты API и WebSocket сохраняются максимально близко к текущим.
+- Тесты обязательны, но простые и стандартные: unit + integration для критичных сценариев.
+- Архитектура должна остаться готовой к будущей Prometheus instrumentation, но сами метрики пока не реализуются как отдельная фича.
+
+---
+
+## 5. Основная последовательность блоков
+
+## Block 01. Migration Workspace And Freeze
+
+### Goal
+Подготовить безопасную рабочую площадку для Go-реализации и зафиксировать reference boundaries.
+
+### Depends On
+- none
+
+### Includes
+- финальная фиксация структуры репозитория для Go backend
+- подтверждение роли папки со старым JS как reference source
+- фиксация naming для планов, design docs и implementation plans
+- фиксация принципа single final deploy
+- фиксация списка критичных HTTP/WS contracts, которые нельзя сломать
+
+### Go Test Focus
+- tests not applicable as product logic
+
+### Manual Check
+- руками ничего в приложении не проверяется
+- проверить только что reference JS-код лежит в ожидаемом месте и не мешает новой структуре
+
+### Result
+- Status: Done
+- Test status: Not applicable for product logic in this block.
+- Findings: Reference JS source is isolated in `megaapp-back/old-js`. Go workspace root is now reserved for the rewrite. Critical HTTP/WS contracts, repository shape, final deploy model and current SQLite migration stance are frozen in `megaapp-back/plans/backup/03-GO-BACKEND-REWRITE.pi.workspace-freeze.md`.
+- Issues and resolutions: The rewrite still needs Go-side migration infrastructure later, but the current plan does not require a mandatory production schema/data migration for cutover as long as Go stays compatible with the current SQLite schema.
+
+---
+
+## Block 02. Platform Foundation
+
+### Goal
+Собрать минимальный Go runtime, на который дальше будут навешиваться все домены.
+
+### Depends On
+- Block 01
+
+### Includes
+- project bootstrap
+- config loading
+- structured logging
+- graceful shutdown
+- base router and middleware chain
+- SQLite connection lifecycle
+- migration runner foundation
+- health, readiness, build info endpoints
+- metrics-friendly instrumentation seams without Prometheus feature itself
+- base test harness for unit and integration tests
+
+### Go Test Focus
+- config parsing
+- startup validation
+- middleware basics
+- DB bootstrap and migration smoke tests
+- app startup/shutdown integration test
+
+### Manual Check
+- открыть health/readiness/build-info endpoints
+- проверить, что сервер стартует и корректно останавливается
+- проверить, что статика может быть отдана базовым способом, если это уже включено в блок
+
+### Result
+- Status: Done
+- Test status: `go test ./...` in `megaapp-back` passed.
+- Findings: Go module, startup entry point, config validation, structured logging, chi router, ops endpoints, SQLite wrapper, migration runner foundation, graceful shutdown and base HTTP/DB tests are in place. Detailed block artifact: `megaapp-back/plans/04-GO-BACKEND-REWRITE.pi.platform-foundation.md`.
+- Issues and resolutions: Static serving parity with old backend was intentionally left out of this block because no current domain flow depends on it yet. Migration foundation was added without introducing a mandatory production schema rewrite.
+
+---
+
+## Block 03. Auth Core
+
+### Goal
+Перенести authentication boundary так, чтобы весь остальной backend мог строиться уже на Go auth middleware.
+
+### Depends On
+- Block 02
+
+### Includes
+- register
+- login
+- refresh
+- JWT issue/verify flow
+- password hashing
+- HTTP auth middleware
+- shared token verification for future WebSocket layer
+
+### Go Test Focus
+- token issuance and refresh
+- invalid token paths
+- password hashing and comparison
+- protected route integration tests
+
+### Manual Check
+- в UI: login
+- обновление страницы с активной сессией
+- refresh flow после истечения access token
+- logout и повторный вход
+
+### Result
+- Status: Pending
+
+---
+
+## Block 04. Settings
+
+### Goal
+Закрыть самый маленький пользовательский домен и получить первый полноценный auth-protected CRUD flow на Go.
+
+### Depends On
+- Block 03
+
+### Includes
+- `GET /api/settings/`
+- `PUT /api/settings/`
+- compatibility for deprecated write path if needed
+- allowed-field validation
+- settings row upsert/read/update behavior
+
+### Go Test Focus
+- read existing settings
+- create defaults when settings absent
+- update single setting
+- invalid field rejection
+
+### Manual Check
+- в UI: переключить тему
+- переключить выбранную главу
+- изменить height или другой простой setting
+- перезагрузить страницу и убедиться, что значения сохраняются
+
+### Result
+- Status: Pending
+
+---
+
+## Block 05. WebSocket Foundation
+
+### Goal
+Поднять Go WebSocket hub отдельно от food/money logic, чтобы realtime-функции дальше подключались поверх стабильного транспорта.
+
+### Depends On
+- Block 03
+
+### Includes
+- connection auth
+- clientId support
+- heartbeat
+- user socket registry
+- sync-status on connect
+- broadcast to user
+- broadcast to all
+- typed message dispatch foundation
+
+### Go Test Focus
+- connect/auth success and failure
+- heartbeat lifecycle
+- add/remove socket behavior
+- sender exclusion on broadcast
+
+### Manual Check
+- открыть приложение в двух вкладках
+- убедиться, что соединение поднимается без ошибок
+- проверить, что reconnection не ломает сессию
+
+### Result
+- Status: Pending
+
+---
+
+## Block 06. Food Read Model Foundation
+
+### Goal
+Перенести простые read-side части food, от которых зависят остальные food flows.
+
+### Depends On
+- Block 03
+- Block 04
+- Block 05 partially
+
+### Includes
+- food catalogue read path
+- single catalogue entry read path
+- coefficients read path
+- stats cache/read foundation
+- food diary full-update read path contract preservation
+
+### Go Test Focus
+- catalogue responses
+- diary full-update shape compatibility
+- coefficients retrieval
+- stats read behavior
+
+### Manual Check
+- в UI: открыть food screen
+- проверить загрузку diary
+- проверить загрузку catalogue search base data
+- проверить загрузку stats screen без write operations
+
+### Result
+- Status: Pending
+
+---
+
+## Block 07. Food Write Core
+
+### Goal
+Перенести базовые mutating сценарии food без AI-части.
+
+### Depends On
+- Block 06
+
+### Includes
+- create/edit/delete diary entry
+- delete day
+- restore day
+- body weight upsert
+- stats invalidation and recalculation scheduling
+- food WebSocket sync events for diary and weight
+
+### Go Test Focus
+- diary create/edit/delete flows
+- delete-day and restore-day flows
+- body weight write flow
+- recalculation scheduling behavior
+- websocket event emission integration tests
+
+### Manual Check
+- в UI: добавить продукт в дневник
+- изменить вес порции
+- удалить запись
+- удалить день целиком и восстановить
+- обновить вес тела
+- открыть вторую вкладку и проверить sync
+
+### Result
+- Status: Pending
+
+---
+
+## Block 08. Food Stats And Coefficients
+
+### Goal
+Перенести чувствительную food-математику и убедиться, что Go-версия считает те же значения.
+
+### Depends On
+- Block 07
+
+### Includes
+- stats calculation engine
+- coefficients storage and validation
+- coefficients recalculation flow
+- cache invalidation rules
+- parity checks against current behavior on representative data
+
+### Go Test Focus
+- deterministic calculation tests on fixed fixtures
+- coefficient validation tests
+- cache behavior tests
+- regression tests for representative historical cases
+
+### Manual Check
+- в UI: сравнить stats graphs и summary на известных диапазонах
+- проверить target kcal and nutrient totals
+- проверить coefficients-driven kcal behavior на изменении записей
+
+### Result
+- Status: Pending
+
+---
+
+## Block 09. Food Search And AI Text Flows
+
+### Goal
+Перенести food semantic search и текстовые AI-сценарии без image generation queue.
+
+### Depends On
+- Block 06
+- Block 07
+- Block 05
+
+### Includes
+- websocket realtime search
+- embedding cache flow
+- preview generation
+- save product
+- voice transcript analysis path
+- catalogue saved broadcast
+
+### Go Test Focus
+- search contract tests
+- cache hit/miss behavior
+- AI response validation wrappers
+- catalogue save/update behavior
+- websocket search response tests
+
+### Manual Check
+- в UI: поиск продукта
+- realtime search в поле поиска
+- generate product preview
+- save product
+- voice-based detection path, если локально доступно
+- проверить обновление каталога во второй вкладке
+
+### Result
+- Status: Pending
+
+---
+
+## Block 10. Food Images, Lab, Debug
+
+### Goal
+Перенести периферийные food-подсистемы после закрытия core food flows.
+
+### Depends On
+- Block 09
+
+### Includes
+- image analysis endpoint parity
+- image generation queue
+- image rebuild flows
+- lab endpoints
+- debug endpoints related to catalogue and AI
+
+### Go Test Focus
+- queue lifecycle
+- file generation/storage tests
+- endpoint smoke tests
+- external provider error handling tests
+
+### Manual Check
+- в UI: image-related food flow, если используется
+- вручную вызвать lab/debug сценарии, которые реально нужны
+- убедиться, что генерация изображения не ломает остальное приложение
+
+### Result
+- Status: Pending
+
+---
+
+## Block 11. Money Setup Foundation
+
+### Goal
+Перенести money read/write foundation для справочных сущностей в порядке их зависимостей.
+
+### Depends On
+- Block 03
+- Block 04
+
+### Includes
+- organizations CRUD
+- currencies CRUD
+- categories CRUD
+- accounts CRUD
+- validations and delete guards
+
+### Dependency Reasoning
+- organizations and currencies нужны для accounts
+- categories нужны до transactions
+- accounts нужны до assets and transactions
+
+### Go Test Focus
+- CRUD integration tests for each entity
+- delete guard tests
+- validation tests for enums and parent-child constraints
+
+### Manual Check
+- в UI, вкладка Setup: organizations
+- currencies
+- categories
+- accounts
+- create/edit/delete where allowed
+- blocked delete where dependency exists
+
+### Result
+- Status: Pending
+
+---
+
+## Block 12. Money Assets
+
+### Goal
+Перенести assets как отдельный блок до транзакций, потому что invest flows зависят от готового asset registry.
+
+### Depends On
+- Block 11
+
+### Includes
+- assets CRUD
+- accountIds binding behavior
+- delete guards by linked transactions
+- normalized asset read model
+
+### Go Test Focus
+- CRUD integration tests
+- accountIds normalization tests
+- delete guard tests
+
+### Manual Check
+- в UI: вкладка Assets
+- создать актив
+- привязать к счетам
+- отредактировать актив
+- проверить запрет удаления после появления связанных операций, когда этот сценарий станет доступен
+
+### Result
+- Status: Pending
+
+---
+
+## Block 13. Money Transactions Core
+
+### Goal
+Перенести non-invest transaction engine и парные transfer flows.
+
+### Depends On
+- Block 11
+
+### Includes
+- income
+- expense
+- transfer pair creation
+- transfer update/delete semantics
+- transaction validation rules
+- notes and detailsJSON compatibility where relevant
+
+### Go Test Focus
+- create/update/delete for income and expense
+- transfer pair invariants
+- invalid category/account scenarios
+- transaction persistence integration tests
+
+### Manual Check
+- в UI: вкладка Transactions
+- создать доход
+- создать расход
+- создать перевод между счетами
+- изменить перевод
+- удалить обычную транзакцию и перевод
+- проверить, что balances/списки не ломаются
+
+### Result
+- Status: Pending
+
+---
+
+## Block 14. Money Invest Transactions
+
+### Goal
+Перенести invest-specific rules после того, как assets и basic transactions уже готовы.
+
+### Depends On
+- Block 12
+- Block 13
+
+### Includes
+- invest_buy
+- invest_sell
+- invest_dividend
+- invest details validation
+- asset/account binding checks
+- opened positions input data for frontend
+
+### Go Test Focus
+- invest payload validation
+- buy/sell/dividend persistence tests
+- asset immutability checks on update
+- linked account/asset guard tests
+
+### Manual Check
+- в UI: создать invest buy
+- создать invest sell
+- создать dividend/coupon flow
+- проверить opened positions behavior
+- проверить, что неправильные комбинации счет/актив блокируются
+
+### Result
+- Status: Pending
+
+---
+
+## Block 15. Money Snapshot And Rate History
+
+### Goal
+Перенести главный money projection contract, от которого зависит весь frontend money analytics.
+
+### Depends On
+- Block 11
+- Block 12
+- Block 13
+- Block 14
+
+### Includes
+- `GET /api/money/transactions`
+- `GET /api/money/trades`
+- `GET /api/money/rate-history`
+- `GET /api/money/snapshot`
+- asset normalization
+- filtered rate-history projection behavior
+
+### Go Test Focus
+- snapshot shape compatibility tests
+- rate-history projection tests
+- trades response tests
+- fixture-based parity tests against current backend outputs on representative data
+
+### Manual Check
+- в UI: открыть money screen
+- проверить, что все списки и графики загружаются
+- проверить смену display currency
+- проверить диапазоны charts
+- проверить, что frontend analytics не разваливается на snapshot from Go
+
+### Result
+- Status: Pending
+
+---
+
+## Block 16. Quotes Job
+
+### Goal
+Перенести quotes ingestion после готовности money rate-history domain.
+
+### Depends On
+- Block 15
+
+### Includes
+- provider fallback logic
+- normalization to internal representation
+- required ticker discovery
+- scheduled and manual trigger support
+
+### Go Test Focus
+- normalization tests
+- provider fallback tests with mocks
+- upsert behavior tests
+- scheduled job smoke test
+
+### Manual Check
+- вручную триггернуть quotes job
+- проверить, что rate history обновляется
+- проверить, что money graphs используют новые данные без регрессий
+
+### Result
+- Status: Pending
+
+---
+
+## Block 17. Backup Job
+
+### Goal
+Перенести production-critical backup flow отдельно от business domains.
+
+### Depends On
+- Block 02
+
+### Includes
+- SQLite snapshot creation
+- archive creation
+- upload to S3-compatible storage
+- cleanup logic
+- scheduled and manual trigger support if needed
+
+### Go Test Focus
+- archive creation tests
+- storage client tests with mocks
+- cleanup tests
+- backup workflow integration smoke test
+
+### Manual Check
+- вручную запустить backup flow
+- проверить локальное создание snapshot/archive
+- проверить upload в target storage
+- проверить cleanup временных файлов
+
+### Result
+- Status: Pending
+
+---
+
+## Block 18. Final Parity Pass
+
+### Goal
+Свести все куски в единый backend и закрыть cross-domain регрессии перед cutover.
+
+### Depends On
+- Blocks 02 through 17
+
+### Includes
+- full automated test run
+- full manual regression checklist
+- config hardening
+- production startup rehearsal
+- migration rehearsal on copied data
+- load sanity for low-concurrency real usage
+
+### Go Test Focus
+- full suite
+- end-to-end critical path tests
+- representative fixture parity tests for food and money
+
+### Manual Check
+- пройти весь auth flow
+- пройти food diary, stats, search, restore flows
+- пройти money setup, assets, transactions, charts flows
+- проверить WebSocket sync в нескольких вкладках
+- проверить jobs, если они запускаются вручную в test env
+
+### Result
+- Status: Pending
+
+---
+
+## Block 19. Cutover And One-Shot Deploy
+
+### Goal
+Переключить приложение на Go backend одним deploy после завершения всех предыдущих блоков.
+
+### Depends On
+- Block 18
+
+### Includes
+- final build and packaging
+- deploy through target GitHub Actions path
+- smoke verification in target environment
+- controlled rollback plan
+- post-cutover observation window
+
+### Go Test Focus
+- release artifact smoke
+- deploy pipeline smoke
+
+### Manual Check
+- production-like smoke after deploy
+- login
+- food main flows
+- money main flows
+- websocket sync sanity
+- health/build/readiness sanity
+
+### Result
+- Status: Pending
+
+---
+
+## 6. Почему порядок именно такой
+
+- Auth нужен почти всему.
+- Settings — самый маленький безопасный домен, хороший первый functional slice.
+- WebSocket foundation нужно сделать до food realtime sync и search, иначе потом придётся переделывать transport layer.
+- Food лучше начинать с read/write core, а AI и images оставить позже, потому что они менее фундаментальны и сильнее завязаны на внешние provider integrations.
+- Money сначала идёт через reference data, потом assets, потом transactions, потом investments, потом snapshot. Это соответствует реальной зависимости вкладок и данных во frontend.
+- Quotes и backup лучше переносить после доменной базы, потому что это infrastructure-heavy, но не определяет базовую продуктовую готовность UI flows.
+- Final parity и deploy — только в самом конце, потому что стратегия миграции сознательно не предполагает piece-by-piece production release.
+
+---
+
+## 7. Что будем уточнять позже отдельными документами
+
+Отдельные детальные implementation plans почти наверняка понадобятся для:
+- food stats parity
+- food search and AI integration
+- money invest transactions
+- money snapshot parity
+- quotes ingestion
+- backup flow
+- final cutover checklist
+
+---
+
+## 8. Первый ожидаемый детальный follow-up
+
+Первым детальным implementation plan логично делать Block 02.
+
+Причина:
+- он открывает всю остальную работу
+- он минимально зависит от продуктовой специфики food/money
+- он задаёт testing scaffold, config model, startup model и observability seams для всех следующих блоков
