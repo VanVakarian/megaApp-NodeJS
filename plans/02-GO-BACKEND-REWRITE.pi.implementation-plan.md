@@ -411,15 +411,29 @@
 - websocket search response tests
 
 ### Manual Check
-- в UI: поиск продукта
-- realtime search в поле поиска
-- generate product preview
-- save product
-- voice-based detection path, если локально доступно
-- проверить обновление каталога во второй вкладке
+- убедиться, что `OPENROUTER_API_KEY` и `OPENAI_API_KEY` заданы для текущего Go backend run
+- открыть `Food` под залогиненным пользователем
+- открыть `DevTools -> Network` и `DevTools -> Console`
+- открыть add-food modal
+- ввести обычное название продукта без переключения в legacy search
+- убедиться, что основной search flow снова работает через WebSocket и результаты появляются в UI
+- убедиться, что открыт один стабильный `GET /api/ws?...` со статусом `101`, нет reconnect loop и нет `SEARCH_QUERY` без последующего `SEARCH_RESULTS`
+- выбрать продукт из результатов и убедиться, что обычный add-to-diary flow не сломан
+- в поиске ввести продукт, которого нет в каталоге, перейти в create-product flow и убедиться, что проходит `POST /api/food/generate-product-preview`
+- проверить, что create form заполнилась новым AI-generated candidate, а не случайным existing catalogue product
+- сохранить новый продукт и убедиться, что проходит `POST /api/food/save-product`
+- открыть вторую вкладку тем же пользователем и убедиться, что сохранённый продукт появляется там без ручного refresh через `CATALOGUE_ENTRY_SAVED`
+- не добавляя новый продукт в diary, открыть его из `ADD_DIARY_ENTRY` в режим редактирования продукта и убедиться, что проходит `GET /api/food/catalogue/:catalogueId`
+- изменить поля и убедиться, что повторный `POST /api/food/save-product` проходит успешно
+- удалить именно этот новый ещё не использованный в diary продукт и убедиться, что проходит `DELETE /api/food/catalogue/:catalogueId`
+- вручную вызвать `POST /api/food/analyze-voice` с простым transcript и убедиться, что endpoint отвечает без `500`
+- убедиться, что нет `401`, `404`, `500`, нет пустого default search state и нет console errors в search/create/edit catalogue flow
 
 ### Result
-- Status: Pending
+- Status: Done
+- Test status: `go test ./...` in `megaapp-back` passed after OpenRouter-backed preview flow, OpenAI embedding generation, cached-embedding search restore, and catalogue save compatibility changes. Manual verification also passed for create, search, add-to-diary, delete-from-diary, edit, and delete-product flows.
+- Findings: Step 09 grew beyond the initial minimal search-port expectation and now covers the full user-visible text flow needed for practical parity: default WebSocket search restoration, `SEARCH_QUERY` and `SEARCH_RESULTS` transport, hybrid semantic-plus-lexical search, OpenAI generation and persistence of missing query embeddings, OpenAI generation of fresh catalogue embeddings on save-product, OpenRouter-backed create-product preview generation, OpenRouter-backed voice analysis, catalogue read-edit-delete compatibility, and `CATALOGUE_ENTRY_SAVED` cross-tab sync. OpenRouter and OpenAI runtime keys are now surfaced in `megaapp-back/.env` and the env example files, so the operator has one obvious place to configure them.
+- Issues and resolutions: The step boundary moved during implementation because plain cached-vector reuse was not enough for real user parity. The missing provider-backed embedding generation and AI-backed create-product semantics were pulled into Step 09 and completed there instead of being deferred. Image-heavy AI flows remain intentionally outside Step 09 and stay deferred to later steps. Step 09 itself is now closed.
 
 ---
 

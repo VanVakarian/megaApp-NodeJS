@@ -14,8 +14,11 @@ import (
 const kcalsIn1KG = 7700
 
 type Service struct {
-	repo       *Repository
-	statsCache *StatsCache
+	repo               *Repository
+	statsCache         *StatsCache
+	searchCache        *SearchCache
+	productGenerator   ProductGenerator
+	embeddingGenerator EmbeddingGenerator
 }
 
 type DiaryEntry struct {
@@ -65,7 +68,15 @@ type CatalogueEntry struct {
 }
 
 func NewService(repo *Repository) *Service {
-	return &Service{repo: repo, statsCache: NewStatsCache()}
+	return &Service{repo: repo, statsCache: NewStatsCache(), searchCache: NewSearchCache()}
+}
+
+func (s *Service) SetProductGenerator(generator ProductGenerator) {
+	s.productGenerator = generator
+}
+
+func (s *Service) SetEmbeddingGenerator(generator EmbeddingGenerator) {
+	s.embeddingGenerator = generator
 }
 
 func (s *Service) GetDiaryFullUpdate(ctx context.Context, userID int64, dateISO string, offsetDays int) (map[string]DiaryDay, error) {

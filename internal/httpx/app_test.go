@@ -22,19 +22,20 @@ import (
 func TestAppWebSocketUpgradeWorksThroughMiddleware(t *testing.T) {
 	tempDir := t.TempDir()
 	cfg := config.Config{
-		AppEnv:          "test",
-		AppHost:         "127.0.0.1",
-		AppPort:         3000,
-		LogLevel:        "info",
-		DataDir:         filepath.Join(tempDir, "data"),
-		DatabaseName:    "megaapp",
-		DatabaseEnv:     "test",
-		DatabaseVersion: "005",
-		DatabasePath:    filepath.Join(tempDir, "data", "megaapp-test-005.db"),
-		MigrationsDir:   filepath.Join(tempDir, "migrations"),
-		PublicDir:       filepath.Join(tempDir, "public"),
-		JWTSecret:       "test-secret",
-		ShutdownTimeout: time.Second,
+		AppEnv:            "test",
+		AppHost:           "127.0.0.1",
+		AppPort:           3000,
+		LogLevel:          "info",
+		DataDir:           filepath.Join(tempDir, "data"),
+		DatabaseName:      "megaapp",
+		DatabaseEnv:       "test",
+		DatabaseVersion:   "005",
+		DatabasePath:      filepath.Join(tempDir, "data", "megaapp-test-005.db"),
+		MigrationsDir:     filepath.Join(tempDir, "migrations"),
+		PublicDir:         filepath.Join(tempDir, "public"),
+		JWTSecret:         "test-secret",
+		OpenRouterTimeout: time.Minute,
+		ShutdownTimeout:   time.Second,
 	}
 
 	prepareAppTestFiles(t, cfg)
@@ -105,19 +106,20 @@ func TestAppWebSocketUpgradeWorksThroughMiddleware(t *testing.T) {
 func TestAppServeAndShutdown(t *testing.T) {
 	tempDir := t.TempDir()
 	cfg := config.Config{
-		AppEnv:          "test",
-		AppHost:         "127.0.0.1",
-		AppPort:         3000,
-		LogLevel:        "info",
-		DataDir:         filepath.Join(tempDir, "data"),
-		DatabaseName:    "megaapp",
-		DatabaseEnv:     "test",
-		DatabaseVersion: "005",
-		DatabasePath:    filepath.Join(tempDir, "data", "megaapp-test-005.db"),
-		MigrationsDir:   filepath.Join(tempDir, "migrations"),
-		PublicDir:       filepath.Join(tempDir, "public"),
-		JWTSecret:       "test-secret",
-		ShutdownTimeout: time.Second,
+		AppEnv:            "test",
+		AppHost:           "127.0.0.1",
+		AppPort:           3000,
+		LogLevel:          "info",
+		DataDir:           filepath.Join(tempDir, "data"),
+		DatabaseName:      "megaapp",
+		DatabaseEnv:       "test",
+		DatabaseVersion:   "005",
+		DatabasePath:      filepath.Join(tempDir, "data", "megaapp-test-005.db"),
+		MigrationsDir:     filepath.Join(tempDir, "migrations"),
+		PublicDir:         filepath.Join(tempDir, "public"),
+		JWTSecret:         "test-secret",
+		OpenRouterTimeout: time.Minute,
+		ShutdownTimeout:   time.Second,
 	}
 
 	prepareAppTestFiles(t, cfg)

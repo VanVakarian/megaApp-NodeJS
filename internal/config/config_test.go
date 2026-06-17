@@ -18,6 +18,13 @@ func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("MIGRATIONS_DIR", "")
 	t.Setenv("PUBLIC_DIR", "")
 	t.Setenv("JWT_SECRET", "")
+	t.Setenv("OPENROUTER_API_KEY", "")
+	t.Setenv("OPENROUTER_MODEL", "")
+	t.Setenv("OPENROUTER_TIMEOUT_SECONDS", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("OPENAI_EMBEDDING_MODEL", "")
+	t.Setenv("OPENAI_EMBEDDING_DIMENSIONS", "")
+	t.Setenv("OPENAI_TIMEOUT_SECONDS", "")
 	t.Setenv("SHUTDOWN_TIMEOUT_SECONDS", "")
 
 	cfg, err := Load()
@@ -58,6 +65,27 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.JWTSecret != "dev-insecure-jwt-secret" {
 		t.Fatalf("JWTSecret = %q, want dev-insecure-jwt-secret", cfg.JWTSecret)
 	}
+	if cfg.OpenRouterAPIKey != "" {
+		t.Fatalf("OpenRouterAPIKey = %q, want empty", cfg.OpenRouterAPIKey)
+	}
+	if cfg.OpenRouterModel != "google/gemini-2.5-pro" {
+		t.Fatalf("OpenRouterModel = %q, want google/gemini-2.5-pro", cfg.OpenRouterModel)
+	}
+	if cfg.OpenRouterTimeout != 60*time.Second {
+		t.Fatalf("OpenRouterTimeout = %v, want 60s", cfg.OpenRouterTimeout)
+	}
+	if cfg.OpenAIAPIKey != "" {
+		t.Fatalf("OpenAIAPIKey = %q, want empty", cfg.OpenAIAPIKey)
+	}
+	if cfg.OpenAIEmbeddingModel != "text-embedding-3-small" {
+		t.Fatalf("OpenAIEmbeddingModel = %q, want text-embedding-3-small", cfg.OpenAIEmbeddingModel)
+	}
+	if cfg.OpenAIEmbeddingDims != 768 {
+		t.Fatalf("OpenAIEmbeddingDims = %d, want 768", cfg.OpenAIEmbeddingDims)
+	}
+	if cfg.OpenAITimeout != 60*time.Second {
+		t.Fatalf("OpenAITimeout = %v, want 60s", cfg.OpenAITimeout)
+	}
 	if cfg.ShutdownTimeout != 10*time.Second {
 		t.Fatalf("ShutdownTimeout = %v, want 10s", cfg.ShutdownTimeout)
 	}
@@ -74,18 +102,21 @@ func TestLoadRejectsInvalidPort(t *testing.T) {
 
 func TestValidateRejectsInvalidLogLevel(t *testing.T) {
 	cfg := Config{
-		AppHost:         "127.0.0.1",
-		AppPort:         3000,
-		LogLevel:        "trace",
-		DataDir:         "./data",
-		DatabaseName:    "megaapp",
-		DatabaseEnv:     "test",
-		DatabaseVersion: "005",
-		DatabasePath:    "./data/megaapp-test-005.db",
-		MigrationsDir:   "./migrations",
-		PublicDir:       "./public",
-		JWTSecret:       "secret",
-		ShutdownTimeout: time.Second,
+		AppHost:             "127.0.0.1",
+		AppPort:             3000,
+		LogLevel:            "trace",
+		DataDir:             "./data",
+		DatabaseName:        "megaapp",
+		DatabaseEnv:         "test",
+		DatabaseVersion:     "005",
+		DatabasePath:        "./data/megaapp-test-005.db",
+		MigrationsDir:       "./migrations",
+		PublicDir:           "./public",
+		JWTSecret:           "secret",
+		OpenRouterTimeout:   time.Second,
+		OpenAIEmbeddingDims: 768,
+		OpenAITimeout:       time.Second,
+		ShutdownTimeout:     time.Second,
 	}
 
 	if err := cfg.Validate(); err == nil {

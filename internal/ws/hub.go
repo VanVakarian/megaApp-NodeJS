@@ -263,6 +263,10 @@ func (c *Client) writeJSON(payload any) error {
 	return c.conn.WriteJSON(payload)
 }
 
+func (c *Client) SendJSON(payload any) error {
+	return c.writeJSON(payload)
+}
+
 func (c *Client) close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

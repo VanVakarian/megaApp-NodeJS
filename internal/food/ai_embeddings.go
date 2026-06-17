@@ -1,0 +1,92 @@
+package food
+
+import (
+	"context"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"math"
+	"net/http"
+	"strings"
+	"time"
+
+	openai "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+)
+
+const openAIBaseURL = "https://api.openai.com/v1"
+
+type EmbeddingGenerator interface {
+	GenerateEmbedding(ctx context.Context, text string) ([]float64, error)
+}
+
+type OpenAIEmbeddingGeneratorConfig struct {
+	APIKey     string
+	Model      string
+	Dimensions int
+	Timeout    time.Duration
+}
+
+type OpenAIEmbeddingGenerator struct {
+	client     *openai.Client
+	model      string
+	dimensions int
+}
+
+type embeddingRequest struct {
+	Model      string `json:"model"`
+	Input      string `json:"input"`
+	Dimensions int    `json:"dimensions,omitempty"`
+}
+
+type embeddingResponse struct {
+	Data []embeddingData `json:"data"`
+}
+
+type embeddingData struct {
+	Embedding []float64 `json:"embedding"`
+}
+
+func NewOpenAIEmbeddingGenerator(cfg OpenAIEmbeddingGeneratorConfig) (*OpenAIEmbeddingGenerator, error) {
+	if strings.TrimSpace(cfg.APIKey) == "" {
+		return nil, errors.New("openai api key is required")
+	}
+	if strings.TrimSpace(cfg.Model) == "" {
+		return nil, errors.New("openai embedding model is required")
+	}
+	if cfg.Timeout <= 0 {
+		cfg.Timeout = 60 * time.Second
+	}
+
+	httpClient := &http.Client{Timeout: cfg.Timeout}
+	client := openai.NewClient(
+		option.WithAPIKey(cfg.APIKey),
+		option.WithBaseURL(openAIBaseURL),
+		option.WithHTTPClient(httpClient),
+	)
+
+	return &OpenAIEmbeddingGenerator{client: &client, model: cfg.Model, dimensions: cfg.Dimensions}, nil
+}
+
+func (g *OpenAIEmbeddingGenerator) GenerateEmbedding(ctx context.Context, text string) ([]float64, error) {
+	request := embeddingRequest{Model: g.model, Input: strings.TrimSpace(text), Dimensions: g.dimensions}
+	var response embeddingResponse
+	if err := g.client.Post(ctx, "embeddings", request, &response); err != nil {
+		return nil, fmt.Errorf("openai embedding request failed: %w", err)
+	}
+	if len(response.Data) == 0 || len(response.Data[0].Embedding) == 0 {
+		return nil, errors.New("openai returned empty embedding")
+	}
+	return response.Data[0].Embedding, nil
+}
+
+func encodeFloat32Blob(values []float64) []byte {
+	if len(values) == 0 {
+		return nil
+	}
+	blob := make([]byte, len(values)*4)
+	for idx, value := range values {
+		binary.LittleEndian.PutUint32(blob[idx*4:(idx+1)*4], math.Float32bits(float32(value)))
+	}
+	return blob
+}

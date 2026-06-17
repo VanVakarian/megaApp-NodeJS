@@ -21,15 +21,19 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
 	authService := auth.NewService(authRepo, tokenManager)
 	service := NewService(NewRepository(db))
+	service.SetProductGenerator(fakeProductGenerator{})
 	readHandler := NewHandler(service)
 	hub := wspkg.NewHub(time.Second, wspkg.NewSyncState())
 	defer func() { _ = hub.Close() }()
+	hub.RegisterHandler("SEARCH_QUERY", NewSearchWSHandler(service))
 	writeHandler := NewWriteHandler(service, hub)
+	catalogueHandler := NewCatalogueHandler(service, hub)
 	wsHandler := wspkg.NewHandler(authService, hub)
 
 	router := chi.NewRouter()
 	RegisterRoutes(router, authService, readHandler)
 	RegisterWriteRoutes(router, authService, writeHandler)
+	RegisterCatalogueRoutes(router, authService, catalogueHandler)
 	wspkg.RegisterRoutes(router, wsHandler)
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -92,16 +96,89 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/coefficients-gen", tokens.AccessToken, "tab-a", nil, http.StatusOK)
 }
 
+func TestFoodSearchAndCatalogueMutationEndpoints(t *testing.T) {
+	db := openFoodTestDB(t)
+	authRepo := auth.NewRepository(db)
+	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
+	authService := auth.NewService(authRepo, tokenManager)
+	service := NewService(NewRepository(db))
+	service.SetProductGenerator(fakeProductGenerator{})
+	readHandler := NewHandler(service)
+	hub := wspkg.NewHub(time.Second, wspkg.NewSyncState())
+	defer func() { _ = hub.Close() }()
+	hub.RegisterHandler("SEARCH_QUERY", NewSearchWSHandler(service))
+	catalogueHandler := NewCatalogueHandler(service, hub)
+	wsHandler := wspkg.NewHandler(authService, hub)
+
+	router := chi.NewRouter()
+	RegisterRoutes(router, authService, readHandler)
+	RegisterCatalogueRoutes(router, authService, catalogueHandler)
+	wspkg.RegisterRoutes(router, wsHandler)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	tokens, err := tokenManager.Issue(auth.TokenClaims{UserID: 1, Username: "alice"})
+	if err != nil {
+		t.Fatalf("Issue() error = %v", err)
+	}
+
+	connA := dialFoodWS(t, server.URL+"/api/ws?token="+tokens.AccessToken+"&clientId=tab-a")
+	defer func() { _ = connA.Close() }()
+	connB := dialFoodWS(t, server.URL+"/api/ws?token="+tokens.AccessToken+"&clientId=tab-b")
+	defer func() { _ = connB.Close() }()
+	drainFoodWSMessage(t, connA)
+	drainFoodWSMessage(t, connB)
+
+	if err := connA.WriteJSON(map[string]any{"type": "SEARCH_QUERY", "query": "apple-semantic", "sequenceNumber": 1}); err != nil {
+		t.Fatalf("WriteJSON() error = %v", err)
+	}
+	_ = connA.SetReadDeadline(time.Now().Add(time.Second))
+	var searchMessage map[string]any
+	if err := connA.ReadJSON(&searchMessage); err != nil {
+		t.Fatalf("ReadJSON() error = %v", err)
+	}
+	if searchMessage["type"] != "SEARCH_RESULTS" {
+		t.Fatalf("type = %v, want SEARCH_RESULTS", searchMessage["type"])
+	}
+
+	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/search?query=apple-semantic", tokens.AccessToken, "tab-a", nil, http.StatusOK)
+	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/generate-product-preview", tokens.AccessToken, "tab-a", map[string]any{"description": "apple-semantic"}, http.StatusOK)
+	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/analyze-voice", tokens.AccessToken, "tab-a", map[string]any{"transcript": "apple-semantic"}, http.StatusOK)
+	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/save-product", tokens.AccessToken, "tab-a", map[string]any{
+		"name":        "Orange",
+		"kcals":       47,
+		"protein":     1,
+		"fat":         0,
+		"carbs":       12,
+		"fiber":       2,
+		"description": "Orange fruit",
+	}, http.StatusCreated)
+	_ = connB.SetReadDeadline(time.Now().Add(time.Second))
+	var savedMessage map[string]any
+	if err := connB.ReadJSON(&savedMessage); err != nil {
+		t.Fatalf("ReadJSON() error = %v", err)
+	}
+	if savedMessage["type"] != "CATALOGUE_ENTRY_SAVED" {
+		t.Fatalf("type = %v, want CATALOGUE_ENTRY_SAVED", savedMessage["type"])
+	}
+	assertJSONRequestStatus(t, http.MethodDelete, server.URL+"/api/food/catalogue/3", tokens.AccessToken, "tab-a", nil, http.StatusOK)
+}
+
 func TestFoodReadEndpoints(t *testing.T) {
 	db := openFoodTestDB(t)
 	authRepo := auth.NewRepository(db)
 	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
 	authService := auth.NewService(authRepo, tokenManager)
 	service := NewService(NewRepository(db))
+	service.SetProductGenerator(fakeProductGenerator{})
 	handler := NewHandler(service)
+	hub := wspkg.NewHub(time.Second, wspkg.NewSyncState())
+	defer func() { _ = hub.Close() }()
+	catalogueHandler := NewCatalogueHandler(service, hub)
 
 	router := chi.NewRouter()
 	RegisterRoutes(router, authService, handler)
+	RegisterCatalogueRoutes(router, authService, catalogueHandler)
 	server := httptest.NewServer(router)
 	defer server.Close()
 
@@ -113,6 +190,7 @@ func TestFoodReadEndpoints(t *testing.T) {
 	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/catalogue", tokens.AccessToken, "tab-a", nil, http.StatusOK)
 	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/coefficients", tokens.AccessToken, "tab-a", nil, http.StatusOK)
 	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/stats", tokens.AccessToken, "tab-a", nil, http.StatusOK)
+	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/search?query=apple-semantic", tokens.AccessToken, "tab-a", nil, http.StatusOK)
 	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/diary-full-update?date=2026-06-17&offset=1", tokens.AccessToken, "tab-a", nil, http.StatusOK)
 
 	request, err := http.NewRequest(http.MethodGet, server.URL+"/api/food/catalogue/1", nil)

@@ -11,23 +11,30 @@ import (
 )
 
 type Config struct {
-	AppEnv          string
-	AppHost         string
-	AppPort         int
-	LogLevel        string
-	DataDir         string
-	DatabaseName    string
-	DatabaseEnv     string
-	DatabaseVersion string
-	DatabasePath    string
-	MigrationsDir   string
-	PublicDir       string
-	JWTSecret       string
-	ShutdownTimeout time.Duration
-	BuildVersion    string
-	BuildCommit     string
-	BuildTime       string
-	GoVersion       string
+	AppEnv               string
+	AppHost              string
+	AppPort              int
+	LogLevel             string
+	DataDir              string
+	DatabaseName         string
+	DatabaseEnv          string
+	DatabaseVersion      string
+	DatabasePath         string
+	MigrationsDir        string
+	PublicDir            string
+	JWTSecret            string
+	OpenRouterAPIKey     string
+	OpenRouterModel      string
+	OpenRouterTimeout    time.Duration
+	OpenAIAPIKey         string
+	OpenAIEmbeddingModel string
+	OpenAIEmbeddingDims  int
+	OpenAITimeout        time.Duration
+	ShutdownTimeout      time.Duration
+	BuildVersion         string
+	BuildCommit          string
+	BuildTime            string
+	GoVersion            string
 }
 
 func Load() (Config, error) {
@@ -43,21 +50,25 @@ func Load() (Config, error) {
 	databasePath := getString("DATABASE_PATH", filepath.Join(dataDir, buildDatabaseFileName(databaseName, databaseEnv, databaseVersion)))
 
 	cfg := Config{
-		AppEnv:          appEnv,
-		AppHost:         getString("APP_HOST", "127.0.0.1"),
-		LogLevel:        strings.ToLower(getString("LOG_LEVEL", "info")),
-		DataDir:         dataDir,
-		DatabaseName:    databaseName,
-		DatabaseEnv:     databaseEnv,
-		DatabaseVersion: databaseVersion,
-		DatabasePath:    databasePath,
-		MigrationsDir:   getString("MIGRATIONS_DIR", "./migrations"),
-		PublicDir:       getString("PUBLIC_DIR", "./public"),
-		JWTSecret:       getString("JWT_SECRET", "dev-insecure-jwt-secret"),
-		BuildVersion:    getString("APP_BUILD_VERSION", "dev"),
-		BuildCommit:     getString("APP_BUILD_COMMIT", "local"),
-		BuildTime:       getString("APP_BUILD_TIME", "unknown"),
-		GoVersion:       runtime.Version(),
+		AppEnv:               appEnv,
+		AppHost:              getString("APP_HOST", "127.0.0.1"),
+		LogLevel:             strings.ToLower(getString("LOG_LEVEL", "info")),
+		DataDir:              dataDir,
+		DatabaseName:         databaseName,
+		DatabaseEnv:          databaseEnv,
+		DatabaseVersion:      databaseVersion,
+		DatabasePath:         databasePath,
+		MigrationsDir:        getString("MIGRATIONS_DIR", "./migrations"),
+		PublicDir:            getString("PUBLIC_DIR", "./public"),
+		JWTSecret:            getString("JWT_SECRET", "dev-insecure-jwt-secret"),
+		OpenRouterAPIKey:     getString("OPENROUTER_API_KEY", ""),
+		OpenRouterModel:      getString("OPENROUTER_MODEL", "google/gemini-2.5-pro"),
+		OpenAIAPIKey:         getString("OPENAI_API_KEY", ""),
+		OpenAIEmbeddingModel: getString("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
+		BuildVersion:         getString("APP_BUILD_VERSION", "dev"),
+		BuildCommit:          getString("APP_BUILD_COMMIT", "local"),
+		BuildTime:            getString("APP_BUILD_TIME", "unknown"),
+		GoVersion:            runtime.Version(),
 	}
 
 	port, err := getInt("APP_PORT", 3000)
@@ -71,6 +82,24 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("load config: %w", err)
 	}
 	cfg.ShutdownTimeout = time.Duration(shutdownTimeoutSeconds) * time.Second
+
+	openRouterTimeoutSeconds, err := getInt("OPENROUTER_TIMEOUT_SECONDS", 60)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.OpenRouterTimeout = time.Duration(openRouterTimeoutSeconds) * time.Second
+
+	openAIEmbeddingDims, err := getInt("OPENAI_EMBEDDING_DIMENSIONS", 768)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.OpenAIEmbeddingDims = openAIEmbeddingDims
+
+	openAITimeoutSeconds, err := getInt("OPENAI_TIMEOUT_SECONDS", 60)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.OpenAITimeout = time.Duration(openAITimeoutSeconds) * time.Second
 
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -109,6 +138,15 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.JWTSecret) == "" {
 		return fmt.Errorf("validate config: JWT_SECRET is required")
+	}
+	if c.OpenRouterTimeout <= 0 {
+		return fmt.Errorf("validate config: OPENROUTER_TIMEOUT_SECONDS must be greater than 0")
+	}
+	if c.OpenAIEmbeddingDims <= 0 {
+		return fmt.Errorf("validate config: OPENAI_EMBEDDING_DIMENSIONS must be greater than 0")
+	}
+	if c.OpenAITimeout <= 0 {
+		return fmt.Errorf("validate config: OPENAI_TIMEOUT_SECONDS must be greater than 0")
 	}
 	if c.ShutdownTimeout <= 0 {
 		return fmt.Errorf("validate config: SHUTDOWN_TIMEOUT_SECONDS must be greater than 0")

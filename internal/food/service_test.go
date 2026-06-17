@@ -8,6 +8,49 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+type fakeProductGenerator struct{}
+
+var fakeGeneratedProductPreview = ProductPreviewData{
+	GeneralizedName: "Новый продукт",
+	Kcals:           123,
+	Protein:         4.5,
+	Fat:             6.7,
+	Carbs:           8.9,
+	Fiber:           1.2,
+	Description:     "Новый продукт для теста",
+	Confidence:      0.9,
+}
+
+var fakeVoiceProductPreview = ProductPreviewData{
+	GeneralizedName: "Яблоко",
+	Kcals:           50,
+	Protein:         1,
+	Fat:             0,
+	Carbs:           10,
+	Fiber:           2,
+	Description:     "Fruit",
+	Confidence:      0.9,
+}
+
+func (fakeProductGenerator) GenerateProduct(ctx context.Context, description string) (ProductPreviewData, error) {
+	return fakeGeneratedProductPreview, nil
+}
+
+func (fakeProductGenerator) AnalyzeVoice(ctx context.Context, transcript string) (ProductPreviewData, error) {
+	return fakeVoiceProductPreview, nil
+}
+
+type fakeEmbeddingGenerator struct{}
+
+func (fakeEmbeddingGenerator) GenerateEmbedding(ctx context.Context, text string) ([]float64, error) {
+	switch text {
+	case "apple-semantic", "Apple", "Fruit":
+		return []float64{1, 0}, nil
+	default:
+		return []float64{0, 1}, nil
+	}
+}
+
 func TestGetCatalogueAndCoefficientsAndStats(t *testing.T) {
 	db := openFoodTestDB(t)
 	repo := NewRepository(db)
@@ -160,6 +203,53 @@ func TestStatsCacheInvalidatesAfterWrites(t *testing.T) {
 	}
 }
 
+func TestSearchPreviewAndSaveProduct(t *testing.T) {
+	db := openFoodTestDB(t)
+	service := NewService(NewRepository(db))
+	service.SetProductGenerator(fakeProductGenerator{})
+	service.SetEmbeddingGenerator(fakeEmbeddingGenerator{})
+
+	results, err := service.SearchCatalogue(context.Background(), "apple-semantic")
+	if err != nil {
+		t.Fatalf("SearchCatalogue() error = %v", err)
+	}
+	if len(results) == 0 || results[0].Name != "Apple" {
+		t.Fatalf("results = %+v, want Apple first", results)
+	}
+
+	preview, err := service.GenerateProductPreview(context.Background(), "Apple")
+	if err != nil {
+		t.Fatalf("GenerateProductPreview() error = %v", err)
+	}
+	if preview != fakeGeneratedProductPreview {
+		t.Fatalf("preview = %+v", preview)
+	}
+
+	entry, statusCode, err := service.SaveProduct(context.Background(), nil, ProductInput{
+		Name:        "Orange",
+		Kcals:       47,
+		Protein:     1,
+		Fat:         0,
+		Carbs:       12,
+		Fiber:       2,
+		Description: "Orange fruit",
+	})
+	if err != nil {
+		t.Fatalf("SaveProduct() error = %v", err)
+	}
+	if statusCode != 201 || entry == nil || entry.ID <= 0 {
+		t.Fatalf("entry = %+v, statusCode = %d", entry, statusCode)
+	}
+
+	deleted, err := service.DeleteProduct(context.Background(), entry.ID)
+	if err != nil {
+		t.Fatalf("DeleteProduct() error = %v", err)
+	}
+	if !deleted {
+		t.Fatal("DeleteProduct() = false, want true")
+	}
+}
+
 func TestGetDiaryFullUpdateReturnsFoodAndNutrients(t *testing.T) {
 	db := openFoodTestDB(t)
 	service := NewService(NewRepository(db))
@@ -199,18 +289,20 @@ func openFoodTestDB(t *testing.T) *sql.DB {
 		CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, hashedPassword TEXT, isAdmin BOOLEAN);
 		CREATE TABLE settings (id INTEGER PRIMARY KEY AUTOINCREMENT, usersId INTEGER, goal TEXT, darkTheme BOOLEAN, selectedChapterFood BOOLEAN, selectedChapterMoney BOOLEAN, liteVersion BOOLEAN, height INTEGER);
 		CREATE TABLE foodSettings (id INTEGER PRIMARY KEY AUTOINCREMENT, height INTEGER, useCoeffs BOOLEAN, coefficients TEXT, usersId INTEGER);
-		CREATE TABLE foodCatalogue (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, kcals INTEGER, protein REAL, fat REAL, carbs REAL, fiber REAL, description TEXT, legacyName TEXT);
+		CREATE TABLE foodCatalogue (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, kcals INTEGER, protein REAL, fat REAL, carbs REAL, fiber REAL, description TEXT, legacyName TEXT, nameVec BLOB, descriptionVec BLOB);
 		CREATE TABLE foodDiary (id INTEGER PRIMARY KEY AUTOINCREMENT, dateISO TEXT, foodCatalogueId INTEGER, foodWeight INTEGER, history TEXT, usersId INTEGER, ver INTEGER, del BOOLEAN);
 		CREATE TABLE foodBodyWeight (id INTEGER PRIMARY KEY AUTOINCREMENT, dateISO TEXT, weight NUMERIC, usersId INTEGER);
+		CREATE TABLE foodSearchQueryEmbeddings (query TEXT PRIMARY KEY, embedding BLOB, hitCount INTEGER, lastUsedAt INTEGER, createdAt INTEGER);
 
 		INSERT INTO users(id, username, isAdmin) VALUES (1, 'alice', 0);
 		INSERT INTO settings(usersId, goal, darkTheme, selectedChapterFood, selectedChapterMoney, liteVersion, height) VALUES (1, 'lose', 0, 1, 0, 0, 180);
-		INSERT INTO foodCatalogue(id, name, kcals, protein, fat, carbs, fiber, description, legacyName) VALUES
-			(1, 'Apple', 50, 1, 0, 10, 2, 'Fruit', 'Apple'),
-			(2, 'Bread', 250, 9, 2, 49, 3, 'Bread', 'Bread');
+		INSERT INTO foodCatalogue(id, name, kcals, protein, fat, carbs, fiber, description, legacyName, nameVec, descriptionVec) VALUES
+			(1, 'Apple', 50, 1, 0, 10, 2, 'Fruit', 'Apple', X'0000803F00000000', X'0000803F00000000'),
+			(2, 'Bread', 250, 9, 2, 49, 3, 'Bread', 'Bread', X'000000000000803F', X'000000000000803F');
 		INSERT INTO foodDiary(id, dateISO, foodCatalogueId, foodWeight, history, usersId, ver, del) VALUES
 			(10, '2026-06-17', 2, 100, '[{"action":"init","value":100}]', 1, 0, 0);
 		INSERT INTO foodBodyWeight(dateISO, weight, usersId) VALUES ('2026-06-17', 80, 1);
+		INSERT INTO foodSearchQueryEmbeddings(query, embedding, hitCount, lastUsedAt, createdAt) VALUES ('apple-semantic', X'0000803F00000000', 1, 0, 0);
 	`); err != nil {
 		_ = db.Close()
 		t.Fatalf("Exec() error = %v", err)

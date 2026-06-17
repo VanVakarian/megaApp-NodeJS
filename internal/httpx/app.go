@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"megaapp-back/internal/auth"
@@ -52,9 +53,36 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 	settingsHandler := settings.NewHandler(settingsService)
 	foodRepo := food.NewRepository(db.SQL())
 	foodService := food.NewService(foodRepo)
+	if strings.TrimSpace(cfg.OpenRouterAPIKey) != "" {
+		productGenerator, err := food.NewOpenRouterProductGenerator(food.OpenRouterProductGeneratorConfig{
+			APIKey:  cfg.OpenRouterAPIKey,
+			Model:   cfg.OpenRouterModel,
+			Timeout: cfg.OpenRouterTimeout,
+		})
+		if err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+		foodService.SetProductGenerator(productGenerator)
+	}
+	if strings.TrimSpace(cfg.OpenAIAPIKey) != "" {
+		embeddingGenerator, err := food.NewOpenAIEmbeddingGenerator(food.OpenAIEmbeddingGeneratorConfig{
+			APIKey:     cfg.OpenAIAPIKey,
+			Model:      cfg.OpenAIEmbeddingModel,
+			Dimensions: cfg.OpenAIEmbeddingDims,
+			Timeout:    cfg.OpenAITimeout,
+		})
+		if err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+		foodService.SetEmbeddingGenerator(embeddingGenerator)
+	}
 	foodHandler := food.NewHandler(foodService)
 	wsHub := ws.NewHub(30*time.Second, ws.NewSyncState())
+	wsHub.RegisterHandler("SEARCH_QUERY", food.NewSearchWSHandler(foodService))
 	foodWriteHandler := food.NewWriteHandler(foodService, wsHub)
+	foodCatalogueHandler := food.NewCatalogueHandler(foodService, wsHub)
 	wsHandler := ws.NewHandler(authService, wsHub)
 
 	router := chi.NewRouter()
@@ -72,6 +100,7 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 	settings.RegisterRoutes(router, authService, settingsHandler)
 	food.RegisterRoutes(router, authService, foodHandler)
 	food.RegisterWriteRoutes(router, authService, foodWriteHandler)
+	food.RegisterCatalogueRoutes(router, authService, foodCatalogueHandler)
 	ws.RegisterRoutes(router, wsHandler)
 
 	server := &http.Server{
