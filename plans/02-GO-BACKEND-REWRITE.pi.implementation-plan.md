@@ -361,12 +361,27 @@
 - regression tests for representative historical cases
 
 ### Manual Check
-- в UI: сравнить stats graphs и summary на известных диапазонах
-- проверить target kcal and nutrient totals
-- проверить coefficients-driven kcal behavior на изменении записей
+- открыть `Food` под залогиненным пользователем
+- открыть `DevTools -> Network`
+- открыть `Stats` section
+- убедиться, что проходит `GET /api/food/stats` без `401`, `404`, `500`
+- запомнить текущие значения `kcals`, `target kcals` и графики веса/калорий на видимом диапазоне
+- вернуться в diary
+- открыть add-food modal
+- переключить search mode кнопкой swap в legacy search
+- добавить продукт в текущий день
+- вернуться в `Stats` section и убедиться, что после reload экрана или refresh проходят `GET /api/food/stats` и `GET /api/food/coefficients`, а kcal values и график калорий изменились согласованно с добавленной записью
+- изменить вес тела в текущем дне
+- вернуться в `Stats` section и убедиться, что после reload экрана или refresh проходит `GET /api/food/stats`, а weight series и summary изменились без shape errors
+- убедиться, что target kcal values присутствуют на исторических данных, virtual/factual kcal series не разваливают график и range slider остаётся рабочим
+- убедиться, что нет пустого stats state, нет console errors и нет расхождения между diary totals и stats after refresh
 
 ### Result
-- Status: Pending
+- Status: Done
+- Test status: `go test ./...` in `megaapp-back` passed after stats-cache, coefficient-normalization, and debug commit-info compatibility changes.
+- Manual check status: User verified stats rendering, stats refresh after diary and body-weight changes, target kcal visibility, working slider range, and absence of food-related console or network errors. The previously observed `404` on `API Debug Commit Info` is now resolved.
+- Findings: The Go stats engine now caches computed stats per user, invalidates them after diary and body-weight writes, preserves the existing `GET /api/food/coefficients-gen` path, repairs malformed coefficient payloads back to valid defaults, and exposes `GET /api/debug/commit-info` for frontend build-info compatibility.
+- Issues and resolutions: The current coefficient-generation compatibility path does not port the old background worker algorithm yet; it preserves route reachability and normalization behavior needed by the current frontend-visible flows while the deeper search/AI/advanced food migrations continue in later steps.
 
 ---
 

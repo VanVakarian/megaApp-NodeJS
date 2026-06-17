@@ -75,6 +75,25 @@ func TestOpsRoutes(t *testing.T) {
 	if body.Version != cfg.BuildVersion || body.Commit != cfg.BuildCommit {
 		t.Fatalf("unexpected build info body = %+v", body)
 	}
+
+	commitResp, err := http.Get(server.URL + "/api/debug/commit-info")
+	if err != nil {
+		t.Fatalf("GET /api/debug/commit-info error = %v", err)
+	}
+	defer commitResp.Body.Close()
+
+	if commitResp.StatusCode != http.StatusOK {
+		t.Fatalf("/api/debug/commit-info status = %d, want 200", commitResp.StatusCode)
+	}
+
+	var commitBody CommitInfoResponse
+	if err := json.NewDecoder(commitResp.Body).Decode(&commitBody); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+
+	if commitBody.CommitHash != cfg.BuildCommit || commitBody.CommitDateTime != cfg.BuildTime {
+		t.Fatalf("unexpected commit info body = %+v", commitBody)
+	}
 }
 
 func assertStatus(t *testing.T, url string, wantStatus int, wantBodyStatus string) {

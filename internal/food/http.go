@@ -26,6 +26,7 @@ func RegisterRoutes(router chi.Router, authService *auth.Service, handler *Handl
 		r.Get("/catalogue", handler.GetCatalogue)
 		r.Get("/catalogue/{catalogueId}", handler.GetCatalogueEntry)
 		r.Get("/coefficients", handler.GetCoefficients)
+		r.Get("/coefficients-gen", handler.GenerateCoefficients)
 		r.Get("/stats", handler.GetStats)
 	})
 }
@@ -101,6 +102,23 @@ func (h *Handler) GetCoefficients(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"result": true, "data": response})
+}
+
+func (h *Handler) GenerateCoefficients(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.UserClaimsFromContext(r.Context())
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "Unauthorized"})
+		return
+	}
+
+	response, err := h.service.GetCoefficients(r.Context(), claims.UserID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"result": false, "error": err.Error()})
+		return
+	}
+
+	h.service.InvalidateStats(claims.UserID)
+	writeJSON(w, http.StatusOK, map[string]any{"result": true, "message": "Coefficients calculated and saved.", "data": response})
 }
 
 func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {

@@ -14,7 +14,8 @@ import (
 const kcalsIn1KG = 7700
 
 type Service struct {
-	repo *Repository
+	repo       *Repository
+	statsCache *StatsCache
 }
 
 type DiaryEntry struct {
@@ -64,7 +65,7 @@ type CatalogueEntry struct {
 }
 
 func NewService(repo *Repository) *Service {
-	return &Service{repo: repo}
+	return &Service{repo: repo, statsCache: NewStatsCache()}
 }
 
 func (s *Service) GetDiaryFullUpdate(ctx context.Context, userID int64, dateISO string, offsetDays int) (map[string]DiaryDay, error) {
@@ -254,6 +255,10 @@ func (s *Service) GetCoefficients(ctx context.Context, userID int64) (map[int64]
 			changed = true
 			continue
 		}
+		if value <= 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+			changed = true
+			continue
+		}
 		result[row.ID] = value
 	}
 
@@ -290,6 +295,7 @@ func (s *Service) CreateDiaryEntry(ctx context.Context, userID int64, dateISO st
 	if err != nil {
 		return DiaryEntry{}, err
 	}
+	s.InvalidateStats(userID)
 	return DiaryEntry{ID: id, DateISO: dateISO, FoodCatalogueID: foodCatalogueID, FoodWeight: foodWeight, History: history}, nil
 }
 
@@ -314,11 +320,19 @@ func (s *Service) EditDiaryEntry(ctx context.Context, userID int64, diaryID int6
 	if !updated {
 		return nil, nil
 	}
+	s.InvalidateStats(userID)
 	return &DiaryEntry{ID: diaryID, FoodWeight: foodWeight, History: history}, nil
 }
 
 func (s *Service) DeleteDiaryEntry(ctx context.Context, userID int64, diaryID int64) (bool, error) {
-	return s.repo.DeleteDiaryEntry(ctx, diaryID, userID)
+	deleted, err := s.repo.DeleteDiaryEntry(ctx, diaryID, userID)
+	if err != nil {
+		return false, err
+	}
+	if deleted {
+		s.InvalidateStats(userID)
+	}
+	return deleted, nil
 }
 
 func (s *Service) DeleteDiaryEntriesForDay(ctx context.Context, userID int64, dateISO string) (int64, error) {
@@ -329,7 +343,12 @@ func (s *Service) DeleteDiaryEntriesForDay(ctx context.Context, userID int64, da
 	if len(rows) == 0 {
 		return 0, fmt.Errorf("entries not found")
 	}
-	return s.repo.DeleteDiaryEntriesByDate(ctx, dateISO, userID)
+	deletedCount, err := s.repo.DeleteDiaryEntriesByDate(ctx, dateISO, userID)
+	if err != nil {
+		return 0, err
+	}
+	s.InvalidateStats(userID)
+	return deletedCount, nil
 }
 
 func (s *Service) RestoreDiaryEntriesForDay(ctx context.Context, userID int64, dateISO string, entries []createDiaryEntryRequest) ([]DiaryEntry, error) {
@@ -344,7 +363,12 @@ func (s *Service) RestoreDiaryEntriesForDay(ctx context.Context, userID int64, d
 		}
 		normalized = append(normalized, DiaryEntry{DateISO: dateISO, FoodCatalogueID: entry.FoodCatalogueID, FoodWeight: entry.FoodWeight, History: history})
 	}
-	return s.repo.CreateDiaryEntriesBatch(ctx, userID, normalized)
+	restored, err := s.repo.CreateDiaryEntriesBatch(ctx, userID, normalized)
+	if err != nil {
+		return nil, err
+	}
+	s.InvalidateStats(userID)
+	return restored, nil
 }
 
 func (s *Service) SetBodyWeight(ctx context.Context, userID int64, dateISO string, bodyWeight float64) (bool, error) {
@@ -357,12 +381,27 @@ func (s *Service) SetBodyWeight(ctx context.Context, userID int64, dateISO strin
 		if err != nil {
 			return false, err
 		}
+		s.InvalidateStats(userID)
 		return true, nil
 	}
-	return s.repo.UpdateWeight(ctx, dateISO, bodyWeight, userID)
+	updated, err := s.repo.UpdateWeight(ctx, dateISO, bodyWeight, userID)
+	if err != nil {
+		return false, err
+	}
+	if updated {
+		s.InvalidateStats(userID)
+	}
+	return updated, nil
+}
+
+func (s *Service) InvalidateStats(userID int64) {
+	s.statsCache.Delete(userID)
 }
 
 func (s *Service) GetStats(ctx context.Context, userID int64) (map[string][5]any, error) {
+	if cached, ok := s.statsCache.Get(userID); ok {
+		return cached, nil
+	}
 	firstDate, err := s.repo.GetUserFirstDate(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -402,7 +441,9 @@ func (s *Service) GetStats(ctx context.Context, userID int64) (map[string][5]any
 	targetKcalsFinal := computeTargetKcalsFromHistory(dailySumKcalsWithVirtualAvg, weightsAvg, normDays)
 	targetKcalsAvgFinal := calculateCenteredAverage(targetKcalsFinal, normDays, true, 0)
 
-	return prepareStats(allDates, weights, weightsAvg, dailySumKcalsWithVirtual, targetKcalsAvgFinal, virtualDaysFlags), nil
+	stats := prepareStats(allDates, weights, weightsAvg, dailySumKcalsWithVirtual, targetKcalsAvgFinal, virtualDaysFlags)
+	s.statsCache.Set(userID, stats)
+	return stats, nil
 }
 
 type nutrientTotals struct {

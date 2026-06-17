@@ -66,6 +66,7 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 	router.Get("/health", HealthHandler())
 	router.Get("/readiness", ReadinessHandler(db.PingContext))
 	router.Get("/build-info", BuildInfoHandler(cfg))
+	router.Get("/api/debug/commit-info", CommitInfoHandler(cfg))
 
 	auth.RegisterRoutes(router, authHandler)
 	settings.RegisterRoutes(router, authService, settingsHandler)

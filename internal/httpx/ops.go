@@ -21,6 +21,11 @@ type BuildInfoResponse struct {
 	AppEnv    string `json:"appEnv"`
 }
 
+type CommitInfoResponse struct {
+	CommitHash     string `json:"commitHash"`
+	CommitDateTime string `json:"commitDateTime"`
+}
+
 type readinessChecker func(context.Context) error
 
 func HealthHandler() http.HandlerFunc {
@@ -51,6 +56,15 @@ func BuildInfoHandler(cfg config.Config) http.HandlerFunc {
 			BuildTime: cfg.BuildTime,
 			GoVersion: cfg.GoVersion,
 			AppEnv:    cfg.AppEnv,
+		})
+	}
+}
+
+func CommitInfoHandler(cfg config.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, CommitInfoResponse{
+			CommitHash:     cfg.BuildCommit,
+			CommitDateTime: cfg.BuildTime,
 		})
 	}
 }

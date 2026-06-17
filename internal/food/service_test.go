@@ -103,6 +103,63 @@ func TestWriteOperationsPersistData(t *testing.T) {
 	}
 }
 
+func TestGetCoefficientsRepairsInvalidValues(t *testing.T) {
+	db := openFoodTestDB(t)
+	if _, err := db.Exec(`INSERT INTO foodSettings(usersId, coefficients) VALUES (1, '{"1":0,"2":-3,"999":2}')`); err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+
+	service := NewService(NewRepository(db))
+	coefficients, err := service.GetCoefficients(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("GetCoefficients() error = %v", err)
+	}
+	if len(coefficients) != 2 {
+		t.Fatalf("len(coefficients) = %d, want 2", len(coefficients))
+	}
+	if coefficients[1] != 1 || coefficients[2] != 1 {
+		t.Fatalf("coefficients = %+v, want defaults repaired", coefficients)
+	}
+}
+
+func TestStatsCacheInvalidatesAfterWrites(t *testing.T) {
+	db := openFoodTestDB(t)
+	service := NewService(NewRepository(db))
+
+	before, err := service.GetStats(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("GetStats() error = %v", err)
+	}
+	beforeValue, ok := before["2026-06-17"]
+	if !ok {
+		t.Fatal("before stats missing 2026-06-17")
+	}
+	beforeKcals, ok := beforeValue[2].(float64)
+	if !ok {
+		t.Fatalf("before stats = %+v, want factual kcals", beforeValue)
+	}
+
+	if _, err := service.CreateDiaryEntry(context.Background(), 1, "2026-06-17", 1, 100, []HistoryEntry{{Action: "init", Value: 100}}); err != nil {
+		t.Fatalf("CreateDiaryEntry() error = %v", err)
+	}
+
+	after, err := service.GetStats(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("GetStats() error = %v", err)
+	}
+	afterValue, ok := after["2026-06-17"]
+	if !ok {
+		t.Fatal("after stats missing 2026-06-17")
+	}
+	afterKcals, ok := afterValue[2].(float64)
+	if !ok {
+		t.Fatalf("after stats = %+v, want factual kcals", afterValue)
+	}
+	if afterKcals <= beforeKcals {
+		t.Fatalf("afterKcals = %v, want > %v", afterKcals, beforeKcals)
+	}
+}
+
 func TestGetDiaryFullUpdateReturnsFoodAndNutrients(t *testing.T) {
 	db := openFoodTestDB(t)
 	service := NewService(NewRepository(db))
