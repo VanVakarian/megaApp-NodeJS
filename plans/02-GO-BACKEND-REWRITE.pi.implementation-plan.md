@@ -20,7 +20,7 @@
 - Старый backend остаётся рабочим до финального cutover.
 - Исходный JavaScript-код хранится рядом как reference implementation.
 - Реализация идёт по независимым или слабо связанным stepам.
-- Каждый step доводится до локальной работоспособности, покрывается обычными Go tests и отдельно проверяется вручную только через простые mouse-driven сценарии.
+- Каждый step доводится до локальной работоспособности, покрывается обычными Go tests и отдельно проверяется вручную через mouse-driven сценарии с дополнительной проверкой запросов в DevTools.
 - Промежуточные stepы не деплоятся в production по отдельности.
 - Финальный deploy делается один раз, когда весь backend на Go проходит интеграционную и ручную проверку.
 
@@ -41,6 +41,7 @@
 - у него есть измеримый результат
 - у него есть локальные automated tests
 - у него есть короткий список ручных UI-проверок только для того, что можно прокликать мышкой
+- у manual checklist есть явные ожидания по DevTools Network: какие запросы должны пройти и что не должно быть `401`, `404`, `500` или reconnect loops без причины
 - его можно завершить без частичного production deploy
 
 ---
@@ -230,12 +231,21 @@
 - sender exclusion on broadcast
 
 ### Manual Check
-- открыть приложение в двух вкладках
-- убедиться, что соединение поднимается без ошибок
-- проверить, что reconnection не ломает сессию
+- открыть `Settings` в двух вкладках под одним и тем же пользователем
+- открыть DevTools -> Network в обеих вкладках
+- убедиться, что WebSocket `GET /api/ws?...` открывается со статусом `101 Switching Protocols`; в локальном dev run при frontend на `:4200` или `:4201` он должен идти прямо на backend `:3000`
+- убедиться, что `GET /api/settings/` проходит без ошибок
+- обновить одну из вкладок и убедиться, что сессия не теряется
+- после обновления убедиться, что WebSocket поднимается заново и снова остаётся в `101`
+- оставить обе вкладки открытыми примерно на 30 секунд
+- убедиться, что нет серий `401`, `500`, failed WebSocket reconnect loops или самопроизвольного logout
 
 ### Result
-- Status: Pending
+- Status: Done
+- Test status: `go test ./...` in `megaapp-back` passed after WebSocket foundation integration. `npx tsc --project tsconfig.app.json --noEmit` in `megaapp-front` passed after frontend WebSocket fix.
+- Manual check status: User verified in DevTools Network that the frontend now keeps one stable WebSocket channel, `PING` and `PONG` traffic is visible, repeated short-lived reconnect spam is gone, session survives refresh, and the application remains usable across tabs.
+- Findings: Go WebSocket route, auth-gated connect, per-user socket registry, heartbeat, sync-status on connect, sender exclusion foundation, and the frontend single-socket connection model are working together.
+- Issues and resolutions: The first transport issue came from missing `Hijacker` support in the Go HTTP logging middleware. The second issue came from the frontend `WebSocketSubject` reconnect model, which was replaced with a single native `WebSocket` connection and explicit reconnect control.
 
 ---
 

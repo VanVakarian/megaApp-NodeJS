@@ -13,6 +13,7 @@ import (
 	"megaapp-back/internal/config"
 	sqliteplatform "megaapp-back/internal/platform/sqlite"
 	"megaapp-back/internal/settings"
+	"megaapp-back/internal/ws"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -23,6 +24,7 @@ type App struct {
 	Logger   *slog.Logger
 	Observer Observer
 	DB       *sqliteplatform.DB
+	WSHub    *ws.Hub
 	Handler  http.Handler
 	Server   *http.Server
 }
@@ -47,6 +49,8 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 	settingsRepo := settings.NewRepository(db.SQL())
 	settingsService := settings.NewService(settingsRepo)
 	settingsHandler := settings.NewHandler(settingsService)
+	wsHub := ws.NewHub(30*time.Second, ws.NewSyncState())
+	wsHandler := ws.NewHandler(authService, wsHub)
 
 	router := chi.NewRouter()
 	router.Use(chimiddleware.RequestID)
@@ -60,6 +64,7 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 
 	auth.RegisterRoutes(router, authHandler)
 	settings.RegisterRoutes(router, authService, settingsHandler)
+	ws.RegisterRoutes(router, wsHandler)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddress(),
@@ -72,6 +77,7 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 		Logger:   logger,
 		Observer: observer,
 		DB:       db,
+		WSHub:    wsHub,
 		Handler:  router,
 		Server:   server,
 	}, nil
@@ -96,6 +102,9 @@ func (a *App) Start() error {
 func (a *App) Shutdown(ctx context.Context) error {
 	var errs []error
 	if err := a.Server.Shutdown(ctx); err != nil {
+		errs = append(errs, err)
+	}
+	if err := a.WSHub.Close(); err != nil {
 		errs = append(errs, err)
 	}
 	if err := a.DB.Close(); err != nil {
