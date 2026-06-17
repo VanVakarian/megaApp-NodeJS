@@ -54,6 +54,7 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 	foodService := food.NewService(foodRepo)
 	foodHandler := food.NewHandler(foodService)
 	wsHub := ws.NewHub(30*time.Second, ws.NewSyncState())
+	foodWriteHandler := food.NewWriteHandler(foodService, wsHub)
 	wsHandler := ws.NewHandler(authService, wsHub)
 
 	router := chi.NewRouter()
@@ -69,6 +70,7 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 	auth.RegisterRoutes(router, authHandler)
 	settings.RegisterRoutes(router, authService, settingsHandler)
 	food.RegisterRoutes(router, authService, foodHandler)
+	food.RegisterWriteRoutes(router, authService, foodWriteHandler)
 	ws.RegisterRoutes(router, wsHandler)
 
 	server := &http.Server{

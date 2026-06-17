@@ -46,6 +46,63 @@ func TestGetCatalogueAndCoefficientsAndStats(t *testing.T) {
 	}
 }
 
+func TestWriteOperationsPersistData(t *testing.T) {
+	db := openFoodTestDB(t)
+	service := NewService(NewRepository(db))
+
+	created, err := service.CreateDiaryEntry(context.Background(), 1, "2026-06-18", 1, 120, []HistoryEntry{{Action: "init", Value: 120}})
+	if err != nil {
+		t.Fatalf("CreateDiaryEntry() error = %v", err)
+	}
+	if created.ID <= 0 {
+		t.Fatalf("created.ID = %d, want > 0", created.ID)
+	}
+
+	updated, err := service.EditDiaryEntry(context.Background(), 1, 10, 80, HistoryEntry{Action: "set", Value: 80})
+	if err != nil {
+		t.Fatalf("EditDiaryEntry() error = %v", err)
+	}
+	if updated == nil || updated.FoodWeight != 80 || len(updated.History) != 2 {
+		t.Fatalf("updated = %+v", updated)
+	}
+
+	ok, err := service.SetBodyWeight(context.Background(), 1, "2026-06-18", 81)
+	if err != nil {
+		t.Fatalf("SetBodyWeight() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("SetBodyWeight() = false, want true")
+	}
+
+	deletedCount, err := service.DeleteDiaryEntriesForDay(context.Background(), 1, "2026-06-18")
+	if err != nil {
+		t.Fatalf("DeleteDiaryEntriesForDay() error = %v", err)
+	}
+	if deletedCount != 1 {
+		t.Fatalf("deletedCount = %d, want 1", deletedCount)
+	}
+
+	restored, err := service.RestoreDiaryEntriesForDay(context.Background(), 1, "2026-06-18", []createDiaryEntryRequest{{
+		FoodCatalogueID: 1,
+		FoodWeight:      120,
+		History:         []HistoryEntry{{Action: "init", Value: 120}},
+	}})
+	if err != nil {
+		t.Fatalf("RestoreDiaryEntriesForDay() error = %v", err)
+	}
+	if len(restored) != 1 || restored[0].ID <= 0 {
+		t.Fatalf("restored = %+v", restored)
+	}
+
+	deleted, err := service.DeleteDiaryEntry(context.Background(), 1, 10)
+	if err != nil {
+		t.Fatalf("DeleteDiaryEntry() error = %v", err)
+	}
+	if !deleted {
+		t.Fatal("DeleteDiaryEntry() = false, want true")
+	}
+}
+
 func TestGetDiaryFullUpdateReturnsFoodAndNutrients(t *testing.T) {
 	db := openFoodTestDB(t)
 	service := NewService(NewRepository(db))

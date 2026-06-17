@@ -91,6 +91,9 @@
 - текущую продуктовую модель food и money
 - optimistic/local-first поведение фронта
 - image/static URL structure
+- user-visible default flows, default modes, and primary interaction paths unless exact parity is technically impossible
+
+Если сохранение пользовательского поведения технически возможно, его нужно сохранять полностью и без уведомления пользователя о backend migration. Любой временный workaround для manual verification обязан либо использовать уже существующий пользовательский control, либо оставаться strictly internal to the migration process. Менять user-facing default behavior ради удобства step verification нельзя.
 
 ---
 
@@ -246,6 +249,12 @@ Food нужно разделить на 5 подсистем:
 - restore day
 - full-update range
 - event emission for sync
+
+Важное migration rule для food step sequencing:
+- step нельзя считать реально проверяемым только потому, что HTTP write routes уже готовы
+- если основной UI path сначала зависит от поиска, модалки, realtime contract или другого transport prerequisite, этот prerequisite должен быть либо уже мигрирован, либо временно заменён fallback path without changing default user-facing behavior
+- fallback для manual verification должен использовать существующий UI control или быть полностью внутренним для миграции
+- иначе step формально реализован, но practically unreachable for manual verification
 
 ### Food catalogue
 Отдельный сервис для:

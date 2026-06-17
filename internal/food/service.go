@@ -281,6 +281,87 @@ func (s *Service) GetCoefficients(ctx context.Context, userID int64) (map[int64]
 	return result, nil
 }
 
+func (s *Service) CreateDiaryEntry(ctx context.Context, userID int64, dateISO string, foodCatalogueID int64, foodWeight int64, history []HistoryEntry) (DiaryEntry, error) {
+	historyJSON, err := toHistoryJSON(history)
+	if err != nil {
+		return DiaryEntry{}, err
+	}
+	id, err := s.repo.CreateDiaryEntry(ctx, userID, dateISO, foodCatalogueID, foodWeight, historyJSON)
+	if err != nil {
+		return DiaryEntry{}, err
+	}
+	return DiaryEntry{ID: id, DateISO: dateISO, FoodCatalogueID: foodCatalogueID, FoodWeight: foodWeight, History: history}, nil
+}
+
+func (s *Service) EditDiaryEntry(ctx context.Context, userID int64, diaryID int64, foodWeight int64, newHistoryEntry HistoryEntry) (*DiaryEntry, error) {
+	historyJSON, err := s.repo.GetDiaryEntryHistory(ctx, diaryID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if historyJSON == "" {
+		return nil, nil
+	}
+	history := parseHistory(historyJSON)
+	history = append(history, newHistoryEntry)
+	updatedHistoryJSON, err := toHistoryJSON(history)
+	if err != nil {
+		return nil, err
+	}
+	updated, err := s.repo.UpdateDiaryEntry(ctx, diaryID, userID, foodWeight, updatedHistoryJSON)
+	if err != nil {
+		return nil, err
+	}
+	if !updated {
+		return nil, nil
+	}
+	return &DiaryEntry{ID: diaryID, FoodWeight: foodWeight, History: history}, nil
+}
+
+func (s *Service) DeleteDiaryEntry(ctx context.Context, userID int64, diaryID int64) (bool, error) {
+	return s.repo.DeleteDiaryEntry(ctx, diaryID, userID)
+}
+
+func (s *Service) DeleteDiaryEntriesForDay(ctx context.Context, userID int64, dateISO string) (int64, error) {
+	rows, err := s.repo.GetDiaryRange(ctx, userID, dateISO, dateISO)
+	if err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return 0, fmt.Errorf("entries not found")
+	}
+	return s.repo.DeleteDiaryEntriesByDate(ctx, dateISO, userID)
+}
+
+func (s *Service) RestoreDiaryEntriesForDay(ctx context.Context, userID int64, dateISO string, entries []createDiaryEntryRequest) ([]DiaryEntry, error) {
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("entries not found")
+	}
+	normalized := make([]DiaryEntry, 0, len(entries))
+	for _, entry := range entries {
+		history := entry.History
+		if len(history) == 0 {
+			history = []HistoryEntry{{Action: "init", Value: entry.FoodWeight}}
+		}
+		normalized = append(normalized, DiaryEntry{DateISO: dateISO, FoodCatalogueID: entry.FoodCatalogueID, FoodWeight: entry.FoodWeight, History: history})
+	}
+	return s.repo.CreateDiaryEntriesBatch(ctx, userID, normalized)
+}
+
+func (s *Service) SetBodyWeight(ctx context.Context, userID int64, dateISO string, bodyWeight float64) (bool, error) {
+	existing, err := s.repo.GetWeightByDate(ctx, dateISO, userID)
+	if err != nil {
+		return false, err
+	}
+	if existing == nil {
+		_, err := s.repo.CreateWeight(ctx, dateISO, bodyWeight, userID)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	return s.repo.UpdateWeight(ctx, dateISO, bodyWeight, userID)
+}
+
 func (s *Service) GetStats(ctx context.Context, userID int64) (map[string][5]any, error) {
 	firstDate, err := s.repo.GetUserFirstDate(ctx, userID)
 	if err != nil {
@@ -347,6 +428,14 @@ func parseHistory(history string) []HistoryEntry {
 		return []HistoryEntry{}
 	}
 	return result
+}
+
+func toHistoryJSON(history []HistoryEntry) (string, error) {
+	payload, err := json.Marshal(history)
+	if err != nil {
+		return "", fmt.Errorf("marshal history: %w", err)
+	}
+	return string(payload), nil
 }
 
 func getDateRange(dateISO string, offsetDays int) []string {

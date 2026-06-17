@@ -168,6 +168,14 @@ func (h *Hub) ConnectionCount(userID int64) int {
 	return len(h.clientsByUserID[userID])
 }
 
+func (h *Hub) SetSyncState(userID int64, value int64) {
+	h.syncState.Set(userID, value)
+}
+
+func (h *Hub) SyncState(userID int64) int64 {
+	return h.syncState.Get(userID)
+}
+
 func (h *Hub) runHeartbeat() {
 	ticker := time.NewTicker(h.heartbeatInterval)
 	defer ticker.Stop()

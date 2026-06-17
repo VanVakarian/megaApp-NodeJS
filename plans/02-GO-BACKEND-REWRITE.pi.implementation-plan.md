@@ -21,6 +21,8 @@
 - Исходный JavaScript-код хранится рядом как reference implementation.
 - Реализация идёт по независимым или слабо связанным stepам.
 - Каждый step доводится до локальной работоспособности, покрывается обычными Go tests и отдельно проверяется вручную через mouse-driven сценарии с дополнительной проверкой запросов в DevTools.
+- Если пользовательское поведение можно сохранить без изменений, его нужно сохранять полностью. Менять default user-facing flow, default mode, default route, default search behavior или другой заметный UX ради удобства миграции нельзя.
+- Временные workaround paths допустимы только для внутренней manual verification и только если они используют уже существующий пользовательский control или остаются полностью внутренними для миграции.
 - Промежуточные stepы не деплоятся в production по отдельности.
 - Финальный deploy делается один раз, когда весь backend на Go проходит интеграционную и ручную проверку.
 
@@ -42,6 +44,7 @@
 - у него есть локальные automated tests
 - у него есть короткий список ручных UI-проверок только для того, что можно прокликать мышкой
 - у manual checklist есть явные ожидания по DevTools Network: какие запросы должны пройти и что не должно быть `401`, `404`, `500` или reconnect loops без причины
+- его manual verification path не требует изменения default user-facing behavior
 - его можно завершить без частичного production deploy
 
 ---
@@ -313,15 +316,26 @@
 - websocket event emission integration tests
 
 ### Manual Check
-- в UI: добавить продукт в дневник
-- изменить вес порции
-- удалить запись
-- удалить день целиком и восстановить
-- обновить вес тела
-- открыть вторую вкладку и проверить sync
+- открыть `Food` под залогиненным пользователем
+- открыть add-food modal
+- переключить search mode кнопкой swap в legacy search
+- ввести обычное название продукта и убедиться, что список результатов появляется в UI
+- открыть DevTools -> Network и DevTools -> Console
+- добавить продукт в дневник и убедиться, что проходит `POST /api/food/diary/`
+- изменить вес порции и убедиться, что проходит `PUT /api/food/diary`
+- удалить запись и убедиться, что проходит `DELETE /api/food/diary/:diaryId`
+- удалить день целиком и убедиться, что проходит `DELETE /api/food/diary/day/:dateISO`
+- восстановить день и убедиться, что проходит `POST /api/food/diary/day/:dateISO/restore`
+- обновить вес тела и убедиться, что проходит `POST /api/food/body-weight`
+- открыть вторую вкладку тем же пользователем и убедиться, что diary и body weight sync приходят через WebSocket без ручного refresh
+- убедиться, что нет `401`, `404`, `500`, нет frontend shape errors, нет duplicate echo effects в той же вкладке после optimistic updates и нет пустого search state при валидном текстовом вводе
 
 ### Result
-- Status: Pending
+- Status: Done
+- Test status: `go test ./...` in `megaapp-back` passed after food write integration. `npx tsc --project tsconfig.app.json --noEmit` in `megaapp-front` passed.
+- Manual check status: User verified Step 07 through the current reachable UI flow, including diary create/edit/delete, delete day, restore day, body weight save, and cross-tab WebSocket sync for diary and body weight.
+- Findings: The Go write routes and diary/body-weight WebSocket sync are implemented. Manual verification exposed two compatibility issues during the step: the default add-to-diary path depends on semantic search that is migrated later, and the frontend sends `bodyWeight` as a JSON string. The Go runtime now preserves the existing body-weight payload contract and Step 07 verification uses the existing legacy-search UI toggle without changing default user-facing behavior.
+- Issues and resolutions: Go runtime in the current completed steps does not yet implement the `SEARCH_QUERY` -> `SEARCH_RESULTS` WebSocket contract, so Step 07 manual verification uses the existing search-mode toggle as a temporary path. The initial `400` on `POST /api/food/body-weight` came from Go expecting only numeric JSON input, while the old JS backend accepted string payloads through `parseFloat`; the Go handler was corrected to accept both numeric and string `bodyWeight` values.
 
 ---
 
