@@ -43,6 +43,7 @@ func RegisterCatalogueRoutes(router chi.Router, authService *auth.Service, handl
 	router.With(auth.Middleware(authService)).Get("/api/food/search", handler.SearchCatalogue)
 	router.With(auth.Middleware(authService)).Post("/api/food/generate-product-preview", handler.GenerateProductPreview)
 	router.With(auth.Middleware(authService)).Post("/api/food/save-product", handler.SaveProduct)
+	router.With(auth.Middleware(authService)).Post("/api/food/analyze-image", handler.AnalyzeImage)
 	router.With(auth.Middleware(authService)).Post("/api/food/analyze-voice", handler.AnalyzeVoice)
 	router.With(auth.Middleware(authService)).Delete("/api/food/catalogue/{catalogueId}", handler.DeleteCatalogueEntry)
 }

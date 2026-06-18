@@ -17,9 +17,12 @@ func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("DATABASE_PATH", "")
 	t.Setenv("MIGRATIONS_DIR", "")
 	t.Setenv("PUBLIC_DIR", "")
+	t.Setenv("BACKUPS_DIR", "")
 	t.Setenv("JWT_SECRET", "")
 	t.Setenv("OPENROUTER_API_KEY", "")
 	t.Setenv("OPENROUTER_MODEL", "")
+	t.Setenv("OPENROUTER_VISION_MODEL", "")
+	t.Setenv("OPENROUTER_IMAGE_MODEL", "")
 	t.Setenv("OPENROUTER_TIMEOUT_SECONDS", "")
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("OPENAI_EMBEDDING_MODEL", "")
@@ -30,6 +33,7 @@ func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("HTTP_IDLE_TIMEOUT_SECONDS", "")
 	t.Setenv("SHUTDOWN_TIMEOUT_SECONDS", "")
 	t.Setenv("MAX_REQUEST_BODY_BYTES", "")
+	t.Setenv("MAX_MULTIPART_BODY_BYTES", "")
 	t.Setenv("WS_READ_LIMIT_BYTES", "")
 	t.Setenv("WS_WRITE_TIMEOUT_SECONDS", "")
 
@@ -68,6 +72,9 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.PublicDir != "./public" {
 		t.Fatalf("PublicDir = %q, want ./public", cfg.PublicDir)
 	}
+	if cfg.BackupsDir != "./backups" {
+		t.Fatalf("BackupsDir = %q, want ./backups", cfg.BackupsDir)
+	}
 	if cfg.JWTSecret != "dev-insecure-jwt-secret" {
 		t.Fatalf("JWTSecret = %q, want dev-insecure-jwt-secret", cfg.JWTSecret)
 	}
@@ -76,6 +83,12 @@ func TestLoadUsesDefaults(t *testing.T) {
 	}
 	if cfg.OpenRouterModel != "google/gemini-2.5-pro" {
 		t.Fatalf("OpenRouterModel = %q, want google/gemini-2.5-pro", cfg.OpenRouterModel)
+	}
+	if cfg.OpenRouterVisionModel != "google/gemini-2.5-flash" {
+		t.Fatalf("OpenRouterVisionModel = %q, want google/gemini-2.5-flash", cfg.OpenRouterVisionModel)
+	}
+	if cfg.OpenRouterImageModel != "google/gemini-2.5-flash-image" {
+		t.Fatalf("OpenRouterImageModel = %q, want google/gemini-2.5-flash-image", cfg.OpenRouterImageModel)
 	}
 	if cfg.OpenRouterTimeout != 60*time.Second {
 		t.Fatalf("OpenRouterTimeout = %v, want 60s", cfg.OpenRouterTimeout)
@@ -106,6 +119,9 @@ func TestLoadUsesDefaults(t *testing.T) {
 	}
 	if cfg.MaxRequestBodyBytes != 1<<20 {
 		t.Fatalf("MaxRequestBodyBytes = %d, want %d", cfg.MaxRequestBodyBytes, 1<<20)
+	}
+	if cfg.MaxMultipartBodyBytes != 8<<20 {
+		t.Fatalf("MaxMultipartBodyBytes = %d, want %d", cfg.MaxMultipartBodyBytes, 8<<20)
 	}
 	if cfg.WSReadLimitBytes != 64<<10 {
 		t.Fatalf("WSReadLimitBytes = %d, want %d", cfg.WSReadLimitBytes, 64<<10)
@@ -145,27 +161,29 @@ func TestValidateRejectsInsecureJWTSecretOutsideDevLikeEnv(t *testing.T) {
 
 func validTestConfig() Config {
 	return Config{
-		AppEnv:              "test",
-		AppHost:             "127.0.0.1",
-		AppPort:             3000,
-		LogLevel:            "info",
-		DataDir:             "./data",
-		DatabaseName:        "megaapp",
-		DatabaseEnv:         "test",
-		DatabaseVersion:     "005",
-		DatabasePath:        "./data/megaapp-test-005.db",
-		MigrationsDir:       "./migrations",
-		PublicDir:           "./public",
-		JWTSecret:           "secret",
-		OpenRouterTimeout:   time.Second,
-		OpenAIEmbeddingDims: 768,
-		OpenAITimeout:       time.Second,
-		HTTPReadTimeout:     time.Second,
-		HTTPWriteTimeout:    time.Second,
-		HTTPIdleTimeout:     time.Second,
-		ShutdownTimeout:     time.Second,
-		MaxRequestBodyBytes: 1024,
-		WSReadLimitBytes:    1024,
-		WSWriteTimeout:      time.Second,
+		AppEnv:                "test",
+		AppHost:               "127.0.0.1",
+		AppPort:               3000,
+		LogLevel:              "info",
+		DataDir:               "./data",
+		DatabaseName:          "megaapp",
+		DatabaseEnv:           "test",
+		DatabaseVersion:       "005",
+		DatabasePath:          "./data/megaapp-test-005.db",
+		MigrationsDir:         "./migrations",
+		PublicDir:             "./public",
+		BackupsDir:            "./backups",
+		JWTSecret:             "secret",
+		OpenRouterTimeout:     time.Second,
+		OpenAIEmbeddingDims:   768,
+		OpenAITimeout:         time.Second,
+		HTTPReadTimeout:       time.Second,
+		HTTPWriteTimeout:      time.Second,
+		HTTPIdleTimeout:       time.Second,
+		ShutdownTimeout:       time.Second,
+		MaxRequestBodyBytes:   1024,
+		MaxMultipartBodyBytes: 8 * 1024,
+		WSReadLimitBytes:      1024,
+		WSWriteTimeout:        time.Second,
 	}
 }

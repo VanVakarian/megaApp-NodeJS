@@ -17,12 +17,15 @@ import (
 const kcalsIn1KG = 7700
 
 type Service struct {
-	repo               *Repository
-	statsCache         *StatsCache
-	searchCache        *SearchCache
-	productGenerator   ProductGenerator
-	embeddingGenerator EmbeddingGenerator
-	clock              clockplatform.Clock
+	repo                   *Repository
+	statsCache             *StatsCache
+	searchCache            *SearchCache
+	productGenerator       ProductGenerator
+	embeddingGenerator     EmbeddingGenerator
+	imageAnalyzer          ImageAnalyzer
+	imageGenerationRequest ImageGenerationRequester
+	imageVersions          ImageVersionProvider
+	clock                  clockplatform.Clock
 }
 
 type DiaryEntry struct {
@@ -87,6 +90,18 @@ func (s *Service) SetProductGenerator(generator ProductGenerator) {
 
 func (s *Service) SetEmbeddingGenerator(generator EmbeddingGenerator) {
 	s.embeddingGenerator = generator
+}
+
+func (s *Service) SetImageAnalyzer(analyzer ImageAnalyzer) {
+	s.imageAnalyzer = analyzer
+}
+
+func (s *Service) SetImageGenerationRequester(requester ImageGenerationRequester) {
+	s.imageGenerationRequest = requester
+}
+
+func (s *Service) SetImageVersionProvider(provider ImageVersionProvider) {
+	s.imageVersions = provider
 }
 
 func (s *Service) SetClock(clk clockplatform.Clock) {
@@ -195,15 +210,16 @@ func (s *Service) GetCatalogue(ctx context.Context) (map[int64]CatalogueEntry, e
 	result := make(map[int64]CatalogueEntry, len(rows))
 	for _, row := range rows {
 		result[row.ID] = CatalogueEntry{
-			ID:          row.ID,
-			Name:        row.Name,
-			LegacyName:  nullableStringPtr(row.LegacyName),
-			Kcals:       row.Kcals,
-			Protein:     nullableFloat64Value(row.Protein),
-			Fat:         nullableFloat64Value(row.Fat),
-			Carbs:       nullableFloat64Value(row.Carbs),
-			Fiber:       nullableFloat64Value(row.Fiber),
-			Description: nullableStringValue(row.Description),
+			ID:           row.ID,
+			Name:         row.Name,
+			LegacyName:   nullableStringPtr(row.LegacyName),
+			Kcals:        row.Kcals,
+			Protein:      nullableFloat64Value(row.Protein),
+			Fat:          nullableFloat64Value(row.Fat),
+			Carbs:        nullableFloat64Value(row.Carbs),
+			Fiber:        nullableFloat64Value(row.Fiber),
+			Description:  nullableStringValue(row.Description),
+			ImageVersion: s.imageVersion(row.ID),
 		}
 	}
 
@@ -226,17 +242,25 @@ func (s *Service) GetCatalogueEntry(ctx context.Context, catalogueID int64) (*Ca
 	canDelete := count == 0
 
 	return &CatalogueEntry{
-		ID:          row.ID,
-		Name:        row.Name,
-		LegacyName:  nullableStringPtr(row.LegacyName),
-		Kcals:       row.Kcals,
-		Protein:     nullableFloat64Value(row.Protein),
-		Fat:         nullableFloat64Value(row.Fat),
-		Carbs:       nullableFloat64Value(row.Carbs),
-		Fiber:       nullableFloat64Value(row.Fiber),
-		Description: nullableStringValue(row.Description),
-		CanDelete:   &canDelete,
+		ID:           row.ID,
+		Name:         row.Name,
+		LegacyName:   nullableStringPtr(row.LegacyName),
+		Kcals:        row.Kcals,
+		Protein:      nullableFloat64Value(row.Protein),
+		Fat:          nullableFloat64Value(row.Fat),
+		Carbs:        nullableFloat64Value(row.Carbs),
+		Fiber:        nullableFloat64Value(row.Fiber),
+		Description:  nullableStringValue(row.Description),
+		ImageVersion: s.imageVersion(row.ID),
+		CanDelete:    &canDelete,
 	}, nil
+}
+
+func (s *Service) imageVersion(catalogueID int64) *int64 {
+	if s.imageVersions == nil {
+		return nil
+	}
+	return s.imageVersions.ImageVersion(catalogueID)
 }
 
 func (s *Service) GetCoefficients(ctx context.Context, userID int64) (map[int64]float64, error) {

@@ -13,6 +13,7 @@ type RealtimePublisher interface {
 	PublishDiaryDayDeleted(userID int64, dateISO string, excludeClientID string)
 	PublishBodyWeightUpdated(userID int64, dateISO string, bodyWeight float64, excludeClientID string)
 	PublishCatalogueEntrySaved(userID int64, entry CatalogueEntry, excludeClientID string)
+	PublishCatalogueImageGenerated(catalogueID int64, imageVersion int64, excludeClientID string)
 }
 
 type WSRealtimePublisher struct {
@@ -50,4 +51,8 @@ func (p *WSRealtimePublisher) PublishBodyWeightUpdated(userID int64, dateISO str
 
 func (p *WSRealtimePublisher) PublishCatalogueEntrySaved(userID int64, entry CatalogueEntry, excludeClientID string) {
 	p.hub.BroadcastToAll(map[string]any{"type": "CATALOGUE_ENTRY_SAVED", "payload": entry}, excludeClientID)
+}
+
+func (p *WSRealtimePublisher) PublishCatalogueImageGenerated(catalogueID int64, imageVersion int64, excludeClientID string) {
+	p.hub.BroadcastToAll(map[string]any{"type": "CATALOGUE_IMAGE_GENERATED", "payload": map[string]any{"catalogueId": catalogueID, "imageVersion": imageVersion}}, excludeClientID)
 }

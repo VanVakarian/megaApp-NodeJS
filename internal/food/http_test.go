@@ -2,9 +2,14 @@ package food
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -106,6 +111,7 @@ func TestFoodSearchAndCatalogueMutationEndpoints(t *testing.T) {
 	authService := auth.NewService(authRepo, tokenManager)
 	service := NewService(NewRepository(db))
 	service.SetProductGenerator(fakeProductGenerator{})
+	service.SetImageAnalyzer(fakeImageAnalyzer{name: "Apple"})
 	readHandler := NewHandler(service)
 	hub := wspkg.NewHub(time.Second, wspkg.NewSyncState())
 	defer func() { _ = hub.Close() }()
@@ -149,6 +155,7 @@ func TestFoodSearchAndCatalogueMutationEndpoints(t *testing.T) {
 	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/search?query=apple-semantic", tokens.AccessToken, "tab-a", nil, http.StatusOK)
 	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/generate-product-preview", tokens.AccessToken, "tab-a", map[string]any{"description": "apple-semantic"}, http.StatusOK)
 	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/analyze-voice", tokens.AccessToken, "tab-a", map[string]any{"transcript": "apple-semantic"}, http.StatusOK)
+	assertMultipartRequestStatus(t, server.URL+"/api/food/analyze-image", tokens.AccessToken, "tab-a", []byte("fake-image-bytes"), http.StatusOK)
 	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/save-product", tokens.AccessToken, "tab-a", map[string]any{
 		"name":        "Orange",
 		"kcals":       47,
@@ -167,6 +174,40 @@ func TestFoodSearchAndCatalogueMutationEndpoints(t *testing.T) {
 		t.Fatalf("type = %v, want CATALOGUE_ENTRY_SAVED", savedMessage["type"])
 	}
 	assertJSONRequestStatus(t, http.MethodDelete, server.URL+"/api/food/catalogue/3", tokens.AccessToken, "tab-a", nil, http.StatusOK)
+}
+
+func TestFoodImageStaticRoutes(t *testing.T) {
+	publicDir := t.TempDir()
+	store, err := NewImageStore(publicDir)
+	if err != nil {
+		t.Fatalf("NewImageStore() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(publicDir, "images", "food", "1-thumb-v3.webp"), []byte("thumb"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	router := chi.NewRouter()
+	RegisterImageRoutes(router, NewImageHandler(store))
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	response, err := http.Get(server.URL + "/api/images/food/1-thumb-v3.webp")
+	if err != nil {
+		t.Fatalf("http.Get() error = %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", response.StatusCode)
+	}
+
+	response, err = http.Get(server.URL + "/api/images/food/../secret.txt")
+	if err != nil {
+		t.Fatalf("http.Get() error = %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", response.StatusCode)
+	}
 }
 
 func TestFoodReadEndpoints(t *testing.T) {
@@ -254,6 +295,50 @@ func assertJSONRequestStatus(t *testing.T, method string, url string, accessToke
 	if response.StatusCode != wantStatus {
 		t.Fatalf("status = %d, want %d", response.StatusCode, wantStatus)
 	}
+}
+
+func assertMultipartRequestStatus(t *testing.T, url string, accessToken string, clientID string, fileData []byte, wantStatus int) {
+	t.Helper()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	headers := make(textproto.MIMEHeader)
+	headers.Set("Content-Disposition", `form-data; name="image"; filename="photo.png"`)
+	headers.Set("Content-Type", "image/png")
+	part, err := writer.CreatePart(headers)
+	if err != nil {
+		t.Fatalf("CreatePart() error = %v", err)
+	}
+	if _, err := part.Write(fileData); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	request, err := http.NewRequest(http.MethodPost, url, &body)
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+accessToken)
+	request.Header.Set("X-Client-ID", clientID)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != wantStatus {
+		t.Fatalf("status = %d, want %d", response.StatusCode, wantStatus)
+	}
+}
+
+type fakeImageAnalyzer struct {
+	name string
+}
+
+func (f fakeImageAnalyzer) AnalyzeFoodImage(_ context.Context, _ []byte, _ string) (string, error) {
+	return f.name, nil
 }
 
 func dialFoodWS(t *testing.T, httpURL string) *websocket.Conn {

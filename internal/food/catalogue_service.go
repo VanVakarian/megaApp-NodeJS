@@ -108,6 +108,9 @@ func (s *Service) SaveProduct(ctx context.Context, catalogueID *int64, input Pro
 		if err != nil {
 			return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to load created product", err)
 		}
+		if entry != nil && s.imageGenerationRequest != nil {
+			s.imageGenerationRequest.RequestProductImageGeneration(entry.ID, entry.Name, entry.Description)
+		}
 		return entry, nil
 	}
 

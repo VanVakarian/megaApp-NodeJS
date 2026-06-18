@@ -519,7 +519,11 @@
 - убедиться, что явно плохой или слишком большой image payload отклоняется контролируемо и не приводит к падению процесса
 
 ### Result
-- Status: Pending
+- Status: In Progress
+- Test status: `go test ./...` in `megaapp-back` passed after the first Step 11 implementation pass.
+- Manual check status: User reran the full Step 11 browser and direct-endpoint smoke checklist and confirmed that the image/static-serving paths, image rebuild behavior, and the intended frontend-visible food flows work correctly after the current changes.
+- Findings: Added authenticated `POST /api/food/analyze-image`, controlled `/api/images/food/{filename}` serving, an in-process image pipeline with queued generation and rebuild support, lab routes for product generation, embeddings, image generation, and variant rebuild, plus debug routes for ping, catalogue listing, rate-limit inspection, and catalogue export/import. Catalogue read models now surface `imageVersion` from filesystem-backed image state, multipart requests use a dedicated larger body limit than JSON, and the food module now wires image/media capabilities through the Step 10 service-boundary seams instead of raw handler glue.
+- Issues and resolutions: The squircle and corner image variants required a second pass to match the original JS visual geometry. Manual verification is now complete for the current Step 11 implementation state.
 
 ---
 

@@ -33,6 +33,10 @@ type foodModule struct {
 	readHandler      *food.Handler
 	writeHandler     *food.WriteHandler
 	catalogueHandler *food.CatalogueHandler
+	imageHandler     *food.ImageHandler
+	labHandler       *food.LabHandler
+	debugHandler     *food.DebugHandler
+	backgrounds      []interface{ Close() error }
 }
 
 func buildAuthModule(db *sql.DB, cfg config.Config) authModule {
@@ -59,6 +63,7 @@ func buildFoodModule(db *sql.DB, cfg config.Config, hub *ws.Hub, clk clockplatfo
 	repo := food.NewRepository(db)
 	service := food.NewService(repo)
 	service.SetClock(clk)
+	var mediaClient *food.OpenRouterMediaClient
 	if strings.TrimSpace(cfg.OpenRouterAPIKey) != "" {
 		productGenerator, err := food.NewOpenRouterProductGenerator(food.OpenRouterProductGeneratorConfig{
 			APIKey:  cfg.OpenRouterAPIKey,
@@ -69,6 +74,16 @@ func buildFoodModule(db *sql.DB, cfg config.Config, hub *ws.Hub, clk clockplatfo
 			return foodModule{}, err
 		}
 		service.SetProductGenerator(productGenerator)
+		mediaClient, err = food.NewOpenRouterMediaClient(food.OpenRouterMediaClientConfig{
+			APIKey:      cfg.OpenRouterAPIKey,
+			VisionModel: cfg.OpenRouterVisionModel,
+			ImageModel:  cfg.OpenRouterImageModel,
+			Timeout:     cfg.OpenRouterTimeout,
+		})
+		if err != nil {
+			return foodModule{}, err
+		}
+		service.SetImageAnalyzer(mediaClient)
 	}
 	if strings.TrimSpace(cfg.OpenAIAPIKey) != "" {
 		embeddingGenerator, err := food.NewOpenAIEmbeddingGenerator(food.OpenAIEmbeddingGeneratorConfig{
@@ -82,12 +97,23 @@ func buildFoodModule(db *sql.DB, cfg config.Config, hub *ws.Hub, clk clockplatfo
 		}
 		service.SetEmbeddingGenerator(embeddingGenerator)
 	}
+	imageStore, err := food.NewImageStore(cfg.PublicDir)
+	if err != nil {
+		return foodModule{}, err
+	}
+	service.SetImageVersionProvider(imageStore)
 	realtime := food.NewWSRealtimePublisher(hub, clk)
+	imagePipeline := food.NewImagePipeline(imageStore, mediaClient, realtime)
+	service.SetImageGenerationRequester(imagePipeline)
 	hub.RegisterHandler("SEARCH_QUERY", food.NewSearchWSHandler(service, clk))
 	return foodModule{
 		service:          service,
 		readHandler:      food.NewHandler(service),
 		writeHandler:     food.NewWriteHandler(service, realtime),
 		catalogueHandler: food.NewCatalogueHandler(service, realtime),
+		imageHandler:     food.NewImageHandler(imageStore),
+		labHandler:       food.NewLabHandler(food.NewLabService(repo, service, imagePipeline)),
+		debugHandler:     food.NewDebugHandler(food.NewDebugService(repo, cfg.BackupsDir, mediaClient)),
+		backgrounds:      []interface{ Close() error }{imagePipeline, imageStore},
 	}, nil
 }

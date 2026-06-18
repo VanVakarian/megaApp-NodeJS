@@ -22,13 +22,14 @@ import (
 )
 
 type App struct {
-	Config   config.Config
-	Logger   *slog.Logger
-	Observer Observer
-	DB       *sqliteplatform.DB
-	WSHub    interface{ Close() error }
-	Handler  http.Handler
-	Server   *http.Server
+	Config      config.Config
+	Logger      *slog.Logger
+	Observer    Observer
+	DB          *sqliteplatform.DB
+	WSHub       interface{ Close() error }
+	Backgrounds []interface{ Close() error }
+	Handler     http.Handler
+	Server      *http.Server
 }
 
 func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, error) {
@@ -55,7 +56,7 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 		return nil, err
 	}
 
-	router := chiRouter(logger, observer, cfg.MaxRequestBodyBytes)
+	router := chiRouter(logger, observer, cfg.MaxRequestBodyBytes, cfg.MaxMultipartBodyBytes)
 	router.Get("/health", HealthHandler())
 	router.Get("/readiness", ReadinessHandler(db.PingContext))
 	router.Get("/build-info", BuildInfoHandler(cfg))
@@ -66,6 +67,9 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 	food.RegisterRoutes(router, authModule.service, foodModule.readHandler)
 	food.RegisterWriteRoutes(router, authModule.service, foodModule.writeHandler)
 	food.RegisterCatalogueRoutes(router, authModule.service, foodModule.catalogueHandler)
+	food.RegisterImageRoutes(router, foodModule.imageHandler)
+	food.RegisterLabRoutes(router, foodModule.labHandler)
+	food.RegisterDebugRoutes(router, foodModule.debugHandler)
 	ws.RegisterRoutes(router, wsModule.handler)
 
 	server := &http.Server{
@@ -78,22 +82,23 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 	}
 
 	return &App{
-		Config:   cfg,
-		Logger:   logger,
-		Observer: observer,
-		DB:       db,
-		WSHub:    wsModule.hub,
-		Handler:  router,
-		Server:   server,
+		Config:      cfg,
+		Logger:      logger,
+		Observer:    observer,
+		DB:          db,
+		WSHub:       wsModule.hub,
+		Backgrounds: foodModule.backgrounds,
+		Handler:     router,
+		Server:      server,
 	}, nil
 }
 
-func chiRouter(logger *slog.Logger, observer Observer, maxRequestBodyBytes int64) chi.Router {
+func chiRouter(logger *slog.Logger, observer Observer, maxRequestBodyBytes int64, maxMultipartBodyBytes int64) chi.Router {
 	router := chi.NewRouter()
 	router.Use(chimiddleware.RequestID)
 	router.Use(chimiddleware.RealIP)
 	router.Use(chimiddleware.Recoverer)
-	router.Use(RequestBodyLimitMiddleware(maxRequestBodyBytes))
+	router.Use(RequestBodyLimitMiddleware(maxRequestBodyBytes, maxMultipartBodyBytes))
 	router.Use(LoggingMiddleware(logger, observer))
 	return router
 }
@@ -125,6 +130,11 @@ func (a *App) Shutdown(ctx context.Context) error {
 	var errs []error
 	if err := a.Server.Shutdown(ctx); err != nil {
 		errs = append(errs, err)
+	}
+	for _, background := range a.Backgrounds {
+		if err := background.Close(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	if err := a.WSHub.Close(); err != nil {
 		errs = append(errs, err)

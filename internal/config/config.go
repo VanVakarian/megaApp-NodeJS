@@ -11,36 +11,40 @@ import (
 )
 
 type Config struct {
-	AppEnv               string
-	AppHost              string
-	AppPort              int
-	LogLevel             string
-	DataDir              string
-	DatabaseName         string
-	DatabaseEnv          string
-	DatabaseVersion      string
-	DatabasePath         string
-	MigrationsDir        string
-	PublicDir            string
-	JWTSecret            string
-	OpenRouterAPIKey     string
-	OpenRouterModel      string
-	OpenRouterTimeout    time.Duration
-	OpenAIAPIKey         string
-	OpenAIEmbeddingModel string
-	OpenAIEmbeddingDims  int
-	OpenAITimeout        time.Duration
-	HTTPReadTimeout      time.Duration
-	HTTPWriteTimeout     time.Duration
-	HTTPIdleTimeout      time.Duration
-	ShutdownTimeout      time.Duration
-	MaxRequestBodyBytes  int64
-	WSReadLimitBytes     int64
-	WSWriteTimeout       time.Duration
-	BuildVersion         string
-	BuildCommit          string
-	BuildTime            string
-	GoVersion            string
+	AppEnv                string
+	AppHost               string
+	AppPort               int
+	LogLevel              string
+	DataDir               string
+	DatabaseName          string
+	DatabaseEnv           string
+	DatabaseVersion       string
+	DatabasePath          string
+	MigrationsDir         string
+	PublicDir             string
+	BackupsDir            string
+	JWTSecret             string
+	OpenRouterAPIKey      string
+	OpenRouterModel       string
+	OpenRouterVisionModel string
+	OpenRouterImageModel  string
+	OpenRouterTimeout     time.Duration
+	OpenAIAPIKey          string
+	OpenAIEmbeddingModel  string
+	OpenAIEmbeddingDims   int
+	OpenAITimeout         time.Duration
+	HTTPReadTimeout       time.Duration
+	HTTPWriteTimeout      time.Duration
+	HTTPIdleTimeout       time.Duration
+	ShutdownTimeout       time.Duration
+	MaxRequestBodyBytes   int64
+	MaxMultipartBodyBytes int64
+	WSReadLimitBytes      int64
+	WSWriteTimeout        time.Duration
+	BuildVersion          string
+	BuildCommit           string
+	BuildTime             string
+	GoVersion             string
 }
 
 func Load() (Config, error) {
@@ -56,25 +60,28 @@ func Load() (Config, error) {
 	databasePath := getString("DATABASE_PATH", filepath.Join(dataDir, buildDatabaseFileName(databaseName, databaseEnv, databaseVersion)))
 
 	cfg := Config{
-		AppEnv:               appEnv,
-		AppHost:              getString("APP_HOST", "127.0.0.1"),
-		LogLevel:             strings.ToLower(getString("LOG_LEVEL", "info")),
-		DataDir:              dataDir,
-		DatabaseName:         databaseName,
-		DatabaseEnv:          databaseEnv,
-		DatabaseVersion:      databaseVersion,
-		DatabasePath:         databasePath,
-		MigrationsDir:        getString("MIGRATIONS_DIR", "./migrations"),
-		PublicDir:            getString("PUBLIC_DIR", "./public"),
-		JWTSecret:            getString("JWT_SECRET", "dev-insecure-jwt-secret"),
-		OpenRouterAPIKey:     getString("OPENROUTER_API_KEY", ""),
-		OpenRouterModel:      getString("OPENROUTER_MODEL", "google/gemini-2.5-pro"),
-		OpenAIAPIKey:         getString("OPENAI_API_KEY", ""),
-		OpenAIEmbeddingModel: getString("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
-		BuildVersion:         getString("APP_BUILD_VERSION", "dev"),
-		BuildCommit:          getString("APP_BUILD_COMMIT", "local"),
-		BuildTime:            getString("APP_BUILD_TIME", "unknown"),
-		GoVersion:            runtime.Version(),
+		AppEnv:                appEnv,
+		AppHost:               getString("APP_HOST", "127.0.0.1"),
+		LogLevel:              strings.ToLower(getString("LOG_LEVEL", "info")),
+		DataDir:               dataDir,
+		DatabaseName:          databaseName,
+		DatabaseEnv:           databaseEnv,
+		DatabaseVersion:       databaseVersion,
+		DatabasePath:          databasePath,
+		MigrationsDir:         getString("MIGRATIONS_DIR", "./migrations"),
+		PublicDir:             getString("PUBLIC_DIR", "./public"),
+		BackupsDir:            getString("BACKUPS_DIR", "./backups"),
+		JWTSecret:             getString("JWT_SECRET", "dev-insecure-jwt-secret"),
+		OpenRouterAPIKey:      getString("OPENROUTER_API_KEY", ""),
+		OpenRouterModel:       getString("OPENROUTER_MODEL", "google/gemini-2.5-pro"),
+		OpenRouterVisionModel: getString("OPENROUTER_VISION_MODEL", "google/gemini-2.5-flash"),
+		OpenRouterImageModel:  getString("OPENROUTER_IMAGE_MODEL", "google/gemini-2.5-flash-image"),
+		OpenAIAPIKey:          getString("OPENAI_API_KEY", ""),
+		OpenAIEmbeddingModel:  getString("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
+		BuildVersion:          getString("APP_BUILD_VERSION", "dev"),
+		BuildCommit:           getString("APP_BUILD_COMMIT", "local"),
+		BuildTime:             getString("APP_BUILD_TIME", "unknown"),
+		GoVersion:             runtime.Version(),
 	}
 
 	port, err := getInt("APP_PORT", 3000)
@@ -112,6 +119,12 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("load config: %w", err)
 	}
 	cfg.MaxRequestBodyBytes = maxRequestBodyBytes
+
+	maxMultipartBodyBytes, err := getInt64("MAX_MULTIPART_BODY_BYTES", 8<<20)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.MaxMultipartBodyBytes = maxMultipartBodyBytes
 
 	wsReadLimitBytes, err := getInt64("WS_READ_LIMIT_BYTES", 64<<10)
 	if err != nil {
@@ -178,6 +191,9 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.PublicDir) == "" {
 		return fmt.Errorf("validate config: PUBLIC_DIR is required")
 	}
+	if strings.TrimSpace(c.BackupsDir) == "" {
+		return fmt.Errorf("validate config: BACKUPS_DIR is required")
+	}
 	if strings.TrimSpace(c.JWTSecret) == "" {
 		return fmt.Errorf("validate config: JWT_SECRET is required")
 	}
@@ -204,6 +220,9 @@ func (c Config) Validate() error {
 	}
 	if c.MaxRequestBodyBytes <= 0 {
 		return fmt.Errorf("validate config: MAX_REQUEST_BODY_BYTES must be greater than 0")
+	}
+	if c.MaxMultipartBodyBytes <= 0 {
+		return fmt.Errorf("validate config: MAX_MULTIPART_BODY_BYTES must be greater than 0")
 	}
 	if c.WSReadLimitBytes <= 0 {
 		return fmt.Errorf("validate config: WS_READ_LIMIT_BYTES must be greater than 0")

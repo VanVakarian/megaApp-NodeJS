@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -60,15 +61,23 @@ func LoggingMiddleware(logger *slog.Logger, observer Observer) func(http.Handler
 	}
 }
 
-func RequestBodyLimitMiddleware(limit int64) func(http.Handler) http.Handler {
+func RequestBodyLimitMiddleware(jsonLimit int64, multipartLimit int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Body != nil && allowsRequestBody(r.Method) {
+				limit := jsonLimit
+				if multipartLimit > 0 && isMultipartRequest(r) {
+					limit = multipartLimit
+				}
 				r.Body = http.MaxBytesReader(w, r.Body, limit)
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+func isMultipartRequest(r *http.Request) bool {
+	return r != nil && strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data")
 }
 
 func allowsRequestBody(method string) bool {
