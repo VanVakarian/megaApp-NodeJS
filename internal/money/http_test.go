@@ -18,6 +18,7 @@ func TestMoneyRoutesSnapshotAndReferenceCrud(t *testing.T) {
 	insertMoneyTestUser(t, db, 1, "alice")
 	insertMoneyReferenceFixtures(t, db, 1)
 	insertMoneyReadFixtures(t, db, 1)
+	insertMoneyBrokerageAccount(t, db, 1, 2, "Brokerage", AccountKindBrokerage)
 
 	authRepo := auth.NewRepository(db)
 	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
@@ -39,6 +40,7 @@ func TestMoneyRoutesSnapshotAndReferenceCrud(t *testing.T) {
 	assertMoneyStatus(t, http.MethodGet, server.URL+"/api/money/currencies", tokens.AccessToken, nil, http.StatusOK)
 	assertMoneyStatus(t, http.MethodGet, server.URL+"/api/money/categories", tokens.AccessToken, nil, http.StatusOK)
 	assertMoneyStatus(t, http.MethodGet, server.URL+"/api/money/accounts", tokens.AccessToken, nil, http.StatusOK)
+	assertMoneyStatus(t, http.MethodGet, server.URL+"/api/money/assets", tokens.AccessToken, nil, http.StatusOK)
 
 	assertMoneyStatus(t, http.MethodPost, server.URL+"/api/money/organizations", tokens.AccessToken, map[string]any{"title": "Wallet"}, http.StatusCreated)
 	assertMoneyStatus(t, http.MethodPut, server.URL+"/api/money/organizations/1", tokens.AccessToken, map[string]any{"title": "Updated Bank"}, http.StatusOK)
@@ -85,10 +87,28 @@ func TestMoneyRoutesSnapshotAndReferenceCrud(t *testing.T) {
 		"organizationId": 1,
 	}, http.StatusOK)
 
+	assertMoneyStatus(t, http.MethodPost, server.URL+"/api/money/assets", tokens.AccessToken, map[string]any{
+		"title":          "Apple",
+		"ticker":         "AAPL",
+		"type":           "stock",
+		"accountIds":     []int64{2, 2},
+		"suspendedSince": "2026-06-01",
+	}, http.StatusCreated)
+	assertMoneyStatus(t, http.MethodPut, server.URL+"/api/money/assets/2", tokens.AccessToken, map[string]any{
+		"title":          "Bitcoin",
+		"ticker":         "BTC",
+		"type":           "crypto",
+		"accountIds":     []int64{2},
+		"suspendedSince": nil,
+		"suspendedUntil": nil,
+	}, http.StatusOK)
+
 	assertMoneyStatus(t, http.MethodDelete, server.URL+"/api/money/organizations/1", tokens.AccessToken, nil, http.StatusConflict)
 	assertMoneyStatus(t, http.MethodDelete, server.URL+"/api/money/currencies/1", tokens.AccessToken, nil, http.StatusConflict)
 	assertMoneyStatus(t, http.MethodDelete, server.URL+"/api/money/categories/1", tokens.AccessToken, nil, http.StatusConflict)
 	assertMoneyStatus(t, http.MethodDelete, server.URL+"/api/money/accounts/1", tokens.AccessToken, nil, http.StatusConflict)
+	assertMoneyStatus(t, http.MethodDelete, server.URL+"/api/money/assets/1", tokens.AccessToken, nil, http.StatusConflict)
+	assertMoneyStatus(t, http.MethodDelete, server.URL+"/api/money/assets/2", tokens.AccessToken, nil, http.StatusOK)
 
 	assertMoneyStatus(t, http.MethodDelete, server.URL+"/api/money/organizations/2", tokens.AccessToken, nil, http.StatusOK)
 	assertMoneyStatus(t, http.MethodDelete, server.URL+"/api/money/currencies/2", tokens.AccessToken, nil, http.StatusOK)

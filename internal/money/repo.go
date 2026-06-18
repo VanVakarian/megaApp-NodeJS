@@ -451,26 +451,115 @@ func (r *Repository) ListAssets(ctx context.Context, userID int64) ([]Asset, err
 
 	var result []Asset
 	for rows.Next() {
-		var item Asset
-		var accountIDsJSON string
-		var suspendedSince sql.NullString
-		var suspendedUntil sql.NullString
-		if err := rows.Scan(&item.ID, &item.Title, &item.Ticker, &item.Type, &accountIDsJSON, &suspendedSince, &suspendedUntil); err != nil {
+		item, err := scanAsset(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan asset: %w", err)
 		}
-		accountIDs, err := parseAccountIDs(accountIDsJSON)
-		if err != nil {
-			return nil, fmt.Errorf("parse asset account ids: %w", err)
-		}
-		item.AccountIDs = accountIDs
-		item.SuspendedSince = nullableString(suspendedSince)
-		item.SuspendedUntil = nullableString(suspendedUntil)
 		result = append(result, item)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate assets: %w", err)
 	}
 	return result, nil
+}
+
+func (r *Repository) GetAssetByID(ctx context.Context, userID int64, assetID int64) (*Asset, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, title, ticker, type, accountIdsJSON, suspendedSince, suspendedUntil
+		FROM moneyAsset
+		WHERE id = ? AND userId = ?
+	`, assetID, userID)
+
+	item, err := scanAsset(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get asset: %w", err)
+	}
+	return &item, nil
+}
+
+func (r *Repository) CountTransactionsByAsset(ctx context.Context, userID int64, assetID int64) (int64, error) {
+	var count int64
+	if err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM moneyTransaction
+		WHERE userId = ?
+		  AND detailsJSON IS NOT NULL
+		  AND json_valid(detailsJSON) = 1
+		  AND CAST(json_extract(detailsJSON, '$.assetId') AS INTEGER) = ?
+	`, userID, assetID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count transactions by asset: %w", err)
+	}
+	return count, nil
+}
+
+func (r *Repository) ListLinkedTransactionAccountIDsByAsset(ctx context.Context, userID int64, assetID int64) ([]int64, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT DISTINCT accountId
+		FROM moneyTransaction
+		WHERE userId = ?
+		  AND detailsJSON IS NOT NULL
+		  AND json_valid(detailsJSON) = 1
+		  AND CAST(json_extract(detailsJSON, '$.assetId') AS INTEGER) = ?
+		ORDER BY accountId ASC
+	`, userID, assetID)
+	if err != nil {
+		return nil, fmt.Errorf("list linked transaction account ids by asset: %w", err)
+	}
+	defer rows.Close()
+
+	var result []int64
+	for rows.Next() {
+		var accountID int64
+		if err := rows.Scan(&accountID); err != nil {
+			return nil, fmt.Errorf("scan linked transaction account id: %w", err)
+		}
+		result = append(result, accountID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate linked transaction account ids by asset: %w", err)
+	}
+	return result, nil
+}
+
+func (r *Repository) CreateAsset(ctx context.Context, userID int64, input AssetInput) (int64, error) {
+	result, err := r.db.ExecContext(ctx, `
+		INSERT INTO moneyAsset (title, ticker, type, accountIdsJSON, suspendedSince, suspendedUntil, userId)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, input.Title, input.Ticker, input.Type, marshalAccountIDs(input.AccountIDs), valueOrNil(input.SuspendedSince), valueOrNil(input.SuspendedUntil), userID)
+	if err != nil {
+		return 0, fmt.Errorf("create asset: %w", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("asset last insert id: %w", err)
+	}
+	return id, nil
+}
+
+func (r *Repository) UpdateAsset(ctx context.Context, userID int64, assetID int64, input AssetInput) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE moneyAsset
+		SET title = ?, ticker = ?, type = ?, accountIdsJSON = ?, suspendedSince = ?, suspendedUntil = ?
+		WHERE id = ? AND userId = ?
+	`, input.Title, input.Ticker, input.Type, marshalAccountIDs(input.AccountIDs), valueOrNil(input.SuspendedSince), valueOrNil(input.SuspendedUntil), assetID, userID)
+	if err != nil {
+		return fmt.Errorf("update asset: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) DeleteAsset(ctx context.Context, userID int64, assetID int64) error {
+	_, err := r.db.ExecContext(ctx, `
+		DELETE FROM moneyAsset
+		WHERE id = ? AND userId = ?
+	`, assetID, userID)
+	if err != nil {
+		return fmt.Errorf("delete asset: %w", err)
+	}
+	return nil
 }
 
 func (r *Repository) ListTransactions(ctx context.Context, userID int64) ([]Transaction, error) {
@@ -577,6 +666,24 @@ func (r *Repository) ListRateHistory(ctx context.Context) ([]RateHistory, error)
 	return result, nil
 }
 
+func scanAsset(scanner interface{ Scan(dest ...any) error }) (Asset, error) {
+	var item Asset
+	var accountIDsJSON string
+	var suspendedSince sql.NullString
+	var suspendedUntil sql.NullString
+	if err := scanner.Scan(&item.ID, &item.Title, &item.Ticker, &item.Type, &accountIDsJSON, &suspendedSince, &suspendedUntil); err != nil {
+		return Asset{}, err
+	}
+	accountIDs, err := parseAccountIDs(accountIDsJSON)
+	if err != nil {
+		return Asset{}, fmt.Errorf("parse asset account ids: %w", err)
+	}
+	item.AccountIDs = accountIDs
+	item.SuspendedSince = nullableString(suspendedSince)
+	item.SuspendedUntil = nullableString(suspendedUntil)
+	return item, nil
+}
+
 func parseAccountIDs(value string) ([]int64, error) {
 	var raw []any
 	if err := json.Unmarshal([]byte(value), &raw); err != nil {
@@ -600,6 +707,14 @@ func parseAccountIDs(value string) ([]int64, error) {
 	}
 	sort.Slice(result, func(i int, j int) bool { return result[i] < result[j] })
 	return result, nil
+}
+
+func marshalAccountIDs(accountIDs []int64) string {
+	encoded, err := json.Marshal(accountIDs)
+	if err != nil {
+		return "[]"
+	}
+	return string(encoded)
 }
 
 func nullableString(value sql.NullString) *string {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -118,6 +119,73 @@ func TestServiceAccountValidationAndDeleteGuards(t *testing.T) {
 
 	err = service.DeleteAccount(context.Background(), 1, 1)
 	assertMoneyConflictError(t, err, "Account is linked to existing assets")
+}
+
+func TestServiceCreateAssetNormalizesAccountsAndSuspension(t *testing.T) {
+	db := openMoneyTestDB(t)
+	insertMoneyTestUser(t, db, 1, "alice")
+	insertMoneyReferenceFixtures(t, db, 1)
+	insertMoneyBrokerageAccount(t, db, 1, 2, "Brokerage", AccountKindBrokerage)
+	service := NewService(NewRepository(db))
+
+	assetID, err := service.CreateAsset(context.Background(), 1, AssetInput{
+		Title:          " Apple ",
+		Ticker:         " AAPL ",
+		Type:           AssetTypeStock,
+		AccountIDs:     []int64{2, 2},
+		SuspendedSince: stringPtr("2026-06-01"),
+		SuspendedUntil: stringPtr("2026-06-30"),
+	})
+	if err != nil {
+		t.Fatalf("CreateAsset() error = %v", err)
+	}
+	if assetID <= 0 {
+		t.Fatalf("CreateAsset() id = %d, want > 0", assetID)
+	}
+
+	asset, err := service.repo.GetAssetByID(context.Background(), 1, assetID)
+	if err != nil {
+		t.Fatalf("GetAssetByID() error = %v", err)
+	}
+	if asset == nil {
+		t.Fatal("asset = nil")
+	}
+	if asset.Title != "Apple" || asset.Ticker != "AAPL" {
+		t.Fatalf("asset = %+v, want trimmed title/ticker", asset)
+	}
+	if len(asset.AccountIDs) != 1 || asset.AccountIDs[0] != 2 {
+		t.Fatalf("AccountIDs = %v, want [2]", asset.AccountIDs)
+	}
+}
+
+func TestServiceAssetValidationAndGuards(t *testing.T) {
+	db := openMoneyTestDB(t)
+	insertMoneyTestUser(t, db, 1, "alice")
+	insertMoneyReferenceFixtures(t, db, 1)
+	insertMoneyBrokerageAccount(t, db, 1, 2, "Brokerage", AccountKindBrokerage)
+	insertMoneyBrokerageAccount(t, db, 1, 3, "Crypto", AccountKindCrypto)
+	service := NewService(NewRepository(db))
+
+	_, err := service.CreateAsset(context.Background(), 1, AssetInput{Title: "Asset", Ticker: "AAA", Type: AssetTypeStock, AccountIDs: []int64{1}})
+	assertMoneyValidationError(t, err, "Asset account must be brokerage or crypto: 1")
+
+	_, err = service.CreateAsset(context.Background(), 1, AssetInput{Title: "Asset", Ticker: "AAA", Type: AssetTypeStock, AccountIDs: []int64{2}, SuspendedUntil: stringPtr("2026-06-30")})
+	assertMoneyValidationError(t, err, "suspendedUntil requires suspendedSince to be set")
+
+	assetID, err := service.CreateAsset(context.Background(), 1, AssetInput{Title: "Asset", Ticker: "AAA", Type: AssetTypeStock, AccountIDs: []int64{2, 3}})
+	if err != nil {
+		t.Fatalf("CreateAsset() error = %v", err)
+	}
+
+	if _, err := db.Exec(`INSERT INTO moneyTransaction (userId, dateISO, accountId, amount, kind, isGift, detailsJSON) VALUES (1, '2026-06-18', 2, 1000, 'invest_buy', 0, '{"assetId":` + fmt.Sprint(assetID) + `,"quantity":2}')`); err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+
+	err = service.UpdateAsset(context.Background(), 1, assetID, AssetInput{Title: "Asset", Ticker: "AAA", Type: AssetTypeStock, AccountIDs: []int64{3}})
+	assertMoneyConflictError(t, err, "Asset accounts linked to existing transactions cannot be removed")
+
+	err = service.DeleteAsset(context.Background(), 1, assetID)
+	assertMoneyConflictError(t, err, "Asset is linked to existing transactions")
 }
 
 func openMoneyTestDB(t *testing.T) *sql.DB {
@@ -256,6 +324,13 @@ func insertMoneyReferenceFixtures(t *testing.T, db *sql.DB, userID int64) {
 	}
 }
 
+func insertMoneyBrokerageAccount(t *testing.T, db *sql.DB, userID int64, accountID int64, title string, kind AccountKind) {
+	t.Helper()
+	if _, err := db.Exec(`INSERT INTO moneyAccount (id, userId, title, currencyId, isInvest, isArchived, kind, organizationId) VALUES (?, ?, ?, 1, 1, 0, ?, 1)`, accountID, userID, title, kind); err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+}
+
 func insertMoneyReadFixtures(t *testing.T, db *sql.DB, userID int64) {
 	t.Helper()
 	if _, err := db.Exec(`INSERT INTO moneyAsset (id, userId, accountIdsJSON, ticker, title, type, suspendedSince, suspendedUntil) VALUES (1, ?, '[1,1]', 'AAPL', 'Apple', 'stock', NULL, NULL)`, userID); err != nil {
@@ -288,6 +363,10 @@ func makeBase64PNG(t *testing.T, width int, height int) string {
 }
 
 func int64Ptr(value int64) *int64 {
+	return &value
+}
+
+func stringPtr(value string) *string {
 	return &value
 }
 

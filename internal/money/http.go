@@ -43,6 +43,11 @@ func RegisterRoutes(router chi.Router, authService *auth.Service, handler *Handl
 		r.Post("/accounts", handler.CreateAccount)
 		r.Put("/accounts/{id}", handler.UpdateAccount)
 		r.Delete("/accounts/{id}", handler.DeleteAccount)
+
+		r.Get("/assets", handler.GetAssets)
+		r.Post("/assets", handler.CreateAsset)
+		r.Put("/assets/{id}", handler.UpdateAsset)
+		r.Delete("/assets/{id}", handler.DeleteAsset)
 	})
 }
 
@@ -396,6 +401,90 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeSuccessMessage(w, http.StatusOK, "Account deleted successfully")
+}
+
+func (h *Handler) GetAssets(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.UserClaimsFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	response, err := h.service.GetAssets(r.Context(), claims.UserID)
+	if err != nil {
+		writeAppError(w, err, http.StatusInternalServerError, "Failed to get assets")
+		return
+	}
+
+	writeSuccessData(w, http.StatusOK, response)
+}
+
+func (h *Handler) CreateAsset(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.UserClaimsFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var request AssetInput
+	if err := legacy.DecodeJSON(r, &request); err != nil {
+		writeAppError(w, err, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	createdID, err := h.service.CreateAsset(r.Context(), claims.UserID, request)
+	if err != nil {
+		writeAppError(w, err, http.StatusInternalServerError, "Failed to create asset")
+		return
+	}
+
+	writeSuccessData(w, http.StatusCreated, map[string]int64{"id": createdID})
+}
+
+func (h *Handler) UpdateAsset(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.UserClaimsFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	id, ok := parseIDParam(w, r, "id")
+	if !ok {
+		return
+	}
+
+	var request AssetInput
+	if err := legacy.DecodeJSON(r, &request); err != nil {
+		writeAppError(w, err, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if err := h.service.UpdateAsset(r.Context(), claims.UserID, id, request); err != nil {
+		writeAppError(w, err, http.StatusInternalServerError, "Failed to update asset")
+		return
+	}
+
+	writeSuccessMessage(w, http.StatusOK, "Asset updated successfully")
+}
+
+func (h *Handler) DeleteAsset(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.UserClaimsFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	id, ok := parseIDParam(w, r, "id")
+	if !ok {
+		return
+	}
+
+	if err := h.service.DeleteAsset(r.Context(), claims.UserID, id); err != nil {
+		writeAppError(w, err, http.StatusInternalServerError, "Failed to delete asset")
+		return
+	}
+
+	writeSuccessMessage(w, http.StatusOK, "Asset deleted successfully")
 }
 
 func parseIDParam(w http.ResponseWriter, r *http.Request, name string) (int64, bool) {

@@ -6,7 +6,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image/png"
+	"sort"
 	"strings"
+	"time"
 
 	"megaapp-back/internal/httpx/legacy"
 
@@ -308,6 +310,72 @@ func (s *Service) DeleteAccount(ctx context.Context, userID int64, accountID int
 	return s.repo.DeleteAccount(ctx, userID, accountID)
 }
 
+func (s *Service) GetAssets(ctx context.Context, userID int64) ([]Asset, error) {
+	return s.repo.ListAssets(ctx, userID)
+}
+
+func (s *Service) CreateAsset(ctx context.Context, userID int64, input AssetInput) (int64, error) {
+	normalized, err := validateAssetInput(input)
+	if err != nil {
+		return 0, err
+	}
+	if err := s.ensureAssetAccounts(ctx, userID, normalized.AccountIDs); err != nil {
+		return 0, err
+	}
+	return s.repo.CreateAsset(ctx, userID, normalized)
+}
+
+func (s *Service) UpdateAsset(ctx context.Context, userID int64, assetID int64, input AssetInput) error {
+	existing, err := s.repo.GetAssetByID(ctx, userID, assetID)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return legacy.NewError(legacy.ErrorKindNotFound, "Asset not found")
+	}
+
+	normalized, err := validateAssetInput(input)
+	if err != nil {
+		return err
+	}
+	if err := s.ensureAssetAccounts(ctx, userID, normalized.AccountIDs); err != nil {
+		return err
+	}
+	if !sameIDList(existing.AccountIDs, normalized.AccountIDs) {
+		linkedAccountIDs, err := s.repo.ListLinkedTransactionAccountIDsByAsset(ctx, userID, assetID)
+		if err != nil {
+			return err
+		}
+		for _, linkedAccountID := range linkedAccountIDs {
+			if !containsID(normalized.AccountIDs, linkedAccountID) {
+				return legacy.NewError(legacy.ErrorKindConflict, "Asset accounts linked to existing transactions cannot be removed")
+			}
+		}
+	}
+
+	return s.repo.UpdateAsset(ctx, userID, assetID, normalized)
+}
+
+func (s *Service) DeleteAsset(ctx context.Context, userID int64, assetID int64) error {
+	existing, err := s.repo.GetAssetByID(ctx, userID, assetID)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return legacy.NewError(legacy.ErrorKindNotFound, "Asset not found")
+	}
+
+	linkedTransactionsCount, err := s.repo.CountTransactionsByAsset(ctx, userID, assetID)
+	if err != nil {
+		return err
+	}
+	if linkedTransactionsCount > 0 {
+		return legacy.NewError(legacy.ErrorKindConflict, "Asset is linked to existing transactions")
+	}
+
+	return s.repo.DeleteAsset(ctx, userID, assetID)
+}
+
 func (s *Service) ensureAccountReferences(ctx context.Context, userID int64, input AccountInput) error {
 	currency, err := s.repo.GetCurrencyByID(ctx, userID, input.CurrencyID)
 	if err != nil {
@@ -325,6 +393,22 @@ func (s *Service) ensureAccountReferences(ctx context.Context, userID int64, inp
 	}
 	if organization == nil {
 		return legacy.NewError(legacy.ErrorKindValidation, "Organization not found")
+	}
+	return nil
+}
+
+func (s *Service) ensureAssetAccounts(ctx context.Context, userID int64, accountIDs []int64) error {
+	for _, accountID := range accountIDs {
+		account, err := s.repo.GetAccountByID(ctx, userID, accountID)
+		if err != nil {
+			return err
+		}
+		if account == nil {
+			return legacy.NewError(legacy.ErrorKindValidation, fmt.Sprintf("Account not found: %d", accountID))
+		}
+		if account.Kind != AccountKindBrokerage && account.Kind != AccountKindCrypto {
+			return legacy.NewError(legacy.ErrorKindValidation, fmt.Sprintf("Asset account must be brokerage or crypto: %d", accountID))
+		}
 	}
 	return nil
 }
@@ -430,6 +514,57 @@ func validateAccountInput(input AccountInput) (AccountInput, error) {
 	}, nil
 }
 
+func validateAssetInput(input AssetInput) (AssetInput, error) {
+	title := strings.TrimSpace(input.Title)
+	ticker := strings.TrimSpace(input.Ticker)
+
+	var missing []string
+	if title == "" {
+		missing = append(missing, "title")
+	}
+	if ticker == "" {
+		missing = append(missing, "ticker")
+	}
+	if input.Type == "" {
+		missing = append(missing, "type")
+	}
+	if input.AccountIDs == nil {
+		missing = append(missing, "accountIds")
+	}
+	if len(missing) > 0 {
+		return AssetInput{}, missingFieldsError(missing...)
+	}
+	if !isValidAssetType(input.Type) {
+		return AssetInput{}, legacy.NewError(legacy.ErrorKindValidation, "type must be one of: stock, bond, crypto")
+	}
+
+	normalizedAccountIDs := normalizeAccountIDs(input.AccountIDs)
+	if len(normalizedAccountIDs) == 0 {
+		return AssetInput{}, legacy.NewError(legacy.ErrorKindValidation, "accountIds must contain at least one brokerage account id")
+	}
+
+	suspendedSince, err := normalizeISODate(input.SuspendedSince, "suspendedSince")
+	if err != nil {
+		return AssetInput{}, err
+	}
+	suspendedUntil, err := normalizeISODate(input.SuspendedUntil, "suspendedUntil")
+	if err != nil {
+		return AssetInput{}, err
+	}
+	if suspendedUntil != nil && suspendedSince == nil {
+		return AssetInput{}, legacy.NewError(legacy.ErrorKindValidation, "suspendedUntil requires suspendedSince to be set")
+	}
+
+	return AssetInput{
+		Title:          title,
+		Ticker:         ticker,
+		Type:           input.Type,
+		AccountIDs:     normalizedAccountIDs,
+		SuspendedSince: suspendedSince,
+		SuspendedUntil: suspendedUntil,
+	}, nil
+}
+
 func isValidAccountKind(kind AccountKind) bool {
 	switch kind {
 	case AccountKindCash, AccountKindCard, AccountKindChecking, AccountKindDeposit, AccountKindBrokerage, AccountKindCrypto:
@@ -439,8 +574,68 @@ func isValidAccountKind(kind AccountKind) bool {
 	}
 }
 
+func isValidAssetType(assetType AssetType) bool {
+	switch assetType {
+	case AssetTypeStock, AssetTypeBond, AssetTypeCrypto:
+		return true
+	default:
+		return false
+	}
+}
+
 func missingFieldsError(fields ...string) error {
 	return legacy.NewError(legacy.ErrorKindValidation, fmt.Sprintf("Missing required fields: %s", strings.Join(fields, ", ")))
+}
+
+func normalizeISODate(value *string, field string) (*string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse("2006-01-02", trimmed)
+	if err != nil || parsed.Format("2006-01-02") != trimmed {
+		return nil, legacy.NewError(legacy.ErrorKindValidation, fmt.Sprintf("%s must be a date in YYYY-MM-DD format", field))
+	}
+	return &trimmed, nil
+}
+
+func normalizeAccountIDs(accountIDs []int64) []int64 {
+	set := make(map[int64]struct{})
+	for _, accountID := range accountIDs {
+		if accountID > 0 {
+			set[accountID] = struct{}{}
+		}
+	}
+	result := make([]int64, 0, len(set))
+	for accountID := range set {
+		result = append(result, accountID)
+	}
+	sort.Slice(result, func(i int, j int) bool { return result[i] < result[j] })
+	return result
+}
+
+func sameIDList(first []int64, second []int64) bool {
+	if len(first) != len(second) {
+		return false
+	}
+	for index := range first {
+		if first[index] != second[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func containsID(values []int64, want int64) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeLogoBase64(value *string) (*string, error) {

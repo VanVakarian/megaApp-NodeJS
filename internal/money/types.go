@@ -25,6 +25,14 @@ const (
 	AccountKindCrypto    AccountKind = "crypto"
 )
 
+type AssetType string
+
+const (
+	AssetTypeStock  AssetType = "stock"
+	AssetTypeBond   AssetType = "bond"
+	AssetTypeCrypto AssetType = "crypto"
+)
+
 type Organization struct {
 	ID         int64   `json:"id"`
 	Title      string  `json:"title"`
@@ -58,13 +66,13 @@ type Account struct {
 }
 
 type Asset struct {
-	ID             int64   `json:"id"`
-	Title          string  `json:"title"`
-	Ticker         string  `json:"ticker"`
-	Type           string  `json:"type"`
-	AccountIDs     []int64 `json:"accountIds"`
-	SuspendedSince *string `json:"suspendedSince"`
-	SuspendedUntil *string `json:"suspendedUntil"`
+	ID             int64     `json:"id"`
+	Title          string    `json:"title"`
+	Ticker         string    `json:"ticker"`
+	Type           AssetType `json:"type"`
+	AccountIDs     []int64   `json:"accountIds"`
+	SuspendedSince *string   `json:"suspendedSince"`
+	SuspendedUntil *string   `json:"suspendedUntil"`
 }
 
 type Transaction struct {
@@ -137,4 +145,13 @@ type AccountInput struct {
 	IsArchived     bool        `json:"isArchived"`
 	Kind           AccountKind `json:"kind"`
 	OrganizationID *int64      `json:"organizationId"`
+}
+
+type AssetInput struct {
+	Title          string    `json:"title"`
+	Ticker         string    `json:"ticker"`
+	Type           AssetType `json:"type"`
+	AccountIDs     []int64   `json:"accountIds"`
+	SuspendedSince *string   `json:"suspendedSince"`
+	SuspendedUntil *string   `json:"suspendedUntil"`
 }

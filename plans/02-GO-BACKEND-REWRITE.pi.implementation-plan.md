@@ -598,7 +598,11 @@
 - проверить запрет удаления после появления связанных операций, когда этот сценарий станет доступен
 
 ### Result
-- Status: Pending
+- Status: Done
+- Test status: `go test ./...` in `megaapp-back` passed after the Step 13 implementation pass.
+- Manual check status: User manually verified the Assets-tab CRUD flows and asset guard behavior and confirmed that the migrated asset paths work correctly in the current frontend.
+- Findings: Restored authenticated `/api/money/assets` CRUD in the Go money module, added normalized asset read/write handling for sorted unique `accountIds`, enforced brokerage-or-crypto account binding rules, preserved inherited suspension-date validation semantics, and blocked both asset deletion and linked-account removal when existing invest transactions already reference the asset.
+- Issues and resolutions: The current money frontend boot path still comes from `/api/money/snapshot`, so asset visibility remains coupled to the Step 12 compatibility snapshot. Step 13 therefore extends the existing snapshot-backed state instead of introducing a separate preload flow.
 
 ---
 
