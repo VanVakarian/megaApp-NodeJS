@@ -1,0 +1,640 @@
+package money
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sort"
+)
+
+type Repository struct {
+	db *sql.DB
+}
+
+func NewRepository(db *sql.DB) *Repository {
+	return &Repository{db: db}
+}
+
+func (r *Repository) ListOrganizations(ctx context.Context, userID int64) ([]Organization, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, title, logoBase64
+		FROM moneyOrganization
+		WHERE userId = ?
+		ORDER BY title ASC
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list organizations: %w", err)
+	}
+	defer rows.Close()
+
+	var result []Organization
+	for rows.Next() {
+		var item Organization
+		var logo sql.NullString
+		if err := rows.Scan(&item.ID, &item.Title, &logo); err != nil {
+			return nil, fmt.Errorf("scan organization: %w", err)
+		}
+		item.LogoBase64 = nullableString(logo)
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate organizations: %w", err)
+	}
+	return result, nil
+}
+
+func (r *Repository) GetOrganizationByID(ctx context.Context, userID int64, organizationID int64) (*Organization, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, title, logoBase64
+		FROM moneyOrganization
+		WHERE id = ? AND userId = ?
+	`, organizationID, userID)
+
+	var item Organization
+	var logo sql.NullString
+	if err := row.Scan(&item.ID, &item.Title, &logo); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get organization: %w", err)
+	}
+	item.LogoBase64 = nullableString(logo)
+	return &item, nil
+}
+
+func (r *Repository) CountAccountsByOrganization(ctx context.Context, userID int64, organizationID int64) (int64, error) {
+	var count int64
+	if err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM moneyAccount
+		WHERE organizationId = ? AND userId = ?
+	`, organizationID, userID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count accounts by organization: %w", err)
+	}
+	return count, nil
+}
+
+func (r *Repository) CreateOrganization(ctx context.Context, userID int64, input OrganizationInput) (int64, error) {
+	result, err := r.db.ExecContext(ctx, `
+		INSERT INTO moneyOrganization (title, logoBase64, userId)
+		VALUES (?, ?, ?)
+	`, input.Title, valueOrNil(input.LogoBase64), userID)
+	if err != nil {
+		return 0, fmt.Errorf("create organization: %w", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("organization last insert id: %w", err)
+	}
+	return id, nil
+}
+
+func (r *Repository) UpdateOrganization(ctx context.Context, userID int64, organizationID int64, input OrganizationInput) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE moneyOrganization
+		SET title = ?, logoBase64 = ?
+		WHERE id = ? AND userId = ?
+	`, input.Title, valueOrNil(input.LogoBase64), organizationID, userID)
+	if err != nil {
+		return fmt.Errorf("update organization: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) DeleteOrganization(ctx context.Context, userID int64, organizationID int64) error {
+	_, err := r.db.ExecContext(ctx, `
+		DELETE FROM moneyOrganization
+		WHERE id = ? AND userId = ?
+	`, organizationID, userID)
+	if err != nil {
+		return fmt.Errorf("delete organization: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) ListCurrencies(ctx context.Context, userID int64) ([]Currency, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, title, ticker, symbol, symbolPosEnum, whitespace
+		FROM moneyCurrency
+		WHERE userId = ?
+		ORDER BY title ASC
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list currencies: %w", err)
+	}
+	defer rows.Close()
+
+	var result []Currency
+	for rows.Next() {
+		var item Currency
+		var whitespace int64
+		if err := rows.Scan(&item.ID, &item.Title, &item.Ticker, &item.Symbol, &item.SymbolPosEnum, &whitespace); err != nil {
+			return nil, fmt.Errorf("scan currency: %w", err)
+		}
+		item.Whitespace = whitespace != 0
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate currencies: %w", err)
+	}
+	return result, nil
+}
+
+func (r *Repository) GetCurrencyByID(ctx context.Context, userID int64, currencyID int64) (*Currency, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, title, ticker, symbol, symbolPosEnum, whitespace
+		FROM moneyCurrency
+		WHERE id = ? AND userId = ?
+	`, currencyID, userID)
+
+	var item Currency
+	var whitespace int64
+	if err := row.Scan(&item.ID, &item.Title, &item.Ticker, &item.Symbol, &item.SymbolPosEnum, &whitespace); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get currency: %w", err)
+	}
+	item.Whitespace = whitespace != 0
+	return &item, nil
+}
+
+func (r *Repository) CountAccountsByCurrency(ctx context.Context, userID int64, currencyID int64) (int64, error) {
+	var count int64
+	if err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM moneyAccount
+		WHERE currencyId = ? AND userId = ?
+	`, currencyID, userID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count accounts by currency: %w", err)
+	}
+	return count, nil
+}
+
+func (r *Repository) CreateCurrency(ctx context.Context, userID int64, input CurrencyInput) (int64, error) {
+	result, err := r.db.ExecContext(ctx, `
+		INSERT INTO moneyCurrency (title, ticker, symbol, symbolPosEnum, whitespace, userId)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, input.Title, input.Ticker, input.Symbol, input.SymbolPosEnum, boolToInt64(input.Whitespace), userID)
+	if err != nil {
+		return 0, fmt.Errorf("create currency: %w", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("currency last insert id: %w", err)
+	}
+	return id, nil
+}
+
+func (r *Repository) UpdateCurrency(ctx context.Context, userID int64, currencyID int64, input CurrencyInput) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE moneyCurrency
+		SET title = ?, ticker = ?, symbol = ?, symbolPosEnum = ?, whitespace = ?
+		WHERE id = ? AND userId = ?
+	`, input.Title, input.Ticker, input.Symbol, input.SymbolPosEnum, boolToInt64(input.Whitespace), currencyID, userID)
+	if err != nil {
+		return fmt.Errorf("update currency: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) DeleteCurrency(ctx context.Context, userID int64, currencyID int64) error {
+	_, err := r.db.ExecContext(ctx, `
+		DELETE FROM moneyCurrency
+		WHERE id = ? AND userId = ?
+	`, currencyID, userID)
+	if err != nil {
+		return fmt.Errorf("delete currency: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) ListCategories(ctx context.Context, userID int64) ([]Category, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, name, parentId, categoryType
+		FROM moneyCategories
+		WHERE userId = ?
+		ORDER BY categoryType ASC, parentId ASC, name ASC
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list categories: %w", err)
+	}
+	defer rows.Close()
+
+	var result []Category
+	for rows.Next() {
+		var item Category
+		var parentID sql.NullInt64
+		if err := rows.Scan(&item.ID, &item.Name, &parentID, &item.CategoryType); err != nil {
+			return nil, fmt.Errorf("scan category: %w", err)
+		}
+		item.ParentID = nullableInt64(parentID)
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate categories: %w", err)
+	}
+	return result, nil
+}
+
+func (r *Repository) GetCategoryByID(ctx context.Context, userID int64, categoryID int64) (*Category, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, name, parentId, categoryType
+		FROM moneyCategories
+		WHERE id = ? AND userId = ?
+	`, categoryID, userID)
+
+	var item Category
+	var parentID sql.NullInt64
+	if err := row.Scan(&item.ID, &item.Name, &parentID, &item.CategoryType); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get category: %w", err)
+	}
+	item.ParentID = nullableInt64(parentID)
+	return &item, nil
+}
+
+func (r *Repository) CountChildCategories(ctx context.Context, userID int64, categoryID int64) (int64, error) {
+	var count int64
+	if err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM moneyCategories
+		WHERE parentId = ? AND userId = ?
+	`, categoryID, userID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count child categories: %w", err)
+	}
+	return count, nil
+}
+
+func (r *Repository) CountTransactionsByCategory(ctx context.Context, userID int64, categoryID int64) (int64, error) {
+	var count int64
+	if err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM moneyTransaction
+		WHERE categoryId = ? AND userId = ?
+	`, categoryID, userID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count transactions by category: %w", err)
+	}
+	return count, nil
+}
+
+func (r *Repository) CreateCategory(ctx context.Context, userID int64, input CategoryInput) (int64, error) {
+	result, err := r.db.ExecContext(ctx, `
+		INSERT INTO moneyCategories (name, categoryType, userId, parentId)
+		VALUES (?, ?, ?, ?)
+	`, input.Name, input.CategoryType, userID, nullableValue(input.ParentID))
+	if err != nil {
+		return 0, fmt.Errorf("create category: %w", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("category last insert id: %w", err)
+	}
+	return id, nil
+}
+
+func (r *Repository) UpdateCategory(ctx context.Context, userID int64, categoryID int64, input CategoryInput) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE moneyCategories
+		SET name = ?, categoryType = ?, parentId = ?
+		WHERE id = ? AND userId = ?
+	`, input.Name, input.CategoryType, nullableValue(input.ParentID), categoryID, userID)
+	if err != nil {
+		return fmt.Errorf("update category: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) DeleteCategory(ctx context.Context, userID int64, categoryID int64) error {
+	_, err := r.db.ExecContext(ctx, `
+		DELETE FROM moneyCategories
+		WHERE id = ? AND userId = ?
+	`, categoryID, userID)
+	if err != nil {
+		return fmt.Errorf("delete category: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) ListAccounts(ctx context.Context, userID int64) ([]Account, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, title, currencyId, isInvest, isArchived, kind, organizationId
+		FROM moneyAccount
+		WHERE userId = ?
+		ORDER BY title ASC
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list accounts: %w", err)
+	}
+	defer rows.Close()
+
+	var result []Account
+	for rows.Next() {
+		var item Account
+		var isInvest int64
+		var isArchived int64
+		var organizationID sql.NullInt64
+		if err := rows.Scan(&item.ID, &item.Title, &item.CurrencyID, &isInvest, &isArchived, &item.Kind, &organizationID); err != nil {
+			return nil, fmt.Errorf("scan account: %w", err)
+		}
+		item.IsInvest = isInvest != 0
+		item.IsArchived = isArchived != 0
+		item.OrganizationID = nullableInt64(organizationID)
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate accounts: %w", err)
+	}
+	return result, nil
+}
+
+func (r *Repository) GetAccountByID(ctx context.Context, userID int64, accountID int64) (*Account, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, title, currencyId, isInvest, isArchived, kind, organizationId
+		FROM moneyAccount
+		WHERE id = ? AND userId = ?
+	`, accountID, userID)
+
+	var item Account
+	var isInvest int64
+	var isArchived int64
+	var organizationID sql.NullInt64
+	if err := row.Scan(&item.ID, &item.Title, &item.CurrencyID, &isInvest, &isArchived, &item.Kind, &organizationID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get account: %w", err)
+	}
+	item.IsInvest = isInvest != 0
+	item.IsArchived = isArchived != 0
+	item.OrganizationID = nullableInt64(organizationID)
+	return &item, nil
+}
+
+func (r *Repository) CountTransactionsByAccount(ctx context.Context, userID int64, accountID int64) (int64, error) {
+	var count int64
+	if err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM moneyTransaction
+		WHERE accountId = ? AND userId = ?
+	`, accountID, userID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count transactions by account: %w", err)
+	}
+	return count, nil
+}
+
+func (r *Repository) CountAssetsByAccount(ctx context.Context, userID int64, accountID int64) (int64, error) {
+	var count int64
+	if err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(DISTINCT a.id)
+		FROM moneyAsset a, json_each(a.accountIdsJSON) j
+		WHERE a.userId = ? AND CAST(j.value AS INTEGER) = ?
+	`, userID, accountID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count assets by account: %w", err)
+	}
+	return count, nil
+}
+
+func (r *Repository) CreateAccount(ctx context.Context, userID int64, input AccountInput) (int64, error) {
+	result, err := r.db.ExecContext(ctx, `
+		INSERT INTO moneyAccount (title, currencyId, isInvest, isArchived, kind, organizationId, userId)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, input.Title, input.CurrencyID, boolToInt64(input.IsInvest), boolToInt64(input.IsArchived), input.Kind, nullableValue(input.OrganizationID), userID)
+	if err != nil {
+		return 0, fmt.Errorf("create account: %w", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("account last insert id: %w", err)
+	}
+	return id, nil
+}
+
+func (r *Repository) UpdateAccount(ctx context.Context, userID int64, accountID int64, input AccountInput) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE moneyAccount
+		SET title = ?, currencyId = ?, isInvest = ?, isArchived = ?, kind = ?, organizationId = ?
+		WHERE id = ? AND userId = ?
+	`, input.Title, input.CurrencyID, boolToInt64(input.IsInvest), boolToInt64(input.IsArchived), input.Kind, nullableValue(input.OrganizationID), accountID, userID)
+	if err != nil {
+		return fmt.Errorf("update account: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) DeleteAccount(ctx context.Context, userID int64, accountID int64) error {
+	_, err := r.db.ExecContext(ctx, `
+		DELETE FROM moneyAccount
+		WHERE id = ? AND userId = ?
+	`, accountID, userID)
+	if err != nil {
+		return fmt.Errorf("delete account: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) ListAssets(ctx context.Context, userID int64) ([]Asset, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, title, ticker, type, accountIdsJSON, suspendedSince, suspendedUntil
+		FROM moneyAsset
+		WHERE userId = ?
+		ORDER BY title ASC
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list assets: %w", err)
+	}
+	defer rows.Close()
+
+	var result []Asset
+	for rows.Next() {
+		var item Asset
+		var accountIDsJSON string
+		var suspendedSince sql.NullString
+		var suspendedUntil sql.NullString
+		if err := rows.Scan(&item.ID, &item.Title, &item.Ticker, &item.Type, &accountIDsJSON, &suspendedSince, &suspendedUntil); err != nil {
+			return nil, fmt.Errorf("scan asset: %w", err)
+		}
+		accountIDs, err := parseAccountIDs(accountIDsJSON)
+		if err != nil {
+			return nil, fmt.Errorf("parse asset account ids: %w", err)
+		}
+		item.AccountIDs = accountIDs
+		item.SuspendedSince = nullableString(suspendedSince)
+		item.SuspendedUntil = nullableString(suspendedUntil)
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate assets: %w", err)
+	}
+	return result, nil
+}
+
+func (r *Repository) ListTransactions(ctx context.Context, userID int64) ([]Transaction, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, twinId
+		FROM moneyTransaction
+		WHERE userId = ?
+		ORDER BY dateISO DESC, id DESC
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list transactions: %w", err)
+	}
+	defer rows.Close()
+
+	var result []Transaction
+	for rows.Next() {
+		var item Transaction
+		var categoryID sql.NullInt64
+		var isGift int64
+		var notes sql.NullString
+		var detailsJSON sql.NullString
+		var twinID sql.NullInt64
+		if err := rows.Scan(&item.ID, &item.DateISO, &item.AccountID, &item.Amount, &categoryID, &item.Kind, &isGift, &notes, &detailsJSON, &twinID); err != nil {
+			return nil, fmt.Errorf("scan transaction: %w", err)
+		}
+		item.CategoryID = nullableInt64(categoryID)
+		item.IsGift = isGift != 0
+		item.Notes = nullableString(notes)
+		item.DetailsJSON = nullableString(detailsJSON)
+		item.TwinID = nullableInt64(twinID)
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate transactions: %w", err)
+	}
+	return result, nil
+}
+
+func (r *Repository) ListInvestAssetTrades(ctx context.Context, userID int64) ([]InvestAssetTrade, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT t.id, t.dateISO, t.accountId, t.amount, t.kind, t.notes, t.detailsJSON,
+		       a.id as assetId, a.title as assetTitle, a.ticker as assetTicker, a.type as assetType
+		FROM moneyTransaction t
+		LEFT JOIN moneyAsset a
+		  ON a.id = CAST(json_extract(t.detailsJSON, '$.assetId') AS INTEGER)
+		 AND a.userId = t.userId
+		WHERE t.userId = ?
+		  AND t.kind IN ('invest_buy', 'invest_sell')
+		ORDER BY t.dateISO DESC, t.id DESC
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list invest asset trades: %w", err)
+	}
+	defer rows.Close()
+
+	var result []InvestAssetTrade
+	for rows.Next() {
+		var item InvestAssetTrade
+		var notes sql.NullString
+		var detailsJSON sql.NullString
+		var assetID sql.NullInt64
+		var assetTitle sql.NullString
+		var assetTicker sql.NullString
+		var assetType sql.NullString
+		if err := rows.Scan(&item.ID, &item.DateISO, &item.AccountID, &item.Amount, &item.Kind, &notes, &detailsJSON, &assetID, &assetTitle, &assetTicker, &assetType); err != nil {
+			return nil, fmt.Errorf("scan invest asset trade: %w", err)
+		}
+		item.Notes = nullableString(notes)
+		item.DetailsJSON = nullableString(detailsJSON)
+		item.AssetID = nullableInt64(assetID)
+		item.AssetTitle = nullableString(assetTitle)
+		item.AssetTicker = nullableString(assetTicker)
+		item.AssetType = nullableString(assetType)
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate invest asset trades: %w", err)
+	}
+	return result, nil
+}
+
+func (r *Repository) ListRateHistory(ctx context.Context) ([]RateHistory, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, dateISO, ratesJson
+		FROM moneyRateHistory
+		ORDER BY dateISO ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list rate history: %w", err)
+	}
+	defer rows.Close()
+
+	var result []RateHistory
+	for rows.Next() {
+		var item RateHistory
+		if err := rows.Scan(&item.ID, &item.DateISO, &item.RatesJSON); err != nil {
+			return nil, fmt.Errorf("scan rate history: %w", err)
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate rate history: %w", err)
+	}
+	return result, nil
+}
+
+func parseAccountIDs(value string) ([]int64, error) {
+	var raw []any
+	if err := json.Unmarshal([]byte(value), &raw); err != nil {
+		return nil, err
+	}
+
+	set := make(map[int64]struct{})
+	for _, item := range raw {
+		switch value := item.(type) {
+		case float64:
+			id := int64(value)
+			if value == float64(id) && id > 0 {
+				set[id] = struct{}{}
+			}
+		}
+	}
+
+	result := make([]int64, 0, len(set))
+	for id := range set {
+		result = append(result, id)
+	}
+	sort.Slice(result, func(i int, j int) bool { return result[i] < result[j] })
+	return result, nil
+}
+
+func nullableString(value sql.NullString) *string {
+	if !value.Valid {
+		return nil
+	}
+	result := value.String
+	return &result
+}
+
+func nullableInt64(value sql.NullInt64) *int64 {
+	if !value.Valid {
+		return nil
+	}
+	result := value.Int64
+	return &result
+}
+
+func nullableValue(value *int64) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func valueOrNil(value *string) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func boolToInt64(value bool) int64 {
+	if value {
+		return 1
+	}
+	return 0
+}

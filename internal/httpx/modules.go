@@ -8,6 +8,7 @@ import (
 	"megaapp-back/internal/auth"
 	"megaapp-back/internal/config"
 	"megaapp-back/internal/food"
+	"megaapp-back/internal/money"
 	clockplatform "megaapp-back/internal/platform/clock"
 	"megaapp-back/internal/settings"
 	"megaapp-back/internal/ws"
@@ -26,6 +27,11 @@ type settingsModule struct {
 type wsModule struct {
 	hub     *ws.Hub
 	handler *ws.Handler
+}
+
+type moneyModule struct {
+	service *money.Service
+	handler *money.Handler
 }
 
 type foodModule struct {
@@ -57,6 +63,12 @@ func buildWSModule(cfg config.Config, authService *auth.Service) wsModule {
 	hub.SetReadLimitBytes(cfg.WSReadLimitBytes)
 	hub.SetWriteTimeout(cfg.WSWriteTimeout)
 	return wsModule{hub: hub, handler: ws.NewHandler(authService, hub)}
+}
+
+func buildMoneyModule(db *sql.DB) moneyModule {
+	repo := money.NewRepository(db)
+	service := money.NewService(repo)
+	return moneyModule{service: service, handler: money.NewHandler(service)}
 }
 
 func buildFoodModule(db *sql.DB, cfg config.Config, hub *ws.Hub, clk clockplatform.Clock) (foodModule, error) {

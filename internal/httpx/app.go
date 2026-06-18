@@ -12,6 +12,7 @@ import (
 	"megaapp-back/internal/auth"
 	"megaapp-back/internal/config"
 	"megaapp-back/internal/food"
+	"megaapp-back/internal/money"
 	clockplatform "megaapp-back/internal/platform/clock"
 	sqliteplatform "megaapp-back/internal/platform/sqlite"
 	"megaapp-back/internal/settings"
@@ -48,6 +49,7 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 
 	authModule := buildAuthModule(db.SQL(), cfg)
 	settingsModule := buildSettingsModule(db.SQL())
+	moneyModule := buildMoneyModule(db.SQL())
 	wsModule := buildWSModule(cfg, authModule.service)
 	foodModule, err := buildFoodModule(db.SQL(), cfg, wsModule.hub, clk)
 	if err != nil {
@@ -64,6 +66,7 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 
 	auth.RegisterRoutes(router, authModule.handler)
 	settings.RegisterRoutes(router, authModule.service, settingsModule.handler)
+	money.RegisterRoutes(router, authModule.service, moneyModule.handler)
 	food.RegisterRoutes(router, authModule.service, foodModule.readHandler)
 	food.RegisterWriteRoutes(router, authModule.service, foodModule.writeHandler)
 	food.RegisterCatalogueRoutes(router, authModule.service, foodModule.catalogueHandler)
