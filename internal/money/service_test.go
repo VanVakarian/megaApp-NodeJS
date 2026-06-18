@@ -11,6 +11,7 @@ import (
 	"image/color"
 	"image/png"
 	"testing"
+	"time"
 
 	"megaapp-back/internal/httpx/legacy"
 
@@ -23,7 +24,7 @@ func TestServiceSnapshotIncludesNormalizedAssets(t *testing.T) {
 	insertMoneyReferenceFixtures(t, db, 1)
 	insertMoneyReadFixtures(t, db, 1)
 
-	service := NewService(NewRepository(db))
+	service := NewServiceWithClock(NewRepository(db), fixedMoneyClock{now: time.Date(2026, time.June, 30, 12, 0, 0, 0, time.UTC)})
 	snapshot, err := service.GetSnapshot(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("GetSnapshot() error = %v", err)
@@ -46,6 +47,79 @@ func TestServiceSnapshotIncludesNormalizedAssets(t *testing.T) {
 	}
 	if len(snapshot.RateHistory) != 1 {
 		t.Fatalf("RateHistory len = %d, want 1", len(snapshot.RateHistory))
+	}
+}
+
+func TestServiceSnapshotFiltersRateHistoryForCurrenciesAndHeldAssets(t *testing.T) {
+	db := openMoneyTestDB(t)
+	insertMoneyTestUser(t, db, 1, "alice")
+	insertMoneyReferenceFixtures(t, db, 1)
+	insertMoneyBrokerageAccount(t, db, 1, 2, "Brokerage", AccountKindBrokerage)
+	insertMoneyCategory(t, db, 1, 3, "Salary", nil, CategoryTypeIncome)
+	insertMoneyCurrency(t, db, 1, 2, "Dollar", "USD", "$", SymbolPositionBefore)
+	insertMoneyAsset(t, db, 1, 1, "Apple", "AAPL", AssetTypeStock, []int64{2})
+	service := NewServiceWithClock(NewRepository(db), fixedMoneyClock{now: time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)})
+
+	if _, err := service.CreateTransaction(context.Background(), 1, TransactionInput{
+		DateISO:   "2026-06-15",
+		AccountID: 2,
+		Kind:      TransactionKindInvestBuy,
+		DetailsJSON: map[string]any{
+			"assetId":          1,
+			"quantity":         2,
+			"price":            100,
+			"commissionAmount": 1,
+		},
+	}); err != nil {
+		t.Fatalf("CreateTransaction() buy error = %v", err)
+	}
+	if _, err := service.CreateTransaction(context.Background(), 1, TransactionInput{
+		DateISO:   "2026-07-10",
+		AccountID: 2,
+		Kind:      TransactionKindInvestSell,
+		DetailsJSON: map[string]any{
+			"assetId":          1,
+			"quantity":         2,
+			"price":            120,
+			"commissionAmount": 1,
+		},
+	}); err != nil {
+		t.Fatalf("CreateTransaction() sell error = %v", err)
+	}
+
+	insertMoneyRateHistory(t, db, 1, "2026-06-10", `{"USD":1,"RUB":90,"AAPL":210,"BTC":60000}`)
+	insertMoneyRateHistory(t, db, 2, "2026-06-30", `{"USD":1,"RUB":91,"AAPL":220,"BTC":61000}`)
+	insertMoneyRateHistory(t, db, 3, "2026-07-05", `{"USD":1,"RUB":92,"AAPL":230}`)
+	insertMoneyRateHistory(t, db, 4, "2026-07-31", `{"USD":1,"RUB":93,"AAPL":240}`)
+	insertMoneyRateHistory(t, db, 5, "2026-07-15", `{"BTC":62000}`)
+
+	snapshot, err := service.GetSnapshot(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("GetSnapshot() error = %v", err)
+	}
+	if len(snapshot.RateHistory) != 4 {
+		t.Fatalf("RateHistory len = %d, want 4", len(snapshot.RateHistory))
+	}
+
+	assertMoneyRatesEqual(t, snapshot.RateHistory[0].RatesJSON, map[string]float64{"USD": 1, "RUB": 90})
+	assertMoneyRatesEqual(t, snapshot.RateHistory[1].RatesJSON, map[string]float64{"USD": 1, "RUB": 91, "AAPL": 220})
+	assertMoneyRatesEqual(t, snapshot.RateHistory[2].RatesJSON, map[string]float64{"USD": 1, "RUB": 92})
+	assertMoneyRatesEqual(t, snapshot.RateHistory[3].RatesJSON, map[string]float64{"USD": 1, "RUB": 93})
+
+	trades, err := service.GetInvestAssetTrades(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("GetInvestAssetTrades() error = %v", err)
+	}
+	if len(trades) != 2 {
+		t.Fatalf("InvestAssetTrades len = %d, want 2", len(trades))
+	}
+
+	rateHistory, err := service.GetRateHistory(context.Background())
+	if err != nil {
+		t.Fatalf("GetRateHistory() error = %v", err)
+	}
+	if len(rateHistory) != 5 || rateHistory[0].RatesJSON != `{"USD":1,"RUB":90,"AAPL":210,"BTC":60000}` {
+		t.Fatalf("rateHistory = %+v", rateHistory)
 	}
 }
 
@@ -696,6 +770,13 @@ func insertMoneyAccount(t *testing.T, db *sql.DB, userID int64, accountID int64,
 	}
 }
 
+func insertMoneyCurrency(t *testing.T, db *sql.DB, userID int64, currencyID int64, title string, ticker string, symbol string, symbolPosition SymbolPosition) {
+	t.Helper()
+	if _, err := db.Exec(`INSERT INTO moneyCurrency (id, userId, title, ticker, symbol, symbolPosEnum, whitespace) VALUES (?, ?, ?, ?, ?, ?, 0)`, currencyID, userID, title, ticker, symbol, symbolPosition); err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+}
+
 func insertMoneyAsset(t *testing.T, db *sql.DB, userID int64, assetID int64, title string, ticker string, assetType AssetType, accountIDs []int64) {
 	t.Helper()
 	if _, err := db.Exec(`INSERT INTO moneyAsset (id, userId, accountIdsJSON, ticker, title, type) VALUES (?, ?, ?, ?, ?, ?)`, assetID, userID, marshalAccountIDs(accountIDs), ticker, title, assetType); err != nil {
@@ -721,7 +802,12 @@ func insertMoneyReadFixtures(t *testing.T, db *sql.DB, userID int64) {
 	if _, err := db.Exec(`INSERT INTO moneyTransaction (id, userId, dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, twinId) VALUES (2, ?, '2026-06-18', 1, 1000, NULL, 'invest_buy', 0, NULL, '{"assetId":1,"quantity":2}', NULL)`, userID); err != nil {
 		t.Fatalf("Exec() error = %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO moneyRateHistory (id, dateISO, ratesJson) VALUES (1, '2026-06-30', '{"RUB":1}')`); err != nil {
+	insertMoneyRateHistory(t, db, 1, "2026-06-30", `{"RUB":1}`)
+}
+
+func insertMoneyRateHistory(t *testing.T, db *sql.DB, rateHistoryID int64, dateISO string, ratesJSON string) {
+	t.Helper()
+	if _, err := db.Exec(`INSERT INTO moneyRateHistory (id, dateISO, ratesJson) VALUES (?, ?, ?)`, rateHistoryID, dateISO, ratesJSON); err != nil {
 		t.Fatalf("Exec() error = %v", err)
 	}
 }
@@ -751,6 +837,14 @@ func stringPtr(value string) *string {
 
 func float64Ptr(value float64) *float64 {
 	return &value
+}
+
+type fixedMoneyClock struct {
+	now time.Time
+}
+
+func (c fixedMoneyClock) Now() time.Time {
+	return c.now
 }
 
 func assertMoneyValidationError(t *testing.T, err error, want string) {
@@ -789,6 +883,19 @@ func mustMoneyJSONMap(t *testing.T, value *string) map[string]any {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
 	return result
+}
+
+func assertMoneyRatesEqual(t *testing.T, got map[string]float64, want map[string]float64) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("rates len = %d, want %d; got = %#v; want = %#v", len(got), len(want), got, want)
+	}
+	for ticker, wantRate := range want {
+		gotRate, ok := got[ticker]
+		if !ok || gotRate != wantRate {
+			t.Fatalf("rates[%q] = %v, want %v; got = %#v", ticker, gotRate, wantRate, got)
+		}
+	}
 }
 
 func assertMoneyTransactionCount(t *testing.T, db *sql.DB, want int64, query string, args ...any) {

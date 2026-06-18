@@ -2,6 +2,7 @@ package money
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -304,6 +305,76 @@ func TestMoneyRoutesInvestTransactions(t *testing.T) {
 			"commissionAmount": 1,
 		},
 	}, http.StatusBadRequest)
+}
+
+func TestMoneyRoutesTradesAndRateHistory(t *testing.T) {
+	db := openMoneyTestDB(t)
+	insertMoneyTestUser(t, db, 1, "alice")
+	insertMoneyReferenceFixtures(t, db, 1)
+	insertMoneyBrokerageAccount(t, db, 1, 2, "Brokerage", AccountKindBrokerage)
+	insertMoneyCurrency(t, db, 1, 2, "Dollar", "USD", "$", SymbolPositionBefore)
+	insertMoneyAsset(t, db, 1, 1, "Apple", "AAPL", AssetTypeStock, []int64{2})
+	insertMoneyRateHistory(t, db, 1, "2026-06-10", `{"USD":1,"RUB":90,"AAPL":210}`)
+	insertMoneyRateHistory(t, db, 2, "2026-06-30", `{"USD":1,"RUB":91,"AAPL":220}`)
+
+	handler := NewHandler(NewServiceWithClock(NewRepository(db), fixedMoneyClock{now: time.Date(2026, time.June, 30, 12, 0, 0, 0, time.UTC)}))
+	authRepo := auth.NewRepository(db)
+	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
+	authService := auth.NewService(authRepo, tokenManager)
+
+	router := chi.NewRouter()
+	RegisterRoutes(router, authService, handler)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	tokens, err := tokenManager.Issue(auth.TokenClaims{UserID: 1, Username: "alice"})
+	if err != nil {
+		t.Fatalf("Issue() error = %v", err)
+	}
+
+	if _, err := handler.service.CreateTransaction(context.Background(), 1, TransactionInput{
+		DateISO:   "2026-06-15",
+		AccountID: 2,
+		Kind:      TransactionKindInvestBuy,
+		DetailsJSON: map[string]any{
+			"assetId":          1,
+			"quantity":         2,
+			"price":            100,
+			"commissionAmount": 1,
+		},
+	}); err != nil {
+		t.Fatalf("CreateTransaction() error = %v", err)
+	}
+
+	tradesResponse := assertMoneyJSON(t, http.MethodGet, server.URL+"/api/money/trades", tokens.AccessToken, nil, http.StatusOK)
+	trades := tradesResponse["data"].([]any)
+	if len(trades) != 1 {
+		t.Fatalf("trades len = %d, want 1", len(trades))
+	}
+	trade := trades[0].(map[string]any)
+	if trade["assetTicker"] != "AAPL" || trade["kind"] != "invest_buy" {
+		t.Fatalf("trade = %#v", trade)
+	}
+
+	rateHistoryResponse := assertMoneyJSON(t, http.MethodGet, server.URL+"/api/money/rate-history", tokens.AccessToken, nil, http.StatusOK)
+	rateHistory := rateHistoryResponse["data"].([]any)
+	if len(rateHistory) != 2 {
+		t.Fatalf("rateHistory len = %d, want 2", len(rateHistory))
+	}
+	firstRateHistory := rateHistory[0].(map[string]any)
+	if firstRateHistory["ratesJson"] != `{"USD":1,"RUB":90,"AAPL":210}` {
+		t.Fatalf("first rate history = %#v", firstRateHistory)
+	}
+
+	snapshotResponse := assertMoneyJSON(t, http.MethodGet, server.URL+"/api/money/snapshot", tokens.AccessToken, nil, http.StatusOK)
+	snapshotRateHistory := snapshotResponse["data"].(map[string]any)["rateHistory"].([]any)
+	if len(snapshotRateHistory) != 2 {
+		t.Fatalf("snapshot rateHistory len = %d, want 2", len(snapshotRateHistory))
+	}
+	firstSnapshotRateHistory := snapshotRateHistory[0].(map[string]any)
+	if _, ok := firstSnapshotRateHistory["ratesJson"].(map[string]any); !ok {
+		t.Fatalf("snapshot ratesJson type = %T, want object", firstSnapshotRateHistory["ratesJson"])
+	}
 }
 
 func assertMoneyStatus(t *testing.T, method string, url string, accessToken string, body any, wantStatus int) {

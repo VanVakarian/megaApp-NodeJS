@@ -13,16 +13,25 @@ import (
 	"time"
 
 	"megaapp-back/internal/httpx/legacy"
+	platformclock "megaapp-back/internal/platform/clock"
 
 	"github.com/disintegration/imaging"
 )
 
 type Service struct {
-	repo *Repository
+	repo  *Repository
+	clock platformclock.Clock
 }
 
 func NewService(repo *Repository) *Service {
-	return &Service{repo: repo}
+	return NewServiceWithClock(repo, platformclock.NewRealClock())
+}
+
+func NewServiceWithClock(repo *Repository, appClock platformclock.Clock) *Service {
+	if appClock == nil {
+		appClock = platformclock.NewRealClock()
+	}
+	return &Service{repo: repo, clock: appClock}
 }
 
 func (s *Service) GetSnapshot(ctx context.Context, userID int64) (Snapshot, error) {
@@ -67,7 +76,7 @@ func (s *Service) GetSnapshot(ctx context.Context, userID int64) (Snapshot, erro
 		Assets:            assets,
 		InvestAssetTrades: investAssetTrades,
 		Transactions:      transactions,
-		RateHistory:       rateHistory,
+		RateHistory:       s.filterSnapshotRateHistory(rateHistory, currencies, investAssetTrades),
 	}, nil
 }
 
@@ -382,6 +391,14 @@ func (s *Service) GetTransactions(ctx context.Context, userID int64) ([]Transact
 	return s.repo.ListTransactions(ctx, userID)
 }
 
+func (s *Service) GetInvestAssetTrades(ctx context.Context, userID int64) ([]InvestAssetTrade, error) {
+	return s.repo.ListInvestAssetTrades(ctx, userID)
+}
+
+func (s *Service) GetRateHistory(ctx context.Context) ([]RateHistory, error) {
+	return s.repo.ListRateHistory(ctx)
+}
+
 func (s *Service) CreateTransaction(ctx context.Context, userID int64, input TransactionInput) (CreateTransactionResult, error) {
 	normalized, err := validateTransactionInput(input)
 	if err != nil {
@@ -625,6 +642,117 @@ func (s *Service) normalizeExistingInvestTransaction(ctx context.Context, userID
 		return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "Asset cannot be changed")
 	}
 	return s.normalizeInvestTransaction(ctx, userID, input)
+}
+
+func (s *Service) filterSnapshotRateHistory(rateHistory []RateHistory, currencies []Currency, investAssetTrades []InvestAssetTrade) []SnapshotRateHistory {
+	currencyTickers := make(map[string]struct{}, len(currencies))
+	for _, currency := range currencies {
+		currencyTickers[currency.Ticker] = struct{}{}
+	}
+	eomHeld := s.computeEOMHeldTickers(investAssetTrades)
+
+	result := make([]SnapshotRateHistory, 0, len(rateHistory))
+	for _, record := range rateHistory {
+		ratesJSON, ok := parseRatesJSON(record.RatesJSON)
+		if !ok {
+			continue
+		}
+		year, month, day, ok := parseISODateParts(record.DateISO)
+		if !ok {
+			continue
+		}
+		allowedTickers := cloneTickerSet(currencyTickers)
+		if day == daysInMonth(year, month) {
+			for ticker := range eomHeld[record.DateISO[:7]] {
+				allowedTickers[ticker] = struct{}{}
+			}
+		}
+
+		filtered := make(map[string]float64)
+		for ticker, rate := range ratesJSON {
+			if _, exists := allowedTickers[ticker]; exists {
+				filtered[ticker] = rate
+			}
+		}
+		if len(filtered) == 0 {
+			continue
+		}
+
+		result = append(result, SnapshotRateHistory{ID: record.ID, DateISO: record.DateISO, RatesJSON: filtered})
+	}
+	return result
+}
+
+func (s *Service) computeEOMHeldTickers(investAssetTrades []InvestAssetTrade) map[string]map[string]struct{} {
+	type tradeEvent struct {
+		ID      int64
+		DateISO string
+		Ticker  string
+		Qty     float64
+	}
+
+	events := make([]tradeEvent, 0, len(investAssetTrades))
+	for _, trade := range investAssetTrades {
+		if trade.AssetTicker == nil || *trade.AssetTicker == "" {
+			continue
+		}
+		details := normalizeDetailsJSON(trade.DetailsJSON)
+		quantity, ok := finiteNumber(details["quantity"])
+		if !ok || quantity <= 0 {
+			continue
+		}
+		delta := quantity
+		if trade.Kind == TransactionKindInvestSell {
+			delta = -delta
+		}
+		events = append(events, tradeEvent{ID: trade.ID, DateISO: trade.DateISO, Ticker: *trade.AssetTicker, Qty: delta})
+	}
+	if len(events) == 0 {
+		return map[string]map[string]struct{}{}
+	}
+
+	sort.Slice(events, func(i int, j int) bool {
+		if events[i].DateISO == events[j].DateISO {
+			return events[i].ID < events[j].ID
+		}
+		return events[i].DateISO < events[j].DateISO
+	})
+
+	firstYear, firstMonth, _, ok := parseISODateParts(events[0].DateISO)
+	if !ok {
+		return map[string]map[string]struct{}{}
+	}
+	now := s.clock.Now()
+	lastYear := now.Year()
+	lastMonth := int(now.Month())
+
+	result := make(map[string]map[string]struct{})
+	cumulativeQty := make(map[string]float64)
+	tradeIndex := 0
+	for year, month := firstYear, firstMonth; year < lastYear || (year == lastYear && month <= lastMonth); {
+		eomISO := formatISODate(year, month, daysInMonth(year, month))
+		monthKey := formatYearMonth(year, month)
+		for tradeIndex < len(events) && events[tradeIndex].DateISO <= eomISO {
+			event := events[tradeIndex]
+			cumulativeQty[event.Ticker] += event.Qty
+			tradeIndex++
+		}
+
+		held := make(map[string]struct{})
+		for ticker, quantity := range cumulativeQty {
+			if quantity > 1e-9 {
+				held[ticker] = struct{}{}
+			}
+		}
+		result[monthKey] = held
+
+		month++
+		if month > 12 {
+			month = 1
+			year++
+		}
+	}
+	return result
 }
 
 func validateOrganizationInput(input OrganizationInput) (OrganizationInput, error) {
@@ -975,6 +1103,56 @@ func finiteNumber(value any) (float64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func parseRatesJSON(value string) (map[string]float64, bool) {
+	var result map[string]float64
+	if err := json.Unmarshal([]byte(value), &result); err != nil {
+		return nil, false
+	}
+	if result == nil {
+		return nil, false
+	}
+	return result, true
+}
+
+func parseISODateParts(value string) (int, int, int, bool) {
+	if len(value) != len("2006-01-02") {
+		return 0, 0, 0, false
+	}
+	year, err := strconv.Atoi(value[0:4])
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	month, err := strconv.Atoi(value[5:7])
+	if err != nil || month < 1 || month > 12 {
+		return 0, 0, 0, false
+	}
+	day, err := strconv.Atoi(value[8:10])
+	if err != nil || day < 1 || day > 31 {
+		return 0, 0, 0, false
+	}
+	return year, month, day, true
+}
+
+func cloneTickerSet(values map[string]struct{}) map[string]struct{} {
+	result := make(map[string]struct{}, len(values))
+	for value := range values {
+		result[value] = struct{}{}
+	}
+	return result
+}
+
+func daysInMonth(year int, month int) int {
+	return time.Date(year, time.Month(month)+1, 0, 0, 0, 0, 0, time.UTC).Day()
+}
+
+func formatYearMonth(year int, month int) string {
+	return fmt.Sprintf("%04d-%02d", year, month)
+}
+
+func formatISODate(year int, month int, day int) string {
+	return fmt.Sprintf("%04d-%02d-%02d", year, month, day)
 }
 
 func validateInvestPayload(kind TransactionKind, amount float64, details map[string]any, assetType AssetType) (float64, map[string]any, error) {

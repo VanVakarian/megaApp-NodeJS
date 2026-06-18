@@ -722,7 +722,11 @@
 - проверить, что frontend analytics не разваливается на snapshot from Go
 
 ### Result
-- Status: Pending
+- Status: Done
+- Test status: `go test ./...` in `megaapp-back` passed after the Step 16 implementation pass.
+- Manual check status: User manually verified the money screen, list and chart loading, display-currency switching, chart-range behavior, and analytics rendering against the Go snapshot and confirmed that the migrated projection paths work correctly in the current frontend.
+- Findings: Added legacy-compatible `GET /api/money/trades` and `GET /api/money/rate-history` routes; moved money snapshot assembly onto a dedicated projection path that now filters `rateHistory` like the old JS backend by keeping currency tickers on all dates and held-asset tickers only on end-of-month records; and restored snapshot `ratesJson` object shaping for frontend analytics while keeping the standalone rate-history endpoint raw.
+- Issues and resolutions: The previous Go snapshot returned raw `ratesJson` strings for every rate-history row, which was reachable by the frontend but not actually legacy-parity behavior. Step 16 now separates raw rate-history reads from the filtered snapshot projection so direct API compatibility and analytics-input compatibility both remain correct.
 
 ---
 

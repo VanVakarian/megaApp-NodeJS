@@ -119,15 +119,21 @@ type RateHistory struct {
 	RatesJSON string `json:"ratesJson"`
 }
 
+type SnapshotRateHistory struct {
+	ID        int64              `json:"id"`
+	DateISO   string             `json:"dateISO"`
+	RatesJSON map[string]float64 `json:"ratesJson"`
+}
+
 type Snapshot struct {
-	Currencies        []Currency         `json:"currencies"`
-	Categories        []Category         `json:"categories"`
-	Organizations     []Organization     `json:"organizations"`
-	Accounts          []Account          `json:"accounts"`
-	Assets            []Asset            `json:"assets"`
-	InvestAssetTrades []InvestAssetTrade `json:"investAssetTrades"`
-	Transactions      []Transaction      `json:"transactions"`
-	RateHistory       []RateHistory      `json:"rateHistory"`
+	Currencies        []Currency            `json:"currencies"`
+	Categories        []Category            `json:"categories"`
+	Organizations     []Organization        `json:"organizations"`
+	Accounts          []Account             `json:"accounts"`
+	Assets            []Asset               `json:"assets"`
+	InvestAssetTrades []InvestAssetTrade    `json:"investAssetTrades"`
+	Transactions      []Transaction         `json:"transactions"`
+	RateHistory       []SnapshotRateHistory `json:"rateHistory"`
 }
 
 type OrganizationInput struct {
