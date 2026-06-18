@@ -33,6 +33,12 @@ type Config struct {
 	OpenAIEmbeddingModel  string
 	OpenAIEmbeddingDims   int
 	OpenAITimeout         time.Duration
+	QuotesJobEnabled      bool
+	QuotesJobSchedule     string
+	QuotesFetchDays       int
+	QuotesRetryAttempts   int
+	QuotesRetryDelay      time.Duration
+	QuotesRequestTimeout  time.Duration
 	HTTPReadTimeout       time.Duration
 	HTTPWriteTimeout      time.Duration
 	HTTPIdleTimeout       time.Duration
@@ -78,6 +84,8 @@ func Load() (Config, error) {
 		OpenRouterImageModel:  getString("OPENROUTER_IMAGE_MODEL", "google/gemini-2.5-flash-image"),
 		OpenAIAPIKey:          getString("OPENAI_API_KEY", ""),
 		OpenAIEmbeddingModel:  getString("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
+		QuotesJobEnabled:      getBool("QUOTES_JOB_ENABLED", false),
+		QuotesJobSchedule:     getString("QUOTES_JOB_SCHEDULE", "0 3 * * *"),
 		BuildVersion:          getString("APP_BUILD_VERSION", "dev"),
 		BuildCommit:           getString("APP_BUILD_COMMIT", "local"),
 		BuildTime:             getString("APP_BUILD_TIME", "unknown"),
@@ -156,6 +164,30 @@ func Load() (Config, error) {
 	}
 	cfg.OpenAITimeout = time.Duration(openAITimeoutSeconds) * time.Second
 
+	quotesFetchDays, err := getInt("QUOTES_FETCH_DAYS", 7)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.QuotesFetchDays = quotesFetchDays
+
+	quotesRetryAttempts, err := getInt("QUOTES_RETRY_ATTEMPTS", 3)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.QuotesRetryAttempts = quotesRetryAttempts
+
+	quotesRetryDelaySeconds, err := getInt("QUOTES_RETRY_DELAY_SECONDS", 30)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.QuotesRetryDelay = time.Duration(quotesRetryDelaySeconds) * time.Second
+
+	quotesRequestTimeoutSeconds, err := getInt("QUOTES_REQUEST_TIMEOUT_SECONDS", 20)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.QuotesRequestTimeout = time.Duration(quotesRequestTimeoutSeconds) * time.Second
+
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
@@ -205,6 +237,21 @@ func (c Config) Validate() error {
 	}
 	if c.OpenAITimeout <= 0 {
 		return fmt.Errorf("validate config: OPENAI_TIMEOUT_SECONDS must be greater than 0")
+	}
+	if strings.TrimSpace(c.QuotesJobSchedule) == "" {
+		return fmt.Errorf("validate config: QUOTES_JOB_SCHEDULE is required")
+	}
+	if c.QuotesFetchDays <= 0 {
+		return fmt.Errorf("validate config: QUOTES_FETCH_DAYS must be greater than 0")
+	}
+	if c.QuotesRetryAttempts <= 0 {
+		return fmt.Errorf("validate config: QUOTES_RETRY_ATTEMPTS must be greater than 0")
+	}
+	if c.QuotesRetryDelay <= 0 {
+		return fmt.Errorf("validate config: QUOTES_RETRY_DELAY_SECONDS must be greater than 0")
+	}
+	if c.QuotesRequestTimeout <= 0 {
+		return fmt.Errorf("validate config: QUOTES_REQUEST_TIMEOUT_SECONDS must be greater than 0")
 	}
 	if c.HTTPReadTimeout <= 0 {
 		return fmt.Errorf("validate config: HTTP_READ_TIMEOUT_SECONDS must be greater than 0")
@@ -280,6 +327,21 @@ func (c Config) isDevLike() bool {
 
 func (c Config) usesInsecureJWTSecret() bool {
 	return strings.TrimSpace(c.JWTSecret) == "dev-insecure-jwt-secret"
+}
+
+func getBool(key string, fallback bool) bool {
+	value, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func getInt(key string, fallback int) (int, error) {

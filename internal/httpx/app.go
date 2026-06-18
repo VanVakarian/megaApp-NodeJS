@@ -12,9 +12,11 @@ import (
 	"megaapp-back/internal/auth"
 	"megaapp-back/internal/config"
 	"megaapp-back/internal/food"
+	"megaapp-back/internal/jobs"
 	"megaapp-back/internal/money"
 	clockplatform "megaapp-back/internal/platform/clock"
 	sqliteplatform "megaapp-back/internal/platform/sqlite"
+	"megaapp-back/internal/quotes"
 	"megaapp-back/internal/settings"
 	"megaapp-back/internal/ws"
 
@@ -47,16 +49,26 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 		return nil, err
 	}
 
+	jobRuntime := jobs.NewRuntime(logger)
+
 	authModule := buildAuthModule(db.SQL(), cfg)
 	settingsModule := buildSettingsModule(db.SQL())
 	moneyModule := buildMoneyModule(db.SQL())
+	quotesModule, err := buildQuotesModule(db.SQL(), cfg, logger, clk, jobRuntime)
+	if err != nil {
+		_ = jobRuntime.Close()
+		_ = db.Close()
+		return nil, err
+	}
 	wsModule := buildWSModule(cfg, authModule.service)
 	foodModule, err := buildFoodModule(db.SQL(), cfg, wsModule.hub, clk)
 	if err != nil {
 		_ = wsModule.hub.Close()
+		_ = jobRuntime.Close()
 		_ = db.Close()
 		return nil, err
 	}
+	jobRuntime.Start()
 
 	router := chiRouter(logger, observer, cfg.MaxRequestBodyBytes, cfg.MaxMultipartBodyBytes)
 	router.Get("/health", HealthHandler())
@@ -73,6 +85,7 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 	food.RegisterImageRoutes(router, foodModule.imageHandler)
 	food.RegisterLabRoutes(router, foodModule.labHandler)
 	food.RegisterDebugRoutes(router, foodModule.debugHandler)
+	quotes.RegisterDebugRoutes(router, quotesModule.debugHandler)
 	ws.RegisterRoutes(router, wsModule.handler)
 
 	server := &http.Server{
@@ -90,7 +103,7 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 		Observer:    observer,
 		DB:          db,
 		WSHub:       wsModule.hub,
-		Backgrounds: foodModule.backgrounds,
+		Backgrounds: append(foodModule.backgrounds, jobRuntime),
 		Handler:     router,
 		Server:      server,
 	}, nil

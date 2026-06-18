@@ -1,15 +1,19 @@
 package httpx
 
 import (
+	"context"
 	"database/sql"
+	"log/slog"
 	"strings"
 	"time"
 
 	"megaapp-back/internal/auth"
 	"megaapp-back/internal/config"
 	"megaapp-back/internal/food"
+	"megaapp-back/internal/jobs"
 	"megaapp-back/internal/money"
 	clockplatform "megaapp-back/internal/platform/clock"
+	"megaapp-back/internal/quotes"
 	"megaapp-back/internal/settings"
 	"megaapp-back/internal/ws"
 )
@@ -32,6 +36,11 @@ type wsModule struct {
 type moneyModule struct {
 	service *money.Service
 	handler *money.Handler
+}
+
+type quotesModule struct {
+	service      *quotes.Service
+	debugHandler *quotes.DebugHandler
 }
 
 type foodModule struct {
@@ -69,6 +78,25 @@ func buildMoneyModule(db *sql.DB) moneyModule {
 	repo := money.NewRepository(db)
 	service := money.NewService(repo)
 	return moneyModule{service: service, handler: money.NewHandler(service)}
+}
+
+func buildQuotesModule(db *sql.DB, cfg config.Config, logger *slog.Logger, clk clockplatform.Clock, runtime *jobs.Runtime) (quotesModule, error) {
+	repo := quotes.NewRepository(db)
+	service := quotes.NewService(repo, quotes.Config{
+		FetchDays:      cfg.QuotesFetchDays,
+		RetryAttempts:  cfg.QuotesRetryAttempts,
+		RetryDelay:     cfg.QuotesRetryDelay,
+		RequestTimeout: cfg.QuotesRequestTimeout,
+	}, clk, quotes.NewMarketFetcher(cfg.QuotesRequestTimeout))
+	if cfg.QuotesJobEnabled {
+		if err := runtime.Register("quotes", cfg.QuotesJobSchedule, func(ctx context.Context) error {
+			_, err := service.Run(ctx)
+			return err
+		}); err != nil {
+			return quotesModule{}, err
+		}
+	}
+	return quotesModule{service: service, debugHandler: quotes.NewDebugHandler(service)}, nil
 }
 
 func buildFoodModule(db *sql.DB, cfg config.Config, hub *ws.Hub, clk clockplatform.Clock) (foodModule, error) {

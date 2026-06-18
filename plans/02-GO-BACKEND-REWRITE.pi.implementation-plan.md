@@ -759,7 +759,11 @@
 - проверить, что money graphs используют новые данные без регрессий
 
 ### Result
-- Status: Pending
+- Status: Done
+- Test status: `go test ./...` in `megaapp-back` passed after the Step 17 implementation pass.
+- Manual check status: User manually verified the quotes job trigger, rate-history updates, and money-chart behavior after the Go quotes run and confirmed that the migrated quotes flow works correctly without visible regressions.
+- Findings: Added a shared in-process job runtime, implemented the Go quotes job with ticker discovery from currencies and open positions, restored provider fallback and retry behavior for currency, crypto, stock, and bond sources, added raw rate-history upserts into `moneyRateHistory`, and exposed a manual compatibility trigger at `/api/debug/run-quotes-job` while keeping scheduled execution behind config gating.
+- Issues and resolutions: Stock and bond normalization depend on RUB-to-USD rates being present for the same dates, just like the inherited JS flow. Step 17 therefore merges existing and freshly fetched currency rates first, then runs stock and bond fetchers against that merged rate map instead of treating all provider groups as independent.
 
 ---
 

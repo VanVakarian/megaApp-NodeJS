@@ -28,6 +28,12 @@ func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("OPENAI_EMBEDDING_MODEL", "")
 	t.Setenv("OPENAI_EMBEDDING_DIMENSIONS", "")
 	t.Setenv("OPENAI_TIMEOUT_SECONDS", "")
+	t.Setenv("QUOTES_JOB_ENABLED", "")
+	t.Setenv("QUOTES_JOB_SCHEDULE", "")
+	t.Setenv("QUOTES_FETCH_DAYS", "")
+	t.Setenv("QUOTES_RETRY_ATTEMPTS", "")
+	t.Setenv("QUOTES_RETRY_DELAY_SECONDS", "")
+	t.Setenv("QUOTES_REQUEST_TIMEOUT_SECONDS", "")
 	t.Setenv("HTTP_READ_TIMEOUT_SECONDS", "")
 	t.Setenv("HTTP_WRITE_TIMEOUT_SECONDS", "")
 	t.Setenv("HTTP_IDLE_TIMEOUT_SECONDS", "")
@@ -105,6 +111,24 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.OpenAITimeout != 60*time.Second {
 		t.Fatalf("OpenAITimeout = %v, want 60s", cfg.OpenAITimeout)
 	}
+	if cfg.QuotesJobEnabled {
+		t.Fatal("QuotesJobEnabled = true, want false")
+	}
+	if cfg.QuotesJobSchedule != "0 3 * * *" {
+		t.Fatalf("QuotesJobSchedule = %q, want 0 3 * * *", cfg.QuotesJobSchedule)
+	}
+	if cfg.QuotesFetchDays != 7 {
+		t.Fatalf("QuotesFetchDays = %d, want 7", cfg.QuotesFetchDays)
+	}
+	if cfg.QuotesRetryAttempts != 3 {
+		t.Fatalf("QuotesRetryAttempts = %d, want 3", cfg.QuotesRetryAttempts)
+	}
+	if cfg.QuotesRetryDelay != 30*time.Second {
+		t.Fatalf("QuotesRetryDelay = %v, want 30s", cfg.QuotesRetryDelay)
+	}
+	if cfg.QuotesRequestTimeout != 20*time.Second {
+		t.Fatalf("QuotesRequestTimeout = %v, want 20s", cfg.QuotesRequestTimeout)
+	}
 	if cfg.HTTPReadTimeout != 15*time.Second {
 		t.Fatalf("HTTPReadTimeout = %v, want 15s", cfg.HTTPReadTimeout)
 	}
@@ -159,6 +183,15 @@ func TestValidateRejectsInsecureJWTSecretOutsideDevLikeEnv(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsInvalidQuotesConfig(t *testing.T) {
+	cfg := validTestConfig()
+	cfg.QuotesFetchDays = 0
+
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+}
+
 func validTestConfig() Config {
 	return Config{
 		AppEnv:                "test",
@@ -177,6 +210,11 @@ func validTestConfig() Config {
 		OpenRouterTimeout:     time.Second,
 		OpenAIEmbeddingDims:   768,
 		OpenAITimeout:         time.Second,
+		QuotesJobSchedule:     "0 3 * * *",
+		QuotesFetchDays:       7,
+		QuotesRetryAttempts:   3,
+		QuotesRetryDelay:      30 * time.Second,
+		QuotesRequestTimeout:  20 * time.Second,
 		HTTPReadTimeout:       time.Second,
 		HTTPWriteTimeout:      time.Second,
 		HTTPIdleTimeout:       time.Second,
