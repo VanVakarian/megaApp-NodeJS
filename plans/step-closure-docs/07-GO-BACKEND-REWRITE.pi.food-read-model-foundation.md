@@ -1,6 +1,6 @@
 # Go Backend Rewrite — Food Read Model Foundation
 
-> Step 06 artifact. Фиксирует перенос базовых food read endpoints в Go runtime.
+> Step 06 Step Closure Doc. Фиксирует перенос базовых food read endpoints в Go runtime.
 
 ---
 

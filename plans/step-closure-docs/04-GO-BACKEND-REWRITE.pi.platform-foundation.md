@@ -1,6 +1,6 @@
 # Go Backend Rewrite — Platform Foundation
 
-> Step 02 artifact. Фиксирует, что именно было заложено в базовый Go runtime до начала продуктовых доменов.
+> Step 02 Step Closure Doc. Фиксирует, что именно было заложено в базовый Go runtime до начала продуктовых доменов.
 
 ---
 

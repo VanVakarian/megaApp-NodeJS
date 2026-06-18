@@ -1,6 +1,6 @@
 # Go Backend Rewrite — Auth Core
 
-> Step 03 artifact. Фиксирует перенос auth boundary на Go.
+> Step 03 Step Closure Doc. Фиксирует перенос auth boundary на Go.
 
 ---
 

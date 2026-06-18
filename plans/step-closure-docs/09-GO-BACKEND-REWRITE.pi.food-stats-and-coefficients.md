@@ -1,6 +1,6 @@
 # Go Backend Rewrite — Food Stats And Coefficients
 
-> Step 08 artifact. Фиксирует перенос stats cache behavior и coefficients normalization в Go runtime.
+> Step 08 Step Closure Doc. Фиксирует перенос stats cache behavior и coefficients normalization в Go runtime.
 
 ---
 

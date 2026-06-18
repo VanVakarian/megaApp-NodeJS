@@ -1,6 +1,6 @@
 # Go Backend Rewrite — WebSocket Foundation
 
-> Step 05 artifact. Фиксирует базовый WebSocket transport в Go runtime.
+> Step 05 Step Closure Doc. Фиксирует базовый WebSocket transport в Go runtime.
 
 ---
 

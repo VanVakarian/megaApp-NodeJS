@@ -46,6 +46,7 @@
 - у manual checklist есть явные ожидания по DevTools Network: какие запросы должны пройти и что не должно быть `401`, `404`, `500` или reconnect loops без причины
 - его manual verification path не требует изменения default user-facing behavior
 - его можно завершить без частичного production deploy
+- если завершённые stepы вскрыли cross-cutting architectural drift, до следующего большого домена допустим отдельный hardening step, который чинит общие границы и guardrails без добавления новой крупной user-visible функциональности
 
 ---
 
@@ -56,6 +57,9 @@
 - Контракты API и WebSocket сохраняются максимально близко к текущим.
 - Тесты обязательны, но простые и стандартные: unit + integration для критичных сценариев.
 - Архитектура должна остаться готовой к будущей Prometheus instrumentation, но сами метрики пока не реализуются как отдельная фича.
+- Внутренний app-level error model допустим и желателен даже там, где внешний response body должен остаться legacy-compatible.
+- Transport DTO должны оставаться на HTTP/WS boundary; service/application layer не должны зависеть от request structs и raw transport maps, кроме явно зафиксированных compatibility seams.
+- Time-dependent logic для stats, sync timestamps и будущих jobs до начала money и job-heavy stepов переводится на injected clock abstraction.
 
 ---
 
@@ -72,7 +76,7 @@
 ### Includes
 - финальная фиксация структуры репозитория для Go backend
 - подтверждение роли папки со старым JS как reference source
-- фиксация naming для планов, design docs и implementation plans
+- фиксация naming для планов, design docs, implementation plans и Step Closure Docs
 - фиксация принципа single final deploy
 - фиксация списка критичных HTTP/WS contracts, которые нельзя сломать
 
@@ -86,7 +90,7 @@
 ### Result
 - Status: Done
 - Test status: Not applicable for product logic in this step.
-- Findings: Reference JS source is isolated in `megaapp-back/old-js`. Go workspace root is now reserved for the rewrite. Critical HTTP/WS contracts, repository shape, final deploy model and current SQLite migration stance are frozen in `megaapp-back/plans/03-GO-BACKEND-REWRITE.pi.workspace-freeze.md`.
+- Findings: Reference JS source is isolated in `megaapp-back/old-js`. Go workspace root is now reserved for the rewrite. Critical HTTP/WS contracts, repository shape, final deploy model and current SQLite migration stance are frozen in `megaapp-back/plans/step-closure-docs/03-GO-BACKEND-REWRITE.pi.workspace-freeze.md`.
 - Issues and resolutions: The rewrite still needs Go-side migration infrastructure later, but the current plan does not require a mandatory production schema/data migration for cutover as long as Go stays compatible with the current SQLite schema.
 
 ---
@@ -128,7 +132,7 @@
 - Status: Done
 - Test status: `go test ./...` in `megaapp-back` passed.
 - Manual check status: User verified `/health`, `/readiness`, `/build-info`, startup from `.env`, and normal shutdown.
-- Findings: Go module, startup entry point, dotenv-based config loading, DB naming convention, structured logging, chi router, ops endpoints, SQLite wrapper, migration runner foundation, graceful shutdown and base HTTP/DB tests are in place. Detailed step artifact: `megaapp-back/plans/04-GO-BACKEND-REWRITE.pi.platform-foundation.md`.
+- Findings: Go module, startup entry point, dotenv-based config loading, DB naming convention, structured logging, chi router, ops endpoints, SQLite wrapper, migration runner foundation, graceful shutdown and base HTTP/DB tests are in place. Step Closure Doc: `megaapp-back/plans/Step Closure Docs/04-GO-BACKEND-REWRITE.pi.platform-foundation.md`.
 - Issues and resolutions: Static serving parity with old backend was intentionally left out of this step because no current domain flow depends on it yet. Migration foundation was added without introducing a mandatory production schema rewrite. SQLite clean shutdown now performs WAL checkpoint/truncate so the main `.db` remains the primary file for copying and backups.
 
 ---
@@ -167,7 +171,7 @@
 - Status: Done
 - Test status: `go test ./...` in `megaapp-back` passed after auth integration.
 - Manual check status: User verified login on `Settings`, page refresh with preserved session, logout, and repeated login through the UI.
-- Findings: Go auth routes, bcrypt password hashing, JWT issue/verify, refresh flow and bearer auth middleware are implemented. Detailed step artifact: `megaapp-back/plans/05-GO-BACKEND-REWRITE.pi.auth-core.md`.
+- Findings: Go auth routes, bcrypt password hashing, JWT issue/verify, refresh flow and bearer auth middleware are implemented. Step Closure Doc: `megaapp-back/plans/Step Closure Docs/05-GO-BACKEND-REWRITE.pi.auth-core.md`.
 - Issues and resolutions: WebSocket auth wiring is intentionally deferred to the dedicated WebSocket step. Current auth step only establishes the shared verification foundation needed by later protected HTTP and WS flows.
 
 ---
@@ -437,38 +441,82 @@
 
 ---
 
-## Step 10. Food Images, Lab, Debug
+## Step 10. Architecture Hardening And Runtime Guardrails
 
 ### Goal
-Перенести периферийные food-подсистемы после закрытия core food flows.
+Подтянуть общие архитектурные границы и runtime guardrails после уже завершённых food stepов и до входа в money, images и jobs.
 
 ### Depends On
 - Step 09
 
 ### Includes
-- image analysis endpoint parity
-- image generation queue
-- image rebuild flows
-- lab endpoints
-- debug endpoints related to catalogue and AI
+- удаление remaining transport leakage из service/application layer
+- замена HTTP-bound request structs и raw transport maps внутри сервисов на typed app/domain inputs там, где это не ломает внешний контракт
+- общий internal error taxonomy и централизованный HTTP mapping при сохранении текущих legacy response bodies и status semantics
+- минимальный event publication seam между domain/application services и WebSocket transport
+- injected clock abstraction для stats, sync timestamps и будущих job flows
+- явная фиксация текущей stats runtime model как `cache + invalidate + recompute-on-read`, если profiling позже не докажет реальную необходимость отдельного debounce scheduler
+- разбиение composition root на более мелкие domain assembly units до того, как `app.go` разрастётся из-за money и jobs
+- runtime hardening: HTTP timeouts, request/body limits, WebSocket guardrails, feature-scoped config validation и явная policy для insecure defaults только в dev-compatible режимах
 
 ### Go Test Focus
-- queue lifecycle
-- file generation/storage tests
-- endpoint smoke tests
-- external provider error handling tests
+- service tests больше не зависят от transport request types
+- app-error to legacy HTTP-response mapping tests
+- event publication tests with sender exclusion preserved
+- deterministic time-dependent tests through injected clock
+- startup validation tests for feature-scoped config and insecure-default policy
+- HTTP and WebSocket guardrail smoke tests for size and timeout handling
 
 ### Manual Check
-- в UI: image-related food flow, если используется
-- вручную вызвать lab/debug сценарии, которые реально нужны
-- убедиться, что генерация изображения не ломает остальное приложение
+- запустить Go backend через обычный `.env` и убедиться, что startup rules не сломали нормальный dev run
+- пройти smoke path: login, settings save, food search, add/edit/delete diary entry, body weight save, stats refresh, second-tab sync
+- подержать WebSocket в двух вкладках и убедиться, что `101` остаётся стабильным, нет reconnect loop и нет спонтанных auth failures
+- отправить один намеренно невалидный или oversized request в любой уже мигрированный endpoint и убедиться, что backend отвечает контролируемым `4xx`, а процесс не падает
+- убедиться в DevTools Network, что response contracts уже мигрированных основных flow не изменились по форме
 
 ### Result
 - Status: Pending
 
 ---
 
-## Step 11. Money Setup Foundation
+## Step 11. Food Images, Lab, Debug
+
+### Goal
+Перенести периферийные food-подсистемы после закрытия core food flows.
+
+### Depends On
+- Step 09
+- Step 10
+
+### Includes
+- image analysis endpoint parity
+- image generation queue
+- image rebuild flows
+- safer file handling and controlled image/static serving
+- multipart and image payload limits
+- lab endpoints
+- debug endpoints related to catalogue and AI
+
+### Go Test Focus
+- queue lifecycle
+- file generation/storage tests
+- file path safety and serving tests
+- multipart limit tests
+- endpoint smoke tests
+- external provider error handling tests
+
+### Manual Check
+- в UI: image-related food flow, если используется
+- вручную вызвать lab/debug сценарии, которые реально нужны
+- убедиться, что корректная генерация изображения не ломает остальное приложение
+- убедиться, что явно плохой или слишком большой image payload отклоняется контролируемо и не приводит к падению процесса
+
+### Result
+- Status: Pending
+
+---
+
+## Step 12. Money Setup Foundation
 
 ### Goal
 Перенести money read/write foundation для справочных сущностей в порядке их зависимостей.
@@ -476,6 +524,7 @@
 ### Depends On
 - Step 03
 - Step 04
+- Step 10
 
 ### Includes
 - organizations CRUD
@@ -507,13 +556,13 @@
 
 ---
 
-## Step 12. Money Assets
+## Step 13. Money Assets
 
 ### Goal
 Перенести assets как отдельный step до транзакций, потому что invest flows зависят от готового asset registry.
 
 ### Depends On
-- Step 11
+- Step 12
 
 ### Includes
 - assets CRUD
@@ -538,13 +587,13 @@
 
 ---
 
-## Step 13. Money Transactions Core
+## Step 14. Money Transactions Core
 
 ### Goal
 Перенести non-invest transaction engine и парные transfer flows.
 
 ### Depends On
-- Step 11
+- Step 12
 
 ### Includes
 - income
@@ -553,11 +602,13 @@
 - transfer update/delete semantics
 - transaction validation rules
 - notes and detailsJSON compatibility where relevant
+- explicit DB transaction boundaries for multi-step mutations
 
 ### Go Test Focus
 - create/update/delete for income and expense
 - transfer pair invariants
 - invalid category/account scenarios
+- rollback behavior on mid-transaction failures
 - transaction persistence integration tests
 
 ### Manual Check
@@ -574,14 +625,14 @@
 
 ---
 
-## Step 14. Money Invest Transactions
+## Step 15. Money Invest Transactions
 
 ### Goal
 Перенести invest-specific rules после того, как assets и basic transactions уже готовы.
 
 ### Depends On
-- Step 12
 - Step 13
+- Step 14
 
 ### Includes
 - invest_buy
@@ -609,16 +660,16 @@
 
 ---
 
-## Step 15. Money Snapshot And Rate History
+## Step 16. Money Snapshot And Rate History
 
 ### Goal
 Перенести главный money projection contract, от которого зависит весь frontend money analytics.
 
 ### Depends On
-- Step 11
 - Step 12
 - Step 13
 - Step 14
+- Step 15
 
 ### Includes
 - `GET /api/money/transactions`
@@ -627,12 +678,14 @@
 - `GET /api/money/snapshot`
 - asset normalization
 - filtered rate-history projection behavior
+- representative JS-vs-Go parity fixtures for snapshot and rate-history contracts
 
 ### Go Test Focus
 - snapshot shape compatibility tests
 - rate-history projection tests
 - trades response tests
-- fixture-based parity tests against current backend outputs on representative data
+- fixture-based parity tests against current backend outputs on representative copied data
+- golden-fixture comparisons captured from the old JS backend for money snapshot and rate-history
 
 ### Manual Check
 - в UI: открыть money screen
@@ -646,24 +699,27 @@
 
 ---
 
-## Step 16. Quotes Job
+## Step 17. Quotes Job
 
 ### Goal
 Перенести quotes ingestion после готовности money rate-history domain.
 
 ### Depends On
-- Step 15
+- Step 16
 
 ### Includes
 - provider fallback logic
 - normalization to internal representation
 - required ticker discovery
+- integration with shared in-process job runtime and injected clock
+- config-gated enable/disable behavior
 - scheduled and manual trigger support
 
 ### Go Test Focus
 - normalization tests
 - provider fallback tests with mocks
 - upsert behavior tests
+- job runtime registration and config gating tests
 - scheduled job smoke test
 
 ### Manual Check
@@ -676,25 +732,29 @@
 
 ---
 
-## Step 17. Backup Job
+## Step 18. Backup Job
 
 ### Goal
 Перенести production-critical backup flow отдельно от business domains.
 
 ### Depends On
 - Step 02
+- Step 10
 
 ### Includes
 - SQLite snapshot creation
 - archive creation
 - upload to S3-compatible storage
 - cleanup logic
+- integration with shared in-process job runtime and injected clock
+- config-gated enable/disable behavior
 - scheduled and manual trigger support if needed
 
 ### Go Test Focus
 - archive creation tests
 - storage client tests with mocks
 - cleanup tests
+- job runtime registration and config gating tests
 - backup workflow integration smoke test
 
 ### Manual Check
@@ -708,26 +768,28 @@
 
 ---
 
-## Step 18. Final Parity Pass
+## Step 19. Final Parity Pass
 
 ### Goal
 Свести все куски в единый backend и закрыть cross-domain регрессии перед cutover.
 
 ### Depends On
-- Steps 02 through 17
+- Steps 02 through 18
 
 ### Includes
 - full automated test run
 - full manual regression checklist
-- config hardening
+- strict config/profile validation pass
 - production startup rehearsal
 - migration rehearsal on copied data
+- rerun of representative fixture parity checks for food stats and money snapshot/rate-history
 - load sanity for low-concurrency real usage
 
 ### Go Test Focus
 - full suite
 - end-to-end critical path tests
 - representative fixture parity tests for food and money
+- startup matrix checks for prod-like config profiles
 
 ### Manual Check
 - пройти весь auth flow
@@ -741,13 +803,13 @@
 
 ---
 
-## Step 19. Cutover And One-Shot Deploy
+## Step 20. Cutover And One-Shot Deploy
 
 ### Goal
 Переключить приложение на Go backend одним deploy после завершения всех предыдущих stepов.
 
 ### Depends On
-- Step 18
+- Step 19
 
 ### Includes
 - final build and packaging
@@ -779,8 +841,9 @@
 - Settings — самый маленький безопасный домен, хороший первый functional slice.
 - WebSocket foundation нужно сделать до food realtime sync и search, иначе потом придётся переделывать transport layer.
 - Food лучше начинать с read/write core, а AI и images оставить позже, потому что они менее фундаментальны и сильнее завязаны на внешние provider integrations.
+- После завершения core food flows добавлен отдельный hardening step, потому что completed stepы уже вскрыли реальные cross-cutting проблемы границ: transport leakage, event ownership, time-dependence и runtime guardrails. Дешевле исправить это один раз до money и jobs, чем размножить в новых доменах.
 - Money сначала идёт через reference data, потом assets, потом transactions, потом investments, потом snapshot. Это соответствует реальной зависимости вкладок и данных во frontend.
-- Quotes и backup лучше переносить после доменной базы, потому что это infrastructure-heavy, но не определяет базовую продуктовую готовность UI flows.
+- Quotes и backup лучше переносить после доменной базы, но уже поверх общего job/runtime foundation и clock discipline, чтобы не собирать второй раз infrastructure patterns в каждом job-oriented модуле.
 - Final parity и deploy — только в самом конце, потому что стратегия миграции сознательно не предполагает piece-by-piece production release.
 
 ---
@@ -788,6 +851,7 @@
 ## 7. Что будем уточнять позже отдельными документами
 
 Отдельные детальные implementation plans почти наверняка понадобятся для:
+- architecture hardening pass
 - food stats parity
 - food search and AI integration
 - money invest transactions

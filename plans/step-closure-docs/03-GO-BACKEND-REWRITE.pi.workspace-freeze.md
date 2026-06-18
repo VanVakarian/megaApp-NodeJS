@@ -1,6 +1,6 @@
 # Go Backend Rewrite — Workspace Freeze
 
-> Step 01 artifact. Фиксирует рабочую площадку, reference boundaries и инварианты, которые считаются замороженными перед началом Go-реализации.
+> Step 01 Step Closure Doc. Фиксирует рабочую площадку, reference boundaries и инварианты, которые считаются замороженными перед началом Go-реализации.
 
 ---
 
@@ -9,7 +9,7 @@
 Текущая роль директорий:
 - `megaapp-back/old-js` — reference implementation на JavaScript. Source of truth по текущему runtime behavior.
 - `megaapp-back/data` — рабочие SQLite-копии для Go backend. Не коммитятся в Git.
-- `megaapp-back/plans` — активные planning artifacts, design docs, implementation plans и step-level документы.
+- `megaapp-back/plans` — активные plans, design docs, implementation plans и папка `Step Closure Docs/` с step-level документами.
 - `megaapp-front` — reference consumer backend contracts. Source of truth по фактическим ожиданиям frontend.
 
 Go-реализация дальше строится в корне `megaapp-back` и не должна смешиваться с `old-js`.

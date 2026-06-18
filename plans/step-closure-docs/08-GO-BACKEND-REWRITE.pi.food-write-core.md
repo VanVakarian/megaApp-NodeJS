@@ -1,6 +1,6 @@
 # Go Backend Rewrite — Food Write Core
 
-> Step 07 artifact. Фиксирует перенос базовых food write flows в Go runtime.
+> Step 07 Step Closure Doc. Фиксирует перенос базовых food write flows в Go runtime.
 
 ---
 
