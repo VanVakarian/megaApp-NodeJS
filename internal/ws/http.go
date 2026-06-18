@@ -3,9 +3,9 @@ package ws
 import (
 	"net/http"
 	"strings"
-	"time"
 
 	"megaapp-back/internal/auth"
+	"megaapp-back/internal/httpx/legacy"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
@@ -55,10 +55,12 @@ func (h *Handler) Connect(w http.ResponseWriter, r *http.Request) {
 
 	clientID := strings.TrimSpace(r.URL.Query().Get("clientId"))
 	if clientID == "" {
+		clientID = strings.TrimSpace(r.Header.Get("X-Client-ID"))
+	}
+	if clientID == "" {
 		clientID = strings.TrimSpace(r.Header.Get("X-Client-Id"))
 	}
 
-	_ = conn.SetReadDeadline(time.Time{})
 	if _, err := h.hub.AddClient(conn, claims.UserID, clientID); err != nil {
 		_ = conn.Close()
 	}
@@ -80,7 +82,5 @@ func extractToken(r *http.Request) string {
 }
 
 func writeError(w http.ResponseWriter, statusCode int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	_, _ = w.Write([]byte(`{"error":"` + message + `"}`))
+	legacy.WriteJSON(w, statusCode, map[string]string{"error": message})
 }

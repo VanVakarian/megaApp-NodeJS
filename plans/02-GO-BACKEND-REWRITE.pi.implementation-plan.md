@@ -24,6 +24,9 @@
 - Если пользовательское поведение можно сохранить без изменений, его нужно сохранять полностью. Менять default user-facing flow, default mode, default route, default search behavior или другой заметный UX ради удобства миграции нельзя.
 - Временные workaround paths допустимы только для внутренней manual verification и только если они используют уже существующий пользовательский control или остаются полностью внутренними для миграции.
 - Промежуточные stepы не деплоятся в production по отдельности.
+- В этом плане `legacy-compatible` означает сохранение унаследованного внешнего контракта текущей системы для frontend и existing flows. Это migration tool, а не долгосрочная архитектурная цель.
+- Cleanup и modernization внешних API/WS contracts сознательно не смешиваются с текущим rewrite. Их можно планировать только отдельной post-cutover phase после полной функциональной готовности и периода стабилизации.
+- Когда добавляются или меняются config/env keys, их нужно синхронно обновлять в `.env.example`, `.env.dev.example`, `.env.test.example` и в актуальном рабочем `.env` этого backend workspace, чтобы локальный run оставался сразу рабочим без ручного догоняния.
 - Финальный deploy делается один раз, когда весь backend на Go проходит интеграционную и ручную проверку.
 
 ---
@@ -76,7 +79,7 @@
 ### Includes
 - финальная фиксация структуры репозитория для Go backend
 - подтверждение роли папки со старым JS как reference source
-- фиксация naming для планов, design docs, implementation plans и Step Closure Docs
+- фиксация naming для планов, design docs, implementation plans и `step-closure-docs`
 - фиксация принципа single final deploy
 - фиксация списка критичных HTTP/WS contracts, которые нельзя сломать
 
@@ -132,7 +135,7 @@
 - Status: Done
 - Test status: `go test ./...` in `megaapp-back` passed.
 - Manual check status: User verified `/health`, `/readiness`, `/build-info`, startup from `.env`, and normal shutdown.
-- Findings: Go module, startup entry point, dotenv-based config loading, DB naming convention, structured logging, chi router, ops endpoints, SQLite wrapper, migration runner foundation, graceful shutdown and base HTTP/DB tests are in place. Step Closure Doc: `megaapp-back/plans/Step Closure Docs/04-GO-BACKEND-REWRITE.pi.platform-foundation.md`.
+- Findings: Go module, startup entry point, dotenv-based config loading, DB naming convention, structured logging, chi router, ops endpoints, SQLite wrapper, migration runner foundation, graceful shutdown and base HTTP/DB tests are in place. Step Closure Doc: `megaapp-back/plans/step-closure-docs/04-GO-BACKEND-REWRITE.pi.platform-foundation.md`.
 - Issues and resolutions: Static serving parity with old backend was intentionally left out of this step because no current domain flow depends on it yet. Migration foundation was added without introducing a mandatory production schema rewrite. SQLite clean shutdown now performs WAL checkpoint/truncate so the main `.db` remains the primary file for copying and backups.
 
 ---
@@ -171,7 +174,7 @@
 - Status: Done
 - Test status: `go test ./...` in `megaapp-back` passed after auth integration.
 - Manual check status: User verified login on `Settings`, page refresh with preserved session, logout, and repeated login through the UI.
-- Findings: Go auth routes, bcrypt password hashing, JWT issue/verify, refresh flow and bearer auth middleware are implemented. Step Closure Doc: `megaapp-back/plans/Step Closure Docs/05-GO-BACKEND-REWRITE.pi.auth-core.md`.
+- Findings: Go auth routes, bcrypt password hashing, JWT issue/verify, refresh flow and bearer auth middleware are implemented. Step Closure Doc: `megaapp-back/plans/step-closure-docs/05-GO-BACKEND-REWRITE.pi.auth-core.md`.
 - Issues and resolutions: WebSocket auth wiring is intentionally deferred to the dedicated WebSocket step. Current auth step only establishes the shared verification foundation needed by later protected HTTP and WS flows.
 
 ---
@@ -475,7 +478,11 @@
 - убедиться в DevTools Network, что response contracts уже мигрированных основных flow не изменились по форме
 
 ### Result
-- Status: Pending
+- Status: Done
+- Test status: `go test ./...` in `megaapp-back` passed after Step 10 architecture hardening.
+- Manual check status: User reran the Step 10 manual smoke checklist and confirmed that startup, settings, food search, diary writes, body-weight saves, stats refresh, stable WebSocket `101`, cross-tab sync, and the already migrated frontend-visible flows still work correctly after the hardening changes.
+- Findings: Shared internal error taxonomy and centralized legacy-compatible HTTP error writing are now in place. Settings single-field updates and food restore-day flows no longer leak raw transport shapes into the service layer. Food realtime publication now goes through a module-scoped publisher instead of raw handler-to-hub calls. Food stats, sync timestamps, and search timestamps now use injected clock seams. `internal/httpx/app.go` is split through smaller assembly helpers, HTTP and WebSocket guardrails are configured, and stricter config validation now blocks insecure JWT defaults outside dev-like environments. Step Closure Doc: `megaapp-back/plans/step-closure-docs/11-GO-BACKEND-REWRITE.pi.architecture-hardening-and-runtime-guardrails.md`.
+- Issues and resolutions: The old stats-step wording implied a future debounce scheduler, but the current implemented and now explicitly accepted runtime model is `cache + invalidate + recompute-on-read` until profiling proves a stronger need. Manual smoke verification is now complete for this step.
 
 ---
 

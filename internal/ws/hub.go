@@ -16,6 +16,8 @@ type Hub struct {
 	handlers          map[string]MessageHandler
 	syncState         *SyncState
 	heartbeatInterval time.Duration
+	readLimitBytes    int64
+	writeTimeout      time.Duration
 	done              chan struct{}
 	closed            bool
 }
@@ -53,6 +55,8 @@ func NewHub(heartbeatInterval time.Duration, syncState *SyncState) *Hub {
 		handlers:          make(map[string]MessageHandler),
 		syncState:         syncState,
 		heartbeatInterval: heartbeatInterval,
+		readLimitBytes:    64 << 10,
+		writeTimeout:      5 * time.Second,
 		done:              make(chan struct{}),
 	}
 
@@ -68,8 +72,32 @@ func (h *Hub) RegisterHandler(messageType string, handler MessageHandler) {
 	h.handlers[messageType] = handler
 }
 
+func (h *Hub) SetReadLimitBytes(limit int64) {
+	if limit <= 0 {
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.readLimitBytes = limit
+}
+
+func (h *Hub) SetWriteTimeout(timeout time.Duration) {
+	if timeout <= 0 {
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.writeTimeout = timeout
+}
+
 func (h *Hub) AddClient(conn *websocket.Conn, userID int64, clientID string) (*Client, error) {
+	conn.SetReadLimit(h.ReadLimitBytes())
 	client := &Client{hub: h, conn: conn, userID: userID, clientID: clientID, alive: true}
+	client.extendReadDeadline()
 
 	h.mu.Lock()
 	if h.clientsByUserID[userID] == nil {
@@ -168,6 +196,20 @@ func (h *Hub) ConnectionCount(userID int64) int {
 	return len(h.clientsByUserID[userID])
 }
 
+func (h *Hub) ReadLimitBytes() int64 {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	return h.readLimitBytes
+}
+
+func (h *Hub) WriteTimeout() time.Duration {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	return h.writeTimeout
+}
+
 func (h *Hub) SetSyncState(userID int64, value int64) {
 	h.syncState.Set(userID, value)
 }
@@ -233,6 +275,7 @@ func (c *Client) readLoop() {
 		if err != nil {
 			return
 		}
+		c.extendReadDeadline()
 
 		var message map[string]any
 		if err := json.Unmarshal(data, &message); err != nil {
@@ -260,6 +303,9 @@ func (c *Client) writeJSON(payload any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if err := c.conn.SetWriteDeadline(time.Now().Add(c.hub.WriteTimeout())); err != nil {
+		return err
+	}
 	return c.conn.WriteJSON(payload)
 }
 
@@ -279,6 +325,7 @@ func (c *Client) markAlive() {
 	defer c.mu.Unlock()
 
 	c.alive = true
+	_ = c.conn.SetReadDeadline(time.Now().Add(c.hub.heartbeatInterval * 2))
 }
 
 func (c *Client) markAwaitingPong() bool {
@@ -297,4 +344,8 @@ func (h *Hub) getHandler(messageType string) MessageHandler {
 	defer h.mu.RUnlock()
 
 	return h.handlers[messageType]
+}
+
+func (c *Client) extendReadDeadline() {
+	_ = c.conn.SetReadDeadline(time.Now().Add(c.hub.heartbeatInterval * 2))
 }

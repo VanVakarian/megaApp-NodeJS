@@ -125,7 +125,7 @@ func TestWriteOperationsPersistData(t *testing.T) {
 		t.Fatalf("deletedCount = %d, want 1", deletedCount)
 	}
 
-	restored, err := service.RestoreDiaryEntriesForDay(context.Background(), 1, "2026-06-18", []createDiaryEntryRequest{{
+	restored, err := service.RestoreDiaryEntriesForDay(context.Background(), 1, "2026-06-18", []RestoreDiaryEntryInput{{
 		FoodCatalogueID: 1,
 		FoodWeight:      120,
 		History:         []HistoryEntry{{Action: "init", Value: 120}},
@@ -225,7 +225,7 @@ func TestSearchPreviewAndSaveProduct(t *testing.T) {
 		t.Fatalf("preview = %+v", preview)
 	}
 
-	entry, statusCode, err := service.SaveProduct(context.Background(), nil, ProductInput{
+	entry, err := service.SaveProduct(context.Background(), nil, ProductInput{
 		Name:        "Orange",
 		Kcals:       47,
 		Protein:     1,
@@ -237,8 +237,8 @@ func TestSearchPreviewAndSaveProduct(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveProduct() error = %v", err)
 	}
-	if statusCode != 201 || entry == nil || entry.ID <= 0 {
-		t.Fatalf("entry = %+v, statusCode = %d", entry, statusCode)
+	if entry == nil || entry.ID <= 0 {
+		t.Fatalf("entry = %+v", entry)
 	}
 
 	deleted, err := service.DeleteProduct(context.Background(), entry.ID)

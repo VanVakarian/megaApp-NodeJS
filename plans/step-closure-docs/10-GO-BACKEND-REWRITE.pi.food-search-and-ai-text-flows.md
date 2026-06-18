@@ -93,7 +93,6 @@ The runtime configuration path is also fixed explicitly: OpenRouter and OpenAI s
 
 Decision fixed by this finding:
 - do not skip Step 09
-- do not split out a separate 09.1 step
 - complete the missing AI-backed create-product text flow inside Step 09 because preview generation and voice-text analysis already belong to its original scope
 - keep image generation and media-heavy AI parts in later steps
 

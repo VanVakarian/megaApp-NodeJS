@@ -74,6 +74,9 @@ Step сознательно не включает:
 
 Config сейчас читается из `.env` / `.env.<APP_ENV>` и env, затем валидируется на старте.
 
+Operational rule for this workspace:
+- when config keys are added or changed, update `.env.example`, `.env.dev.example`, `.env.test.example`, and the active local `.env` together so the working backend run stays immediately usable without manual catch-up
+
 Заложены поля:
 - `APP_ENV`
 - `APP_HOST`

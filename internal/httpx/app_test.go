@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,22 +22,7 @@ import (
 
 func TestAppWebSocketUpgradeWorksThroughMiddleware(t *testing.T) {
 	tempDir := t.TempDir()
-	cfg := config.Config{
-		AppEnv:            "test",
-		AppHost:           "127.0.0.1",
-		AppPort:           3000,
-		LogLevel:          "info",
-		DataDir:           filepath.Join(tempDir, "data"),
-		DatabaseName:      "megaapp",
-		DatabaseEnv:       "test",
-		DatabaseVersion:   "005",
-		DatabasePath:      filepath.Join(tempDir, "data", "megaapp-test-005.db"),
-		MigrationsDir:     filepath.Join(tempDir, "migrations"),
-		PublicDir:         filepath.Join(tempDir, "public"),
-		JWTSecret:         "test-secret",
-		OpenRouterTimeout: time.Minute,
-		ShutdownTimeout:   time.Second,
-	}
+	cfg := appTestConfig(tempDir)
 
 	prepareAppTestFiles(t, cfg)
 
@@ -105,22 +91,7 @@ func TestAppWebSocketUpgradeWorksThroughMiddleware(t *testing.T) {
 
 func TestAppServeAndShutdown(t *testing.T) {
 	tempDir := t.TempDir()
-	cfg := config.Config{
-		AppEnv:            "test",
-		AppHost:           "127.0.0.1",
-		AppPort:           3000,
-		LogLevel:          "info",
-		DataDir:           filepath.Join(tempDir, "data"),
-		DatabaseName:      "megaapp",
-		DatabaseEnv:       "test",
-		DatabaseVersion:   "005",
-		DatabasePath:      filepath.Join(tempDir, "data", "megaapp-test-005.db"),
-		MigrationsDir:     filepath.Join(tempDir, "migrations"),
-		PublicDir:         filepath.Join(tempDir, "public"),
-		JWTSecret:         "test-secret",
-		OpenRouterTimeout: time.Minute,
-		ShutdownTimeout:   time.Second,
-	}
+	cfg := appTestConfig(tempDir)
 
 	prepareAppTestFiles(t, cfg)
 
@@ -152,6 +123,61 @@ func TestAppServeAndShutdown(t *testing.T) {
 
 	if err := <-errCh; err != nil {
 		t.Fatalf("Serve() error = %v", err)
+	}
+}
+
+func TestAppRejectsOversizedRequestBody(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := appTestConfig(tempDir)
+	cfg.MaxRequestBodyBytes = 64
+
+	prepareAppTestFiles(t, cfg)
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	app, err := NewApp(context.Background(), cfg, logger)
+	if err != nil {
+		t.Fatalf("NewApp() error = %v", err)
+	}
+	defer func() { _ = app.Shutdown(context.Background()) }()
+
+	server := httptest.NewServer(app.Handler)
+	defer server.Close()
+
+	oversizedBody := `{"username":"` + strings.Repeat("a", 200) + `","password":"password123"}`
+	response, err := http.Post(server.URL+"/api/auth/register", "application/json", strings.NewReader(oversizedBody))
+	if err != nil {
+		t.Fatalf("http.Post() error = %v", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413", response.StatusCode)
+	}
+}
+
+func appTestConfig(tempDir string) config.Config {
+	return config.Config{
+		AppEnv:              "test",
+		AppHost:             "127.0.0.1",
+		AppPort:             3000,
+		LogLevel:            "info",
+		DataDir:             filepath.Join(tempDir, "data"),
+		DatabaseName:        "megaapp",
+		DatabaseEnv:         "test",
+		DatabaseVersion:     "005",
+		DatabasePath:        filepath.Join(tempDir, "data", "megaapp-test-005.db"),
+		MigrationsDir:       filepath.Join(tempDir, "migrations"),
+		PublicDir:           filepath.Join(tempDir, "public"),
+		JWTSecret:           "test-secret",
+		OpenRouterTimeout:   time.Minute,
+		OpenAITimeout:       time.Minute,
+		HTTPReadTimeout:     time.Second,
+		HTTPWriteTimeout:    2 * time.Second,
+		HTTPIdleTimeout:     2 * time.Second,
+		ShutdownTimeout:     time.Second,
+		MaxRequestBodyBytes: 1024,
+		WSReadLimitBytes:    1024,
+		WSWriteTimeout:      time.Second,
 	}
 }
 

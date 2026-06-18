@@ -7,6 +7,8 @@ import (
 	"math"
 	"sort"
 	"strings"
+
+	"megaapp-back/internal/httpx/legacy"
 )
 
 type ProductPreviewData struct {
@@ -63,95 +65,99 @@ func (s *Service) SearchCatalogueRealtime(ctx context.Context, query string) ([]
 func (s *Service) GenerateProductPreview(ctx context.Context, query string) (ProductPreviewData, error) {
 	normalizedQuery := normalizeSearchText(query)
 	if normalizedQuery == "" {
-		return ProductPreviewData{}, fmt.Errorf("query is required")
+		return ProductPreviewData{}, legacy.NewError(legacy.ErrorKindValidation, "Description is required")
 	}
 	if s.productGenerator == nil {
-		return ProductPreviewData{}, fmt.Errorf("product generator is not configured")
+		return ProductPreviewData{}, legacy.NewError(legacy.ErrorKindInternal, "Product generator is not configured")
 	}
-	return s.productGenerator.GenerateProduct(ctx, normalizedQuery)
+	preview, err := s.productGenerator.GenerateProduct(ctx, normalizedQuery)
+	if err != nil {
+		return ProductPreviewData{}, legacy.WrapError(legacy.ErrorKindExternal, "Failed to generate product preview", err)
+	}
+	return preview, nil
 }
 
-func (s *Service) SaveProduct(ctx context.Context, catalogueID *int64, input ProductInput) (*CatalogueEntry, int, error) {
+func (s *Service) SaveProduct(ctx context.Context, catalogueID *int64, input ProductInput) (*CatalogueEntry, error) {
 	input = normalizeProductInput(input)
 	if err := validateProductInput(input); err != nil {
-		return nil, 400, err
+		return nil, legacy.WrapError(legacy.ErrorKindValidation, err.Error(), err)
 	}
 
 	existingByName, err := s.repo.GetCatalogueEntryByName(ctx, input.Name)
 	if err != nil {
-		return nil, 500, err
+		return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to look up product by name", err)
 	}
 
 	nameVector, descriptionVector, err := s.generateProductEmbeddings(ctx, input)
 	if err != nil {
-		return nil, 500, err
+		return nil, legacy.WrapError(legacy.ErrorKindExternal, "Failed to generate product embeddings", err)
 	}
 	input.NameVector = nameVector
 	input.DescriptionVec = descriptionVector
 
 	if catalogueID == nil {
 		if existingByName != nil {
-			return nil, 400, fmt.Errorf("product with this name already exists")
+			return nil, legacy.NewError(legacy.ErrorKindValidation, "product with this name already exists")
 		}
 		id, err := s.repo.CreateCatalogueEntry(ctx, input)
 		if err != nil {
-			return nil, 500, err
+			return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to create product", err)
 		}
 		s.searchCache.Clear()
 		entry, err := s.GetCatalogueEntry(ctx, id)
 		if err != nil {
-			return nil, 500, err
+			return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to load created product", err)
 		}
-		return entry, 201, nil
+		return entry, nil
 	}
 
 	existingByID, err := s.repo.GetCatalogueEntry(ctx, *catalogueID)
 	if err != nil {
-		return nil, 500, err
+		return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to load product", err)
 	}
 	if existingByID == nil {
-		return nil, 404, fmt.Errorf("product not found")
+		return nil, legacy.NewError(legacy.ErrorKindNotFound, "product not found")
 	}
 	if existingByName != nil && existingByName.ID != *catalogueID {
-		return nil, 400, fmt.Errorf("product with this name already exists")
+		return nil, legacy.NewError(legacy.ErrorKindValidation, "product with this name already exists")
 	}
 
 	updated, err := s.repo.UpdateCatalogueEntry(ctx, *catalogueID, input)
 	if err != nil {
-		return nil, 500, err
+		return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to update product", err)
 	}
 	if !updated {
-		return nil, 404, fmt.Errorf("product not found")
+		return nil, legacy.NewError(legacy.ErrorKindNotFound, "product not found")
 	}
 
 	s.searchCache.Clear()
 	entry, err := s.GetCatalogueEntry(ctx, *catalogueID)
 	if err != nil {
-		return nil, 500, err
+		return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to load updated product", err)
 	}
-	return entry, 200, nil
+	return entry, nil
 }
 
 func (s *Service) DeleteProduct(ctx context.Context, catalogueID int64) (bool, error) {
 	entry, err := s.repo.GetCatalogueEntry(ctx, catalogueID)
 	if err != nil {
-		return false, err
+		return false, legacy.WrapError(legacy.ErrorKindInternal, "Failed to load product", err)
 	}
 	if entry == nil {
-		return false, fmt.Errorf("product not found")
+		return false, legacy.NewError(legacy.ErrorKindNotFound, "product not found")
 	}
 
 	count, err := s.repo.CountDiaryEntriesByCatalogueID(ctx, catalogueID)
 	if err != nil {
-		return false, err
+		return false, legacy.WrapError(legacy.ErrorKindInternal, "Failed to check product usage", err)
 	}
 	if count > 0 {
-		return false, fmt.Errorf("product is used in diary entries")
+		return false, legacy.NewError(legacy.ErrorKindConflict, "product is used in diary entries")
 	}
 
 	deleted, err := s.repo.DeleteCatalogueEntry(ctx, catalogueID)
 	if err != nil {
-		return false, err
+		return false, legacy.WrapError(legacy.ErrorKindInternal, "Failed to delete product", err)
 	}
 	if deleted {
 		s.searchCache.Clear()
@@ -161,18 +167,18 @@ func (s *Service) DeleteProduct(ctx context.Context, catalogueID int64) (bool, e
 
 func (s *Service) AnalyzeVoiceTranscript(ctx context.Context, transcript string) (*VoiceAnalysisData, error) {
 	if strings.TrimSpace(transcript) == "" {
-		return nil, fmt.Errorf("transcript is required")
+		return nil, legacy.NewError(legacy.ErrorKindValidation, "Transcript is required")
 	}
 	if s.productGenerator == nil {
-		return nil, fmt.Errorf("product generator is not configured")
+		return nil, legacy.NewError(legacy.ErrorKindInternal, "Product generator is not configured")
 	}
 	preview, err := s.productGenerator.AnalyzeVoice(ctx, transcript)
 	if err != nil {
-		return nil, err
+		return nil, legacy.WrapError(legacy.ErrorKindExternal, "Failed to analyze voice transcript", err)
 	}
 	results, err := s.SearchCatalogue(ctx, preview.GeneralizedName)
 	if err != nil {
-		return nil, err
+		return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to search catalogue", err)
 	}
 	return &VoiceAnalysisData{DetectedProduct: preview, SearchResults: results}, nil
 }

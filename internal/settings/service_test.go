@@ -45,7 +45,12 @@ func TestPutUpdatesSingleSetting(t *testing.T) {
 	service := NewService(NewRepository(db))
 	userID := insertSettingsTestUser(t, db, "alice", false)
 
-	if err := service.Put(context.Background(), userID, map[string]any{"darkTheme": true}); err != nil {
+	input, err := ParseUpdateInput(map[string]any{"darkTheme": true})
+	if err != nil {
+		t.Fatalf("ParseUpdateInput() error = %v", err)
+	}
+
+	if err := service.Put(context.Background(), userID, input); err != nil {
 		t.Fatalf("Put() error = %v", err)
 	}
 
@@ -60,11 +65,11 @@ func TestPutUpdatesSingleSetting(t *testing.T) {
 
 func TestPutRejectsInvalidField(t *testing.T) {
 	db := openSettingsTestDB(t)
-	service := NewService(NewRepository(db))
-	userID := insertSettingsTestUser(t, db, "alice", false)
+	_ = insertSettingsTestUser(t, db, "alice", false)
 
-	if err := service.Put(context.Background(), userID, map[string]any{"userName": "bob"}); err != ErrInvalidSetting {
-		t.Fatalf("Put() error = %v, want ErrInvalidSetting", err)
+	_, err := ParseUpdateInput(map[string]any{"userName": "bob"})
+	if err != ErrInvalidSetting {
+		t.Fatalf("ParseUpdateInput() error = %v, want ErrInvalidSetting", err)
 	}
 }
 

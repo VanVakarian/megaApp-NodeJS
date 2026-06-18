@@ -9,7 +9,7 @@
 Текущая роль директорий:
 - `megaapp-back/old-js` — reference implementation на JavaScript. Source of truth по текущему runtime behavior.
 - `megaapp-back/data` — рабочие SQLite-копии для Go backend. Не коммитятся в Git.
-- `megaapp-back/plans` — активные plans, design docs, implementation plans и папка `Step Closure Docs/` с step-level документами.
+- `megaapp-back/plans` — активные plans, design docs, implementation plans и папка `step-closure-docs/` с step-level документами.
 - `megaapp-front` — reference consumer backend contracts. Source of truth по фактическим ожиданиям frontend.
 
 Go-реализация дальше строится в корне `megaapp-back` и не должна смешиваться с `old-js`.

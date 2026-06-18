@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"megaapp-back/internal/auth"
+	clockplatform "megaapp-back/internal/platform/clock"
 	wspkg "megaapp-back/internal/ws"
 
 	"github.com/go-chi/chi/v5"
@@ -25,9 +26,11 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 	readHandler := NewHandler(service)
 	hub := wspkg.NewHub(time.Second, wspkg.NewSyncState())
 	defer func() { _ = hub.Close() }()
-	hub.RegisterHandler("SEARCH_QUERY", NewSearchWSHandler(service))
-	writeHandler := NewWriteHandler(service, hub)
-	catalogueHandler := NewCatalogueHandler(service, hub)
+	clk := clockplatform.NewRealClock()
+	realtime := NewWSRealtimePublisher(hub, clk)
+	hub.RegisterHandler("SEARCH_QUERY", NewSearchWSHandler(service, clk))
+	writeHandler := NewWriteHandler(service, realtime)
+	catalogueHandler := NewCatalogueHandler(service, realtime)
 	wsHandler := wspkg.NewHandler(authService, hub)
 
 	router := chi.NewRouter()
@@ -106,8 +109,10 @@ func TestFoodSearchAndCatalogueMutationEndpoints(t *testing.T) {
 	readHandler := NewHandler(service)
 	hub := wspkg.NewHub(time.Second, wspkg.NewSyncState())
 	defer func() { _ = hub.Close() }()
-	hub.RegisterHandler("SEARCH_QUERY", NewSearchWSHandler(service))
-	catalogueHandler := NewCatalogueHandler(service, hub)
+	clk := clockplatform.NewRealClock()
+	realtime := NewWSRealtimePublisher(hub, clk)
+	hub.RegisterHandler("SEARCH_QUERY", NewSearchWSHandler(service, clk))
+	catalogueHandler := NewCatalogueHandler(service, realtime)
 	wsHandler := wspkg.NewHandler(authService, hub)
 
 	router := chi.NewRouter()
@@ -174,7 +179,9 @@ func TestFoodReadEndpoints(t *testing.T) {
 	handler := NewHandler(service)
 	hub := wspkg.NewHub(time.Second, wspkg.NewSyncState())
 	defer func() { _ = hub.Close() }()
-	catalogueHandler := NewCatalogueHandler(service, hub)
+	clk := clockplatform.NewRealClock()
+	realtime := NewWSRealtimePublisher(hub, clk)
+	catalogueHandler := NewCatalogueHandler(service, realtime)
 
 	router := chi.NewRouter()
 	RegisterRoutes(router, authService, handler)

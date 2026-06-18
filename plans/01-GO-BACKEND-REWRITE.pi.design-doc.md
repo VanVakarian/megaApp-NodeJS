@@ -474,6 +474,19 @@ Snapshot должен быть preserved as-is. Это один из самых 
 
 `/api/food/diary-full-update` тоже должен остаться совместимым побайтно по смыслу структуры, потому что фронт на нём строит локальное состояние diary.
 
+## 8.5 What Legacy Means In This Rewrite
+
+Термин `legacy` в этом rewrite означает не «старое приложение» и не «древний код», а унаследованный внешний контракт текущей системы:
+- response shapes
+- error payload forms
+- status semantics
+- WebSocket payload contracts
+- другие frontend-visible transport expectations
+
+То есть внутри Go backend можно и нужно наводить более чистую архитектуру, но на внешней границе во время migration допустимы `legacy-compatible` adapters и mappings, если они сохраняют текущую совместимость с frontend.
+
+Важно: cleanup этих контрактов не смешивается с текущим rewrite. После полного cutover и периода стабилизации можно делать отдельную modernization phase, где уже сознательно упрощаются и обновляются внешние API/WS contracts. Но это отдельная задача, а не часть текущей migration цели.
+
 ---
 
 ## 9. WebSocket compatibility strategy

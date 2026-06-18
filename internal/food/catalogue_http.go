@@ -1,21 +1,19 @@
 package food
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"megaapp-back/internal/auth"
-	"megaapp-back/internal/ws"
+	"megaapp-back/internal/httpx/legacy"
 
 	"github.com/go-chi/chi/v5"
 )
 
 type CatalogueHandler struct {
-	service *Service
-	hub     *ws.Hub
+	service  *Service
+	realtime RealtimePublisher
 }
 
 type generateProductPreviewRequest struct {
@@ -37,8 +35,8 @@ type analyzeVoiceRequest struct {
 	Transcript string `json:"transcript"`
 }
 
-func NewCatalogueHandler(service *Service, hub *ws.Hub) *CatalogueHandler {
-	return &CatalogueHandler{service: service, hub: hub}
+func NewCatalogueHandler(service *Service, realtime RealtimePublisher) *CatalogueHandler {
+	return &CatalogueHandler{service: service, realtime: realtime}
 }
 
 func RegisterCatalogueRoutes(router chi.Router, authService *auth.Service, handler *CatalogueHandler) {
@@ -52,55 +50,49 @@ func RegisterCatalogueRoutes(router chi.Router, authService *auth.Service, handl
 func (h *CatalogueHandler) SearchCatalogue(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("query"))
 	if query == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"result": false, "error": "Query parameter is required"})
+		legacy.WriteResultError(w, http.StatusBadRequest, "Query parameter is required")
 		return
 	}
 
 	response, err := h.service.SearchCatalogue(r.Context(), query)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"result": false, "error": "Internal server error"})
+		legacy.WriteAppResultError(w, err, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"result": true, "data": response})
+	legacy.WriteJSON(w, http.StatusOK, map[string]any{"result": true, "data": response})
 }
 
 func (h *CatalogueHandler) GenerateProductPreview(w http.ResponseWriter, r *http.Request) {
 	var request generateProductPreviewRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"result": false, "error": "Invalid request body"})
+	if err := legacy.DecodeJSON(r, &request); err != nil {
+		legacy.WriteAppResultError(w, err, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	response, err := h.service.GenerateProductPreview(r.Context(), request.Description)
 	if err != nil {
-		statusCode := http.StatusInternalServerError
-		message := "Internal server error"
-		if strings.Contains(err.Error(), "query is required") {
-			statusCode = http.StatusBadRequest
-			message = "Description is required"
-		}
-		writeJSON(w, statusCode, map[string]any{"result": false, "error": message})
+		legacy.WriteAppResultError(w, err, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"result": true, "data": response})
+	legacy.WriteJSON(w, http.StatusOK, map[string]any{"result": true, "data": response})
 }
 
 func (h *CatalogueHandler) SaveProduct(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.UserClaimsFromContext(r.Context())
 	if !ok {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "Unauthorized"})
+		legacy.WriteMessage(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var request saveProductRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"result": false, "error": "Invalid request body"})
+	if err := legacy.DecodeJSON(r, &request); err != nil {
+		legacy.WriteAppResultError(w, err, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	entry, statusCode, err := h.service.SaveProduct(r.Context(), request.ID, ProductInput{
+	entry, err := h.service.SaveProduct(r.Context(), request.ID, ProductInput{
 		Name:        request.Name,
 		Kcals:       request.Kcals,
 		Protein:     request.Protein,
@@ -110,65 +102,53 @@ func (h *CatalogueHandler) SaveProduct(w http.ResponseWriter, r *http.Request) {
 		Description: request.Description,
 	})
 	if err != nil {
-		writeJSON(w, statusCode, map[string]any{"result": false, "error": err.Error()})
+		legacy.WriteAppResultError(w, err, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
-	h.hub.SetSyncState(claims.UserID, nowUnixMilli())
-	h.hub.BroadcastToAll(map[string]any{"type": "CATALOGUE_ENTRY_SAVED", "payload": entry}, extractClientID(r))
-	writeJSON(w, statusCode, map[string]any{"result": true, "data": map[string]any{"catalogueEntry": entry}})
+	statusCode := http.StatusCreated
+	if request.ID != nil {
+		statusCode = http.StatusOK
+	}
+	if entry != nil {
+		h.realtime.MarkUserUpdated(claims.UserID)
+		h.realtime.PublishCatalogueEntrySaved(claims.UserID, *entry, extractClientID(r))
+	}
+	legacy.WriteJSON(w, statusCode, map[string]any{"result": true, "data": map[string]any{"catalogueEntry": entry}})
 }
 
 func (h *CatalogueHandler) AnalyzeVoice(w http.ResponseWriter, r *http.Request) {
 	var request analyzeVoiceRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"result": false, "error": "Invalid request body"})
+	if err := legacy.DecodeJSON(r, &request); err != nil {
+		legacy.WriteAppResultError(w, err, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	response, err := h.service.AnalyzeVoiceTranscript(r.Context(), request.Transcript)
 	if err != nil {
-		statusCode := http.StatusInternalServerError
-		message := "Internal server error"
-		if strings.Contains(err.Error(), "transcript is required") {
-			statusCode = http.StatusBadRequest
-			message = "Transcript is required"
-		}
-		writeJSON(w, statusCode, map[string]any{"result": false, "error": message})
+		legacy.WriteAppResultError(w, err, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"result": true, "data": response})
+	legacy.WriteJSON(w, http.StatusOK, map[string]any{"result": true, "data": response})
 }
 
 func (h *CatalogueHandler) DeleteCatalogueEntry(w http.ResponseWriter, r *http.Request) {
 	catalogueID, err := strconv.ParseInt(chi.URLParam(r, "catalogueId"), 10, 64)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"result": false, "error": "Invalid catalogueId"})
+		legacy.WriteResultError(w, http.StatusBadRequest, "Invalid catalogueId")
 		return
 	}
 
 	deleted, err := h.service.DeleteProduct(r.Context(), catalogueID)
 	if err != nil {
-		if strings.Contains(err.Error(), "used in diary entries") {
-			writeJSON(w, http.StatusConflict, map[string]any{"result": false, "error": err.Error()})
-			return
-		}
-		if strings.Contains(err.Error(), "product not found") {
-			writeJSON(w, http.StatusNotFound, map[string]any{"result": false, "error": err.Error()})
-			return
-		}
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"result": false, "error": "Internal server error"})
+		legacy.WriteAppResultError(w, err, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 	if !deleted {
-		writeJSON(w, http.StatusNotFound, map[string]any{"result": false, "error": "Product not found"})
+		legacy.WriteResultError(w, http.StatusNotFound, "Product not found")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"result": true, "data": map[string]any{"catalogueId": catalogueID}})
-}
-
-func nowUnixMilli() int64 {
-	return time.Now().UnixMilli()
+	legacy.WriteJSON(w, http.StatusOK, map[string]any{"result": true, "data": map[string]any{"catalogueId": catalogueID}})
 }

@@ -30,7 +30,13 @@ type Config struct {
 	OpenAIEmbeddingModel string
 	OpenAIEmbeddingDims  int
 	OpenAITimeout        time.Duration
+	HTTPReadTimeout      time.Duration
+	HTTPWriteTimeout     time.Duration
+	HTTPIdleTimeout      time.Duration
 	ShutdownTimeout      time.Duration
+	MaxRequestBodyBytes  int64
+	WSReadLimitBytes     int64
+	WSWriteTimeout       time.Duration
 	BuildVersion         string
 	BuildCommit          string
 	BuildTime            string
@@ -77,11 +83,47 @@ func Load() (Config, error) {
 	}
 	cfg.AppPort = port
 
+	httpReadTimeoutSeconds, err := getInt("HTTP_READ_TIMEOUT_SECONDS", 15)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.HTTPReadTimeout = time.Duration(httpReadTimeoutSeconds) * time.Second
+
+	httpWriteTimeoutSeconds, err := getInt("HTTP_WRITE_TIMEOUT_SECONDS", 30)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.HTTPWriteTimeout = time.Duration(httpWriteTimeoutSeconds) * time.Second
+
+	httpIdleTimeoutSeconds, err := getInt("HTTP_IDLE_TIMEOUT_SECONDS", 60)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.HTTPIdleTimeout = time.Duration(httpIdleTimeoutSeconds) * time.Second
+
 	shutdownTimeoutSeconds, err := getInt("SHUTDOWN_TIMEOUT_SECONDS", 10)
 	if err != nil {
 		return Config{}, fmt.Errorf("load config: %w", err)
 	}
 	cfg.ShutdownTimeout = time.Duration(shutdownTimeoutSeconds) * time.Second
+
+	maxRequestBodyBytes, err := getInt64("MAX_REQUEST_BODY_BYTES", 1<<20)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.MaxRequestBodyBytes = maxRequestBodyBytes
+
+	wsReadLimitBytes, err := getInt64("WS_READ_LIMIT_BYTES", 64<<10)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.WSReadLimitBytes = wsReadLimitBytes
+
+	wsWriteTimeoutSeconds, err := getInt("WS_WRITE_TIMEOUT_SECONDS", 5)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.WSWriteTimeout = time.Duration(wsWriteTimeoutSeconds) * time.Second
 
 	openRouterTimeoutSeconds, err := getInt("OPENROUTER_TIMEOUT_SECONDS", 60)
 	if err != nil {
@@ -148,14 +190,41 @@ func (c Config) Validate() error {
 	if c.OpenAITimeout <= 0 {
 		return fmt.Errorf("validate config: OPENAI_TIMEOUT_SECONDS must be greater than 0")
 	}
+	if c.HTTPReadTimeout <= 0 {
+		return fmt.Errorf("validate config: HTTP_READ_TIMEOUT_SECONDS must be greater than 0")
+	}
+	if c.HTTPWriteTimeout <= 0 {
+		return fmt.Errorf("validate config: HTTP_WRITE_TIMEOUT_SECONDS must be greater than 0")
+	}
+	if c.HTTPIdleTimeout <= 0 {
+		return fmt.Errorf("validate config: HTTP_IDLE_TIMEOUT_SECONDS must be greater than 0")
+	}
 	if c.ShutdownTimeout <= 0 {
 		return fmt.Errorf("validate config: SHUTDOWN_TIMEOUT_SECONDS must be greater than 0")
+	}
+	if c.MaxRequestBodyBytes <= 0 {
+		return fmt.Errorf("validate config: MAX_REQUEST_BODY_BYTES must be greater than 0")
+	}
+	if c.WSReadLimitBytes <= 0 {
+		return fmt.Errorf("validate config: WS_READ_LIMIT_BYTES must be greater than 0")
+	}
+	if c.WSWriteTimeout <= 0 {
+		return fmt.Errorf("validate config: WS_WRITE_TIMEOUT_SECONDS must be greater than 0")
 	}
 
 	switch c.LogLevel {
 	case "debug", "info", "warn", "error":
 	default:
 		return fmt.Errorf("validate config: LOG_LEVEL must be one of debug, info, warn, error")
+	}
+	if c.usesInsecureJWTSecret() && !c.isDevLike() {
+		return fmt.Errorf("validate config: JWT_SECRET insecure default is allowed only in dev-like environments")
+	}
+	if strings.TrimSpace(c.OpenRouterAPIKey) != "" && strings.TrimSpace(c.OpenRouterModel) == "" {
+		return fmt.Errorf("validate config: OPENROUTER_MODEL is required when OPENROUTER_API_KEY is set")
+	}
+	if strings.TrimSpace(c.OpenAIAPIKey) != "" && strings.TrimSpace(c.OpenAIEmbeddingModel) == "" {
+		return fmt.Errorf("validate config: OPENAI_EMBEDDING_MODEL is required when OPENAI_API_KEY is set")
 	}
 
 	return nil
@@ -181,6 +250,19 @@ func getString(key string, fallback string) string {
 	return value
 }
 
+func (c Config) isDevLike() bool {
+	switch strings.ToLower(strings.TrimSpace(c.AppEnv)) {
+	case "dev", "test", "local":
+		return true
+	default:
+		return false
+	}
+}
+
+func (c Config) usesInsecureJWTSecret() bool {
+	return strings.TrimSpace(c.JWTSecret) == "dev-insecure-jwt-secret"
+}
+
 func getInt(key string, fallback int) (int, error) {
 	value, ok := os.LookupEnv(key)
 	if !ok || strings.TrimSpace(value) == "" {
@@ -188,6 +270,20 @@ func getInt(key string, fallback int) (int, error) {
 	}
 
 	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", key, err)
+	}
+
+	return parsed, nil
+}
+
+func getInt64(key string, fallback int64) (int64, error) {
+	value, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback, nil
+	}
+
+	parsed, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", key, err)
 	}

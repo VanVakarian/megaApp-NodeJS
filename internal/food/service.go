@@ -9,6 +9,9 @@ import (
 	"sort"
 	"strconv"
 	"time"
+
+	"megaapp-back/internal/httpx/legacy"
+	clockplatform "megaapp-back/internal/platform/clock"
 )
 
 const kcalsIn1KG = 7700
@@ -19,6 +22,7 @@ type Service struct {
 	searchCache        *SearchCache
 	productGenerator   ProductGenerator
 	embeddingGenerator EmbeddingGenerator
+	clock              clockplatform.Clock
 }
 
 type DiaryEntry struct {
@@ -27,6 +31,12 @@ type DiaryEntry struct {
 	FoodCatalogueID int64          `json:"foodCatalogueId"`
 	FoodWeight      int64          `json:"foodWeight"`
 	History         []HistoryEntry `json:"history"`
+}
+
+type RestoreDiaryEntryInput struct {
+	FoodCatalogueID int64
+	FoodWeight      int64
+	History         []HistoryEntry
 }
 
 type HistoryEntry struct {
@@ -68,7 +78,7 @@ type CatalogueEntry struct {
 }
 
 func NewService(repo *Repository) *Service {
-	return &Service{repo: repo, statsCache: NewStatsCache(), searchCache: NewSearchCache()}
+	return &Service{repo: repo, statsCache: NewStatsCache(), searchCache: NewSearchCache(), clock: clockplatform.NewRealClock()}
 }
 
 func (s *Service) SetProductGenerator(generator ProductGenerator) {
@@ -77,6 +87,14 @@ func (s *Service) SetProductGenerator(generator ProductGenerator) {
 
 func (s *Service) SetEmbeddingGenerator(generator EmbeddingGenerator) {
 	s.embeddingGenerator = generator
+}
+
+func (s *Service) SetClock(clk clockplatform.Clock) {
+	if clk == nil {
+		return
+	}
+
+	s.clock = clk
 }
 
 func (s *Service) GetDiaryFullUpdate(ctx context.Context, userID int64, dateISO string, offsetDays int) (map[string]DiaryDay, error) {
@@ -352,7 +370,7 @@ func (s *Service) DeleteDiaryEntriesForDay(ctx context.Context, userID int64, da
 		return 0, err
 	}
 	if len(rows) == 0 {
-		return 0, fmt.Errorf("entries not found")
+		return 0, legacy.NewError(legacy.ErrorKindNotFound, "Entries not found")
 	}
 	deletedCount, err := s.repo.DeleteDiaryEntriesByDate(ctx, dateISO, userID)
 	if err != nil {
@@ -362,9 +380,9 @@ func (s *Service) DeleteDiaryEntriesForDay(ctx context.Context, userID int64, da
 	return deletedCount, nil
 }
 
-func (s *Service) RestoreDiaryEntriesForDay(ctx context.Context, userID int64, dateISO string, entries []createDiaryEntryRequest) ([]DiaryEntry, error) {
+func (s *Service) RestoreDiaryEntriesForDay(ctx context.Context, userID int64, dateISO string, entries []RestoreDiaryEntryInput) ([]DiaryEntry, error) {
 	if len(entries) == 0 {
-		return nil, fmt.Errorf("entries not found")
+		return nil, legacy.NewError(legacy.ErrorKindValidation, "Entries not found")
 	}
 	normalized := make([]DiaryEntry, 0, len(entries))
 	for _, entry := range entries {
@@ -421,7 +439,7 @@ func (s *Service) GetStats(ctx context.Context, userID int64) (map[string][5]any
 		return map[string][5]any{}, nil
 	}
 
-	lastDate := time.Now().UTC().Format("2006-01-02")
+	lastDate := s.clock.Now().UTC().Format("2006-01-02")
 	allDates := getDatesList(firstDate, lastDate)
 	weightRows, err := s.repo.GetWeightRange(ctx, userID, firstDate, lastDate)
 	if err != nil {
@@ -446,7 +464,7 @@ func (s *Service) GetStats(ctx context.Context, userID int64) (map[string][5]any
 	targetKcalsBaseline := computeTargetKcalsFromHistory(dailySumKcalsAvg, weightsAvg, normDays)
 	targetKcalsAvgBaseline := calculateCenteredAverage(targetKcalsBaseline, normDays, true, 0)
 	targetKcalsForAllDates := normalizeTargetKcalsForAllDates(allDates, targetKcalsAvgBaseline)
-	today := time.Now().UTC().Format("2006-01-02")
+	today := s.clock.Now().UTC().Format("2006-01-02")
 	dailySumKcalsWithVirtual, virtualDaysFlags := applyVirtualKcalsForMissingPastDays(allDates, dailySumKcals, targetKcalsForAllDates, weightsAvg, today)
 	dailySumKcalsWithVirtualAvg := calculateCenteredAverage(dailySumKcalsWithVirtual, avgDays, true, 0)
 	targetKcalsFinal := computeTargetKcalsFromHistory(dailySumKcalsWithVirtualAvg, weightsAvg, normDays)

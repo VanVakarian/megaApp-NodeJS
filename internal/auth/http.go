@@ -2,11 +2,12 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 	"time"
+
+	"megaapp-back/internal/httpx/legacy"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -42,8 +43,8 @@ func RegisterRoutes(router chi.Router, handler *Handler) {
 
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var request credentialsRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid request body")
+	if err := legacy.DecodeJSON(r, &request); err != nil {
+		legacy.WriteAppMessageError(w, err, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
@@ -51,56 +52,56 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrUsernameTaken):
-			writeDetailError(w, http.StatusBadRequest, err.Error())
+			legacy.WriteDetail(w, http.StatusBadRequest, err.Error())
 		case errors.Is(err, ErrInvalidPayload):
-			writeDetailError(w, http.StatusBadRequest, "Username and password are required")
+			legacy.WriteDetail(w, http.StatusBadRequest, "Username and password are required")
 		default:
-			writeDetailError(w, http.StatusInternalServerError, err.Error())
+			legacy.WriteAppDetailError(w, err, http.StatusInternalServerError, "Internal server error")
 		}
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]string{"message": "User created successfully"})
+	legacy.WriteJSON(w, http.StatusCreated, map[string]string{"message": "User created successfully"})
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var request credentialsRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid request body")
+	if err := legacy.DecodeJSON(r, &request); err != nil {
+		legacy.WriteAppMessageError(w, err, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	response, err := h.service.Login(r.Context(), request.Username, request.Password)
 	if err != nil {
 		if errors.Is(err, ErrInvalidCreds) {
-			writeDetailError(w, http.StatusUnauthorized, err.Error())
+			legacy.WriteDetail(w, http.StatusUnauthorized, err.Error())
 			return
 		}
-		writeDetailError(w, http.StatusInternalServerError, err.Error())
+		legacy.WriteAppDetailError(w, err, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, response)
+	legacy.WriteJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	var request refreshRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid request body")
+	if err := legacy.DecodeJSON(r, &request); err != nil {
+		legacy.WriteAppMessageError(w, err, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	response, err := h.service.Refresh(r.Context(), request.RefreshToken)
 	if err != nil {
 		if errors.Is(err, ErrInvalidToken) {
-			writeDetailError(w, http.StatusUnauthorized, err.Error())
+			legacy.WriteDetail(w, http.StatusUnauthorized, err.Error())
 			return
 		}
-		writeDetailError(w, http.StatusInternalServerError, err.Error())
+		legacy.WriteAppDetailError(w, err, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, response)
+	legacy.WriteJSON(w, http.StatusOK, response)
 }
 
 func Middleware(service *Service) func(http.Handler) http.Handler {
@@ -108,19 +109,19 @@ func Middleware(service *Service) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authorizationHeader := strings.TrimSpace(r.Header.Get("Authorization"))
 			if authorizationHeader == "" {
-				writeDetailError(w, http.StatusUnauthorized, "Invalid token")
+				legacy.WriteDetail(w, http.StatusUnauthorized, "Invalid token")
 				return
 			}
 
 			parts := strings.SplitN(authorizationHeader, " ", 2)
 			if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || strings.TrimSpace(parts[1]) == "" {
-				writeDetailError(w, http.StatusUnauthorized, "Invalid token")
+				legacy.WriteDetail(w, http.StatusUnauthorized, "Invalid token")
 				return
 			}
 
 			claims, err := service.Verify(strings.TrimSpace(parts[1]))
 			if err != nil {
-				writeDetailError(w, http.StatusUnauthorized, "Invalid token")
+				legacy.WriteDetail(w, http.StatusUnauthorized, "Invalid token")
 				return
 			}
 
@@ -136,17 +137,15 @@ func UserClaimsFromContext(ctx context.Context) (TokenClaims, bool) {
 }
 
 func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(payload)
+	legacy.WriteJSON(w, statusCode, payload)
 }
 
 func writeError(w http.ResponseWriter, statusCode int, message string) {
-	writeJSON(w, statusCode, map[string]string{"message": message})
+	legacy.WriteMessage(w, statusCode, message)
 }
 
 func writeDetailError(w http.ResponseWriter, statusCode int, detail string) {
-	writeJSON(w, statusCode, map[string]string{"detail": detail})
+	legacy.WriteDetail(w, statusCode, detail)
 }
 
 func AccessTokenTTL() time.Duration {

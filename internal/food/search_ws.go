@@ -2,12 +2,12 @@ package food
 
 import (
 	"context"
-	"time"
 
+	clockplatform "megaapp-back/internal/platform/clock"
 	"megaapp-back/internal/ws"
 )
 
-func NewSearchWSHandler(service *Service) ws.MessageHandler {
+func NewSearchWSHandler(service *Service, clk clockplatform.Clock) ws.MessageHandler {
 	return func(client *ws.Client, message map[string]any) error {
 		query, _ := message["query"].(string)
 		sequenceNumber := int64(0)
@@ -30,7 +30,7 @@ func NewSearchWSHandler(service *Service) ws.MessageHandler {
 			"payload": map[string]any{
 				"query":          query,
 				"catalogueIds":   ids,
-				"timestamp":      time.Now().UnixMilli(),
+				"timestamp":      clk.Now().UnixMilli(),
 				"sequenceNumber": sequenceNumber,
 			},
 		})

@@ -9,6 +9,22 @@ import (
 var ErrInvalidSetting = errors.New("invalid setting name")
 var ErrInvalidSettingPayload = errors.New("request body must contain exactly one setting")
 
+type UpdateField string
+
+const (
+	UpdateFieldDarkTheme            UpdateField = "darkTheme"
+	UpdateFieldSelectedChapterFood  UpdateField = "selectedChapterFood"
+	UpdateFieldSelectedChapterMoney UpdateField = "selectedChapterMoney"
+	UpdateFieldLiteVersion          UpdateField = "liteVersion"
+	UpdateFieldHeight               UpdateField = "height"
+)
+
+type UpdateInput struct {
+	Field       UpdateField
+	BoolValue   *bool
+	HeightValue *int64
+}
+
 type Service struct {
 	repo *Repository
 }
@@ -48,7 +64,7 @@ func (s *Service) Get(ctx context.Context, userID int64, fallbackUserName string
 	}, nil
 }
 
-func (s *Service) Put(ctx context.Context, userID int64, payload map[string]any) error {
+func (s *Service) Put(ctx context.Context, userID int64, input UpdateInput) error {
 	stored, err := s.repo.GetByUserID(ctx, userID)
 	if err != nil {
 		return err
@@ -57,45 +73,31 @@ func (s *Service) Put(ctx context.Context, userID int64, payload map[string]any)
 		stored = defaultStoredSettings()
 	}
 
-	if len(payload) != 1 {
-		return ErrInvalidSettingPayload
-	}
-
-	for key, value := range payload {
-		switch key {
-		case "darkTheme":
-			parsed, ok := value.(bool)
-			if !ok {
-				return fmt.Errorf("invalid darkTheme value")
-			}
-			stored.DarkTheme = parsed
-		case "selectedChapterFood":
-			parsed, ok := value.(bool)
-			if !ok {
-				return fmt.Errorf("invalid selectedChapterFood value")
-			}
-			stored.SelectedChapterFood = parsed
-		case "selectedChapterMoney":
-			parsed, ok := value.(bool)
-			if !ok {
-				return fmt.Errorf("invalid selectedChapterMoney value")
-			}
-			stored.SelectedChapterMoney = parsed
-		case "liteVersion":
-			parsed, ok := value.(bool)
-			if !ok {
-				return fmt.Errorf("invalid liteVersion value")
-			}
-			stored.LiteVersion = parsed
-		case "height":
-			parsed, ok := parseHeight(value)
-			if !ok {
-				return fmt.Errorf("invalid height value")
-			}
-			stored.Height = parsed
-		default:
-			return ErrInvalidSetting
+	switch input.Field {
+	case UpdateFieldDarkTheme:
+		if input.BoolValue == nil {
+			return fmt.Errorf("invalid darkTheme value")
 		}
+		stored.DarkTheme = *input.BoolValue
+	case UpdateFieldSelectedChapterFood:
+		if input.BoolValue == nil {
+			return fmt.Errorf("invalid selectedChapterFood value")
+		}
+		stored.SelectedChapterFood = *input.BoolValue
+	case UpdateFieldSelectedChapterMoney:
+		if input.BoolValue == nil {
+			return fmt.Errorf("invalid selectedChapterMoney value")
+		}
+		stored.SelectedChapterMoney = *input.BoolValue
+	case UpdateFieldLiteVersion:
+		if input.BoolValue == nil {
+			return fmt.Errorf("invalid liteVersion value")
+		}
+		stored.LiteVersion = *input.BoolValue
+	case UpdateFieldHeight:
+		stored.Height = input.HeightValue
+	default:
+		return ErrInvalidSetting
 	}
 
 	return s.repo.Upsert(ctx, userID, *stored)
@@ -113,6 +115,33 @@ func (s *Service) Post(ctx context.Context, userID int64, request UserSettings) 
 
 func defaultStoredSettings() *StoredSettings {
 	return &StoredSettings{}
+}
+
+func ParseUpdateInput(payload map[string]any) (UpdateInput, error) {
+	if len(payload) != 1 {
+		return UpdateInput{}, ErrInvalidSettingPayload
+	}
+
+	for key, value := range payload {
+		switch key {
+		case string(UpdateFieldDarkTheme), string(UpdateFieldSelectedChapterFood), string(UpdateFieldSelectedChapterMoney), string(UpdateFieldLiteVersion):
+			parsed, ok := value.(bool)
+			if !ok {
+				return UpdateInput{}, fmt.Errorf("invalid %s value", key)
+			}
+			return UpdateInput{Field: UpdateField(key), BoolValue: &parsed}, nil
+		case string(UpdateFieldHeight):
+			parsed, ok := parseHeight(value)
+			if !ok {
+				return UpdateInput{}, fmt.Errorf("invalid height value")
+			}
+			return UpdateInput{Field: UpdateFieldHeight, HeightValue: parsed}, nil
+		default:
+			return UpdateInput{}, ErrInvalidSetting
+		}
+	}
+
+	return UpdateInput{}, ErrInvalidSettingPayload
 }
 
 func parseHeight(value any) (*int64, bool) {

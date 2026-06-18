@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 )
 
 type SearchVectorRow struct {
@@ -79,4 +80,8 @@ func (r *Repository) GetSearchVectors(ctx context.Context) ([]SearchVectorRow, e
 		return nil, fmt.Errorf("iterate search vector rows: %w", err)
 	}
 	return result, nil
+}
+
+func nowUnixMilli() int64 {
+	return time.Now().UnixMilli()
 }

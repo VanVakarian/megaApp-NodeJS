@@ -25,7 +25,13 @@ func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("OPENAI_EMBEDDING_MODEL", "")
 	t.Setenv("OPENAI_EMBEDDING_DIMENSIONS", "")
 	t.Setenv("OPENAI_TIMEOUT_SECONDS", "")
+	t.Setenv("HTTP_READ_TIMEOUT_SECONDS", "")
+	t.Setenv("HTTP_WRITE_TIMEOUT_SECONDS", "")
+	t.Setenv("HTTP_IDLE_TIMEOUT_SECONDS", "")
 	t.Setenv("SHUTDOWN_TIMEOUT_SECONDS", "")
+	t.Setenv("MAX_REQUEST_BODY_BYTES", "")
+	t.Setenv("WS_READ_LIMIT_BYTES", "")
+	t.Setenv("WS_WRITE_TIMEOUT_SECONDS", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -86,8 +92,26 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.OpenAITimeout != 60*time.Second {
 		t.Fatalf("OpenAITimeout = %v, want 60s", cfg.OpenAITimeout)
 	}
+	if cfg.HTTPReadTimeout != 15*time.Second {
+		t.Fatalf("HTTPReadTimeout = %v, want 15s", cfg.HTTPReadTimeout)
+	}
+	if cfg.HTTPWriteTimeout != 30*time.Second {
+		t.Fatalf("HTTPWriteTimeout = %v, want 30s", cfg.HTTPWriteTimeout)
+	}
+	if cfg.HTTPIdleTimeout != 60*time.Second {
+		t.Fatalf("HTTPIdleTimeout = %v, want 60s", cfg.HTTPIdleTimeout)
+	}
 	if cfg.ShutdownTimeout != 10*time.Second {
 		t.Fatalf("ShutdownTimeout = %v, want 10s", cfg.ShutdownTimeout)
+	}
+	if cfg.MaxRequestBodyBytes != 1<<20 {
+		t.Fatalf("MaxRequestBodyBytes = %d, want %d", cfg.MaxRequestBodyBytes, 1<<20)
+	}
+	if cfg.WSReadLimitBytes != 64<<10 {
+		t.Fatalf("WSReadLimitBytes = %d, want %d", cfg.WSReadLimitBytes, 64<<10)
+	}
+	if cfg.WSWriteTimeout != 5*time.Second {
+		t.Fatalf("WSWriteTimeout = %v, want 5s", cfg.WSWriteTimeout)
 	}
 }
 
@@ -101,10 +125,30 @@ func TestLoadRejectsInvalidPort(t *testing.T) {
 }
 
 func TestValidateRejectsInvalidLogLevel(t *testing.T) {
-	cfg := Config{
+	cfg := validTestConfig()
+	cfg.LogLevel = "trace"
+
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+}
+
+func TestValidateRejectsInsecureJWTSecretOutsideDevLikeEnv(t *testing.T) {
+	cfg := validTestConfig()
+	cfg.AppEnv = "prod"
+	cfg.JWTSecret = "dev-insecure-jwt-secret"
+
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+}
+
+func validTestConfig() Config {
+	return Config{
+		AppEnv:              "test",
 		AppHost:             "127.0.0.1",
 		AppPort:             3000,
-		LogLevel:            "trace",
+		LogLevel:            "info",
 		DataDir:             "./data",
 		DatabaseName:        "megaapp",
 		DatabaseEnv:         "test",
@@ -116,10 +160,12 @@ func TestValidateRejectsInvalidLogLevel(t *testing.T) {
 		OpenRouterTimeout:   time.Second,
 		OpenAIEmbeddingDims: 768,
 		OpenAITimeout:       time.Second,
+		HTTPReadTimeout:     time.Second,
+		HTTPWriteTimeout:    time.Second,
+		HTTPIdleTimeout:     time.Second,
 		ShutdownTimeout:     time.Second,
-	}
-
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("Validate() error = nil, want error")
+		MaxRequestBodyBytes: 1024,
+		WSReadLimitBytes:    1024,
+		WSWriteTimeout:      time.Second,
 	}
 }
