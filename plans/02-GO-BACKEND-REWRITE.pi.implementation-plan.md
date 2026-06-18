@@ -679,7 +679,11 @@
 - проверить, что неправильные комбинации счет/актив блокируются
 
 ### Result
-- Status: Pending
+- Status: Done
+- Test status: `go test ./...` in `megaapp-back` passed after the Step 15 implementation pass.
+- Manual check status: User manually verified invest buy, sell, dividend/coupon, edit, opened positions, and invalid account/asset combination behavior and confirmed that the migrated invest transaction paths work correctly in the current frontend.
+- Findings: Extended the Go money transaction routes to accept `invest_buy`, `invest_sell`, and `invest_dividend`; added invest-specific payload validation and canonical `detailsJSON` normalization; enforced brokerage-or-crypto account requirements and asset-to-account binding checks; preserved asset immutability on invest transaction updates; and kept opened-position frontend inputs compatible by continuing to emit `investAssetTrades` from the snapshot using the stored invest transactions.
+- Issues and resolutions: Invest transaction writes reuse the same `/api/money/transactions` contract as non-invest flows, but their stored amount must remain server-derived from asset details rather than blindly trusting the client payload. Step 15 therefore normalizes and recomputes invest amounts on the Go side before persistence.
 
 ---
 

@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"image/png"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -394,8 +396,15 @@ func (s *Service) CreateTransaction(ctx context.Context, userID int64, input Tra
 		}
 		return s.repo.CreateTransferPair(ctx, userID, normalized)
 	}
-	if err := s.ensureTransactionCategory(ctx, userID, normalized.CategoryID, normalized.Kind); err != nil {
-		return CreateTransactionResult{}, err
+	if isInvestTransactionKind(normalized.Kind) {
+		normalized, err = s.normalizeInvestTransaction(ctx, userID, normalized)
+		if err != nil {
+			return CreateTransactionResult{}, err
+		}
+	} else {
+		if err := s.ensureTransactionCategory(ctx, userID, normalized.CategoryID, normalized.Kind); err != nil {
+			return CreateTransactionResult{}, err
+		}
 	}
 	createdID, err := s.repo.CreateTransaction(ctx, userID, normalized)
 	if err != nil {
@@ -444,8 +453,15 @@ func (s *Service) UpdateTransaction(ctx context.Context, userID int64, transacti
 		return s.repo.UpdateTransferPair(ctx, userID, existing.ID, twinTransaction.ID, normalized)
 	}
 
-	if err := s.ensureTransactionCategory(ctx, userID, normalized.CategoryID, normalized.Kind); err != nil {
-		return err
+	if isInvestTransactionKind(existing.Kind) {
+		normalized, err = s.normalizeExistingInvestTransaction(ctx, userID, *existing, normalized)
+		if err != nil {
+			return err
+		}
+	} else {
+		if err := s.ensureTransactionCategory(ctx, userID, normalized.CategoryID, normalized.Kind); err != nil {
+			return err
+		}
 	}
 	if err := s.repo.UpdateTransaction(ctx, userID, transactionID, normalized); err != nil {
 		return err
@@ -537,6 +553,78 @@ func (s *Service) ensureTransactionCategory(ctx context.Context, userID int64, c
 		return legacy.NewError(legacy.ErrorKindValidation, "Category parent must match transaction kind")
 	}
 	return nil
+}
+
+func (s *Service) normalizeInvestTransaction(ctx context.Context, userID int64, input TransactionInput) (TransactionInput, error) {
+	account, err := s.repo.GetAccountByID(ctx, userID, input.AccountID)
+	if err != nil {
+		return TransactionInput{}, err
+	}
+	if account == nil {
+		return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "Account not found")
+	}
+	if account.Kind != AccountKindBrokerage && account.Kind != AccountKindCrypto {
+		return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "Invest transaction requires brokerage or crypto account")
+	}
+	if input.CategoryID != nil {
+		return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "Category is not allowed for invest transactions")
+	}
+
+	details := normalizeDetailsJSON(input.DetailsJSON)
+	if details == nil {
+		return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "detailsJSON is required for invest transactions")
+	}
+	assetID, ok := positiveIDFromValue(details["assetId"])
+	if !ok {
+		return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "detailsJSON.assetId must be a positive number")
+	}
+
+	asset, err := s.repo.GetAssetByID(ctx, userID, assetID)
+	if err != nil {
+		return TransactionInput{}, err
+	}
+	if asset == nil {
+		return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "Asset not found")
+	}
+	if !containsID(asset.AccountIDs, input.AccountID) {
+		return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "Asset does not belong to selected account")
+	}
+
+	amount, normalizedDetails, err := validateInvestPayload(input.Kind, input.Amount, details, asset.Type)
+	if err != nil {
+		return TransactionInput{}, err
+	}
+	storedDetailsJSON, err := marshalNormalizedJSON(normalizedDetails)
+	if err != nil {
+		return TransactionInput{}, err
+	}
+
+	input.Amount = amount
+	input.CategoryID = nil
+	input.IsGift = false
+	input.StoredDetailsJSON = storedDetailsJSON
+	return input, nil
+}
+
+func (s *Service) normalizeExistingInvestTransaction(ctx context.Context, userID int64, existing Transaction, input TransactionInput) (TransactionInput, error) {
+	nextDetails := normalizeDetailsJSON(input.DetailsJSON)
+	if nextDetails == nil {
+		return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "detailsJSON is required for invest transactions")
+	}
+	nextAssetID, ok := positiveIDFromValue(nextDetails["assetId"])
+	if !ok {
+		return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "detailsJSON.assetId must be a positive number")
+	}
+
+	existingDetails := normalizeDetailsJSON(existing.DetailsJSON)
+	prevAssetID, ok := positiveIDFromValue(existingDetails["assetId"])
+	if !ok {
+		return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "Existing invest transaction has invalid asset binding")
+	}
+	if nextAssetID != prevAssetID {
+		return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "Asset cannot be changed")
+	}
+	return s.normalizeInvestTransaction(ctx, userID, input)
 }
 
 func validateOrganizationInput(input OrganizationInput) (OrganizationInput, error) {
@@ -708,17 +796,18 @@ func validateTransactionInput(input TransactionInput) (TransactionInput, error) 
 		return TransactionInput{}, missingFieldsError(missing...)
 	}
 	if !isSupportedTransactionKind(input.Kind) {
-		return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "kind must be one of: income, expense, transfer")
+		return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "kind must be one of: income, expense, transfer, invest_buy, invest_sell, invest_dividend")
 	}
 
 	normalized := TransactionInput{
-		DateISO:    dateISO,
-		AccountID:  input.AccountID,
-		Amount:     input.Amount,
-		CategoryID: normalizeOptionalID(input.CategoryID),
-		Kind:       input.Kind,
-		IsGift:     input.IsGift,
-		Notes:      normalizeOptionalString(input.Notes),
+		DateISO:     dateISO,
+		AccountID:   input.AccountID,
+		Amount:      input.Amount,
+		CategoryID:  normalizeOptionalID(input.CategoryID),
+		Kind:        input.Kind,
+		IsGift:      input.IsGift,
+		Notes:       normalizeOptionalString(input.Notes),
+		DetailsJSON: input.DetailsJSON,
 	}
 
 	if input.Kind == TransactionKindTransfer {
@@ -749,7 +838,7 @@ func validateTransactionInput(input TransactionInput) (TransactionInput, error) 
 		return normalized, nil
 	}
 
-	if input.Amount <= 0 {
+	if !isInvestTransactionKind(input.Kind) && input.Amount <= 0 {
 		return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "amount must be greater than 0")
 	}
 	return normalized, nil
@@ -775,7 +864,16 @@ func isValidAssetType(assetType AssetType) bool {
 
 func isSupportedTransactionKind(kind TransactionKind) bool {
 	switch kind {
-	case TransactionKindIncome, TransactionKindExpense, TransactionKindTransfer:
+	case TransactionKindIncome, TransactionKindExpense, TransactionKindTransfer, TransactionKindInvestBuy, TransactionKindInvestSell, TransactionKindInvestDividend:
+		return true
+	default:
+		return false
+	}
+}
+
+func isInvestTransactionKind(kind TransactionKind) bool {
+	switch kind {
+	case TransactionKindInvestBuy, TransactionKindInvestSell, TransactionKindInvestDividend:
 		return true
 	default:
 		return false
@@ -800,6 +898,144 @@ func normalizeOptionalString(value *string) *string {
 	}
 	result := *value
 	return &result
+}
+
+func normalizeDetailsJSON(value any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	switch current := value.(type) {
+	case map[string]any:
+		return current
+	case *string:
+		if current == nil || *current == "" {
+			return nil
+		}
+		var result map[string]any
+		if err := json.Unmarshal([]byte(*current), &result); err != nil {
+			return nil
+		}
+		return result
+	case string:
+		if strings.TrimSpace(current) == "" {
+			return nil
+		}
+		var result map[string]any
+		if err := json.Unmarshal([]byte(current), &result); err != nil {
+			return nil
+		}
+		return result
+	}
+
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var result map[string]any
+	if err := json.Unmarshal(encoded, &result); err != nil {
+		return nil
+	}
+	return result
+}
+
+func positiveIDFromValue(value any) (int64, bool) {
+	number, ok := finiteNumber(value)
+	if !ok {
+		return 0, false
+	}
+	id := int64(number)
+	if number != float64(id) || id <= 0 {
+		return 0, false
+	}
+	return id, true
+}
+
+func finiteNumber(value any) (float64, bool) {
+	switch current := value.(type) {
+	case float64:
+		return current, true
+	case float32:
+		return float64(current), true
+	case int:
+		return float64(current), true
+	case int64:
+		return float64(current), true
+	case json.Number:
+		parsed, err := current.Float64()
+		if err != nil {
+			return 0, false
+		}
+		return parsed, true
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(current), 64)
+		if err != nil {
+			return 0, false
+		}
+		return parsed, true
+	default:
+		return 0, false
+	}
+}
+
+func validateInvestPayload(kind TransactionKind, amount float64, details map[string]any, assetType AssetType) (float64, map[string]any, error) {
+	assetID, ok := positiveIDFromValue(details["assetId"])
+	if !ok {
+		return 0, nil, legacy.NewError(legacy.ErrorKindValidation, "detailsJSON.assetId must be a positive number")
+	}
+
+	if kind == TransactionKindInvestDividend {
+		if amount <= 0 {
+			return 0, nil, legacy.NewError(legacy.ErrorKindValidation, "amount must be greater than 0")
+		}
+		return amount, map[string]any{"assetId": assetID}, nil
+	}
+
+	quantity, ok := finiteNumber(details["quantity"])
+	if !ok || quantity <= 0 {
+		return 0, nil, legacy.NewError(legacy.ErrorKindValidation, "detailsJSON.quantity must be greater than 0")
+	}
+	price, ok := finiteNumber(details["price"])
+	if !ok || price <= 0 {
+		return 0, nil, legacy.NewError(legacy.ErrorKindValidation, "detailsJSON.price must be greater than 0")
+	}
+	commissionAmount, ok := finiteNumber(details["commissionAmount"])
+	if !ok && details["commissionAmount"] != nil {
+		return 0, nil, legacy.NewError(legacy.ErrorKindValidation, "detailsJSON.commissionAmount must be greater than or equal to 0")
+	}
+	accruedInterestAmount, ok := finiteNumber(details["accruedInterestAmount"])
+	if !ok && details["accruedInterestAmount"] != nil {
+		return 0, nil, legacy.NewError(legacy.ErrorKindValidation, "detailsJSON.accruedInterestAmount must be greater than or equal to 0")
+	}
+	if commissionAmount < 0 {
+		return 0, nil, legacy.NewError(legacy.ErrorKindValidation, "detailsJSON.commissionAmount must be greater than or equal to 0")
+	}
+	if accruedInterestAmount < 0 {
+		return 0, nil, legacy.NewError(legacy.ErrorKindValidation, "detailsJSON.accruedInterestAmount must be greater than or equal to 0")
+	}
+	if assetType != AssetTypeBond && accruedInterestAmount != 0 {
+		return 0, nil, legacy.NewError(legacy.ErrorKindValidation, "detailsJSON.accruedInterestAmount is allowed only for bond assets")
+	}
+
+	computedAmount := quantity*price - commissionAmount + accruedInterestAmount
+	if kind == TransactionKindInvestBuy {
+		computedAmount = quantity*price + commissionAmount + accruedInterestAmount
+	}
+	return computedAmount, map[string]any{
+		"assetId":               assetID,
+		"quantity":              quantity,
+		"price":                 price,
+		"commissionAmount":      commissionAmount,
+		"accruedInterestAmount": accruedInterestAmount,
+	}, nil
+}
+
+func marshalNormalizedJSON(value map[string]any) (*string, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to encode detailsJSON", err)
+	}
+	result := string(encoded)
+	return &result, nil
 }
 
 func normalizeISODate(value *string, field string) (*string, error) {

@@ -202,6 +202,110 @@ func TestMoneyRoutesTransactionsCrud(t *testing.T) {
 	}
 }
 
+func TestMoneyRoutesInvestTransactions(t *testing.T) {
+	db := openMoneyTestDB(t)
+	insertMoneyTestUser(t, db, 1, "alice")
+	insertMoneyReferenceFixtures(t, db, 1)
+	insertMoneyBrokerageAccount(t, db, 1, 2, "Brokerage", AccountKindBrokerage)
+	insertMoneyBrokerageAccount(t, db, 1, 3, "Crypto", AccountKindCrypto)
+	insertMoneyAsset(t, db, 1, 1, "Apple", "AAPL", AssetTypeStock, []int64{2})
+	insertMoneyAsset(t, db, 1, 2, "Bond", "OFZ", AssetTypeBond, []int64{2})
+
+	authRepo := auth.NewRepository(db)
+	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
+	authService := auth.NewService(authRepo, tokenManager)
+	handler := NewHandler(NewService(NewRepository(db)))
+
+	router := chi.NewRouter()
+	RegisterRoutes(router, authService, handler)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	tokens, err := tokenManager.Issue(auth.TokenClaims{UserID: 1, Username: "alice"})
+	if err != nil {
+		t.Fatalf("Issue() error = %v", err)
+	}
+
+	buyResponse := assertMoneyJSON(t, http.MethodPost, server.URL+"/api/money/transactions", tokens.AccessToken, map[string]any{
+		"dateISO":   "2026-06-18",
+		"accountId": 2,
+		"kind":      "invest_buy",
+		"detailsJSON": map[string]any{
+			"assetId":          1,
+			"quantity":         2,
+			"price":            100,
+			"commissionAmount": 5,
+		},
+	}, http.StatusCreated)
+	buyData := mustMoneyDataMap(t, buyResponse)
+	buyID := int64(buyData["id"].(float64))
+
+	assertMoneyStatus(t, http.MethodPut, server.URL+"/api/money/transactions/"+jsonNumberID(buyID), tokens.AccessToken, map[string]any{
+		"dateISO":   "2026-06-19",
+		"accountId": 2,
+		"kind":      "invest_buy",
+		"detailsJSON": map[string]any{
+			"assetId":          1,
+			"quantity":         3,
+			"price":            90,
+			"commissionAmount": 1,
+		},
+	}, http.StatusOK)
+
+	assertMoneyStatus(t, http.MethodPost, server.URL+"/api/money/transactions", tokens.AccessToken, map[string]any{
+		"dateISO":   "2026-06-20",
+		"accountId": 2,
+		"kind":      "invest_sell",
+		"detailsJSON": map[string]any{
+			"assetId":          1,
+			"quantity":         1,
+			"price":            120,
+			"commissionAmount": 2,
+		},
+	}, http.StatusCreated)
+
+	assertMoneyStatus(t, http.MethodPost, server.URL+"/api/money/transactions", tokens.AccessToken, map[string]any{
+		"dateISO":   "2026-06-21",
+		"accountId": 2,
+		"amount":    15,
+		"kind":      "invest_dividend",
+		"detailsJSON": map[string]any{
+			"assetId": 2,
+		},
+	}, http.StatusCreated)
+
+	snapshotResponse := assertMoneyJSON(t, http.MethodGet, server.URL+"/api/money/snapshot", tokens.AccessToken, nil, http.StatusOK)
+	snapshotData := snapshotResponse["data"].(map[string]any)
+	trades := snapshotData["investAssetTrades"].([]any)
+	if len(trades) != 2 {
+		t.Fatalf("investAssetTrades len = %d, want 2", len(trades))
+	}
+
+	assertMoneyStatus(t, http.MethodPost, server.URL+"/api/money/transactions", tokens.AccessToken, map[string]any{
+		"dateISO":   "2026-06-22",
+		"accountId": 1,
+		"kind":      "invest_buy",
+		"detailsJSON": map[string]any{
+			"assetId":          1,
+			"quantity":         1,
+			"price":            100,
+			"commissionAmount": 1,
+		},
+	}, http.StatusBadRequest)
+
+	assertMoneyStatus(t, http.MethodPut, server.URL+"/api/money/transactions/"+jsonNumberID(buyID), tokens.AccessToken, map[string]any{
+		"dateISO":   "2026-06-19",
+		"accountId": 2,
+		"kind":      "invest_buy",
+		"detailsJSON": map[string]any{
+			"assetId":          2,
+			"quantity":         3,
+			"price":            90,
+			"commissionAmount": 1,
+		},
+	}, http.StatusBadRequest)
+}
+
 func assertMoneyStatus(t *testing.T, method string, url string, accessToken string, body any, wantStatus int) {
 	t.Helper()
 

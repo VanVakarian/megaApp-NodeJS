@@ -168,15 +168,17 @@ type AssetInput struct {
 }
 
 type TransactionInput struct {
-	DateISO       string          `json:"dateISO"`
-	AccountID     int64           `json:"accountId"`
-	Amount        float64         `json:"amount"`
-	TwinAccountID *int64          `json:"twinAccountId"`
-	TwinAmount    *float64        `json:"twinAmount"`
-	CategoryID    *int64          `json:"categoryId"`
-	Kind          TransactionKind `json:"kind"`
-	IsGift        bool            `json:"isGift"`
-	Notes         *string         `json:"notes"`
+	DateISO           string          `json:"dateISO"`
+	AccountID         int64           `json:"accountId"`
+	Amount            float64         `json:"amount"`
+	TwinAccountID     *int64          `json:"twinAccountId"`
+	TwinAmount        *float64        `json:"twinAmount"`
+	CategoryID        *int64          `json:"categoryId"`
+	Kind              TransactionKind `json:"kind"`
+	IsGift            bool            `json:"isGift"`
+	Notes             *string         `json:"notes"`
+	DetailsJSON       any             `json:"detailsJSON"`
+	StoredDetailsJSON *string         `json:"-"`
 }
 
 type CreateTransactionResult struct {

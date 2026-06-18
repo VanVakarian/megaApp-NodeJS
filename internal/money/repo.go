@@ -611,7 +611,7 @@ func (r *Repository) GetTransactionByID(ctx context.Context, userID int64, trans
 }
 
 func (r *Repository) CreateTransaction(ctx context.Context, userID int64, input TransactionInput) (int64, error) {
-	return createTransactionWithRunner(ctx, r.db, userID, input, nil)
+	return createTransactionWithRunner(ctx, r.db, userID, input, input.StoredDetailsJSON)
 }
 
 func (r *Repository) CreateTransferPair(ctx context.Context, userID int64, input TransactionInput) (CreateTransactionResult, error) {
@@ -662,9 +662,9 @@ func (r *Repository) CreateTransferPair(ctx context.Context, userID int64, input
 func (r *Repository) UpdateTransaction(ctx context.Context, userID int64, transactionID int64, input TransactionInput) error {
 	result, err := r.db.ExecContext(ctx, `
 		UPDATE moneyTransaction
-		SET dateISO = ?, accountId = ?, amount = ?, categoryId = ?, kind = ?, isGift = ?, notes = ?, detailsJSON = NULL
+		SET dateISO = ?, accountId = ?, amount = ?, categoryId = ?, kind = ?, isGift = ?, notes = ?, detailsJSON = ?
 		WHERE id = ? AND userId = ?
-	`, input.DateISO, input.AccountID, input.Amount, nullableValue(input.CategoryID), input.Kind, boolToInt64(input.IsGift), valueOrNil(input.Notes), transactionID, userID)
+	`, input.DateISO, input.AccountID, input.Amount, nullableValue(input.CategoryID), input.Kind, boolToInt64(input.IsGift), valueOrNil(input.Notes), createTransactionDetailsValue(input.StoredDetailsJSON), transactionID, userID)
 	if err != nil {
 		return fmt.Errorf("update transaction: %w", err)
 	}

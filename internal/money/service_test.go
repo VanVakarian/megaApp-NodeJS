@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
@@ -373,6 +374,178 @@ func TestServiceTransferLifecycleAndRollback(t *testing.T) {
 	assertMoneyTransactionCount(t, db, 0, `SELECT COUNT(*) FROM moneyTransaction WHERE userId = 1 AND kind = 'transfer'`)
 }
 
+func TestServiceInvestTransactionLifecycleAndValidation(t *testing.T) {
+	db := openMoneyTestDB(t)
+	insertMoneyTestUser(t, db, 1, "alice")
+	insertMoneyReferenceFixtures(t, db, 1)
+	insertMoneyBrokerageAccount(t, db, 1, 2, "Brokerage", AccountKindBrokerage)
+	insertMoneyBrokerageAccount(t, db, 1, 3, "Crypto", AccountKindCrypto)
+	insertMoneyAsset(t, db, 1, 1, "Apple", "AAPL", AssetTypeStock, []int64{2})
+	insertMoneyAsset(t, db, 1, 2, "Bond", "OFZ", AssetTypeBond, []int64{2})
+	service := NewService(NewRepository(db))
+
+	buyResult, err := service.CreateTransaction(context.Background(), 1, TransactionInput{
+		DateISO:   "2026-06-18",
+		AccountID: 2,
+		Kind:      TransactionKindInvestBuy,
+		DetailsJSON: map[string]any{
+			"assetId":          1,
+			"quantity":         2,
+			"price":            100,
+			"commissionAmount": 5,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateTransaction() error = %v", err)
+	}
+	buyTransaction, err := service.repo.GetTransactionByID(context.Background(), 1, buyResult.ID)
+	if err != nil {
+		t.Fatalf("GetTransactionByID() error = %v", err)
+	}
+	if buyTransaction == nil || buyTransaction.Kind != TransactionKindInvestBuy || buyTransaction.Amount != 205 || buyTransaction.CategoryID != nil || buyTransaction.IsGift {
+		t.Fatalf("buy transaction = %+v", buyTransaction)
+	}
+	buyDetails := mustMoneyJSONMap(t, buyTransaction.DetailsJSON)
+	if got := buyDetails["assetId"]; got != float64(1) {
+		t.Fatalf("buy assetId = %v, want 1", got)
+	}
+
+	err = service.UpdateTransaction(context.Background(), 1, buyResult.ID, TransactionInput{
+		DateISO:   "2026-06-19",
+		AccountID: 2,
+		Kind:      TransactionKindInvestBuy,
+		DetailsJSON: map[string]any{
+			"assetId":          1,
+			"quantity":         3,
+			"price":            90,
+			"commissionAmount": 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateTransaction() error = %v", err)
+	}
+	buyTransaction, err = service.repo.GetTransactionByID(context.Background(), 1, buyResult.ID)
+	if err != nil {
+		t.Fatalf("GetTransactionByID() error = %v", err)
+	}
+	if buyTransaction == nil || buyTransaction.Amount != 271 {
+		t.Fatalf("updated buy transaction = %+v", buyTransaction)
+	}
+
+	sellResult, err := service.CreateTransaction(context.Background(), 1, TransactionInput{
+		DateISO:   "2026-06-20",
+		AccountID: 2,
+		Kind:      TransactionKindInvestSell,
+		DetailsJSON: map[string]any{
+			"assetId":          1,
+			"quantity":         1,
+			"price":            120,
+			"commissionAmount": 2,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateTransaction() error = %v", err)
+	}
+	if sellResult.ID <= 0 {
+		t.Fatalf("CreateTransaction() sell id = %d, want > 0", sellResult.ID)
+	}
+
+	dividendResult, err := service.CreateTransaction(context.Background(), 1, TransactionInput{
+		DateISO:   "2026-06-21",
+		AccountID: 2,
+		Amount:    15,
+		Kind:      TransactionKindInvestDividend,
+		DetailsJSON: map[string]any{
+			"assetId": 2,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateTransaction() error = %v", err)
+	}
+	dividendTransaction, err := service.repo.GetTransactionByID(context.Background(), 1, dividendResult.ID)
+	if err != nil {
+		t.Fatalf("GetTransactionByID() error = %v", err)
+	}
+	if dividendTransaction == nil || dividendTransaction.Kind != TransactionKindInvestDividend || dividendTransaction.Amount != 15 {
+		t.Fatalf("dividend transaction = %+v", dividendTransaction)
+	}
+
+	snapshot, err := service.GetSnapshot(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("GetSnapshot() error = %v", err)
+	}
+	if len(snapshot.InvestAssetTrades) != 2 {
+		t.Fatalf("InvestAssetTrades len = %d, want 2", len(snapshot.InvestAssetTrades))
+	}
+
+	_, err = service.CreateTransaction(context.Background(), 1, TransactionInput{
+		DateISO:   "2026-06-22",
+		AccountID: 1,
+		Kind:      TransactionKindInvestBuy,
+		DetailsJSON: map[string]any{
+			"assetId":          1,
+			"quantity":         1,
+			"price":            100,
+			"commissionAmount": 1,
+		},
+	})
+	assertMoneyValidationError(t, err, "Invest transaction requires brokerage or crypto account")
+
+	_, err = service.CreateTransaction(context.Background(), 1, TransactionInput{
+		DateISO:    "2026-06-22",
+		AccountID:  2,
+		CategoryID: int64Ptr(1),
+		Kind:       TransactionKindInvestBuy,
+		DetailsJSON: map[string]any{
+			"assetId":          1,
+			"quantity":         1,
+			"price":            100,
+			"commissionAmount": 1,
+		},
+	})
+	assertMoneyValidationError(t, err, "Category is not allowed for invest transactions")
+
+	_, err = service.CreateTransaction(context.Background(), 1, TransactionInput{
+		DateISO:   "2026-06-22",
+		AccountID: 3,
+		Kind:      TransactionKindInvestBuy,
+		DetailsJSON: map[string]any{
+			"assetId":          1,
+			"quantity":         1,
+			"price":            100,
+			"commissionAmount": 1,
+		},
+	})
+	assertMoneyValidationError(t, err, "Asset does not belong to selected account")
+
+	_, err = service.CreateTransaction(context.Background(), 1, TransactionInput{
+		DateISO:   "2026-06-22",
+		AccountID: 2,
+		Kind:      TransactionKindInvestBuy,
+		DetailsJSON: map[string]any{
+			"assetId":               1,
+			"quantity":              1,
+			"price":                 100,
+			"commissionAmount":      1,
+			"accruedInterestAmount": 1,
+		},
+	})
+	assertMoneyValidationError(t, err, "detailsJSON.accruedInterestAmount is allowed only for bond assets")
+
+	err = service.UpdateTransaction(context.Background(), 1, buyResult.ID, TransactionInput{
+		DateISO:   "2026-06-19",
+		AccountID: 2,
+		Kind:      TransactionKindInvestBuy,
+		DetailsJSON: map[string]any{
+			"assetId":          2,
+			"quantity":         3,
+			"price":            90,
+			"commissionAmount": 1,
+		},
+	})
+	assertMoneyValidationError(t, err, "Asset cannot be changed")
+}
+
 func openMoneyTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 
@@ -523,6 +696,13 @@ func insertMoneyAccount(t *testing.T, db *sql.DB, userID int64, accountID int64,
 	}
 }
 
+func insertMoneyAsset(t *testing.T, db *sql.DB, userID int64, assetID int64, title string, ticker string, assetType AssetType, accountIDs []int64) {
+	t.Helper()
+	if _, err := db.Exec(`INSERT INTO moneyAsset (id, userId, accountIdsJSON, ticker, title, type) VALUES (?, ?, ?, ?, ?, ?)`, assetID, userID, marshalAccountIDs(accountIDs), ticker, title, assetType); err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+}
+
 func insertMoneyCategory(t *testing.T, db *sql.DB, userID int64, categoryID int64, name string, parentID *int64, categoryType CategoryType) {
 	t.Helper()
 	if _, err := db.Exec(`INSERT INTO moneyCategories (id, userId, name, parentId, categoryType) VALUES (?, ?, ?, ?, ?)`, categoryID, userID, name, nullableValue(parentID), categoryType); err != nil {
@@ -597,6 +777,18 @@ func assertMoneyConflictError(t *testing.T, err error, want string) {
 	if err.Error() != want {
 		t.Fatalf("error = %q, want %q", err.Error(), want)
 	}
+}
+
+func mustMoneyJSONMap(t *testing.T, value *string) map[string]any {
+	t.Helper()
+	if value == nil {
+		t.Fatal("value = nil")
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(*value), &result); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	return result
 }
 
 func assertMoneyTransactionCount(t *testing.T, db *sql.DB, want int64, query string, args ...any) {
