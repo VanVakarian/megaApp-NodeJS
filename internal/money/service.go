@@ -376,6 +376,94 @@ func (s *Service) DeleteAsset(ctx context.Context, userID int64, assetID int64) 
 	return s.repo.DeleteAsset(ctx, userID, assetID)
 }
 
+func (s *Service) GetTransactions(ctx context.Context, userID int64) ([]Transaction, error) {
+	return s.repo.ListTransactions(ctx, userID)
+}
+
+func (s *Service) CreateTransaction(ctx context.Context, userID int64, input TransactionInput) (CreateTransactionResult, error) {
+	normalized, err := validateTransactionInput(input)
+	if err != nil {
+		return CreateTransactionResult{}, err
+	}
+	if err := s.ensureTransactionAccount(ctx, userID, normalized.AccountID); err != nil {
+		return CreateTransactionResult{}, err
+	}
+	if normalized.Kind == TransactionKindTransfer {
+		if err := s.ensureTransactionAccount(ctx, userID, *normalized.TwinAccountID); err != nil {
+			return CreateTransactionResult{}, err
+		}
+		return s.repo.CreateTransferPair(ctx, userID, normalized)
+	}
+	if err := s.ensureTransactionCategory(ctx, userID, normalized.CategoryID, normalized.Kind); err != nil {
+		return CreateTransactionResult{}, err
+	}
+	createdID, err := s.repo.CreateTransaction(ctx, userID, normalized)
+	if err != nil {
+		return CreateTransactionResult{}, err
+	}
+	return CreateTransactionResult{ID: createdID}, nil
+}
+
+func (s *Service) UpdateTransaction(ctx context.Context, userID int64, transactionID int64, input TransactionInput) error {
+	existing, err := s.repo.GetTransactionByID(ctx, userID, transactionID)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return legacy.NewError(legacy.ErrorKindNotFound, "Transaction not found")
+	}
+
+	normalized, err := validateTransactionInput(input)
+	if err != nil {
+		return err
+	}
+	if normalized.Kind != existing.Kind {
+		return legacy.NewError(legacy.ErrorKindValidation, "Transaction kind cannot be changed")
+	}
+	if normalized.AccountID != existing.AccountID {
+		return legacy.NewError(legacy.ErrorKindValidation, "Account cannot be changed")
+	}
+
+	if existing.Kind == TransactionKindTransfer {
+		if normalized.TwinAccountID == nil || normalized.TwinAmount == nil {
+			return missingFieldsError("twinAccountId", "twinAmount")
+		}
+		if existing.TwinID == nil {
+			return legacy.NewError(legacy.ErrorKindValidation, "Transfer pair is missing")
+		}
+		twinTransaction, err := s.repo.GetTransactionByID(ctx, userID, *existing.TwinID)
+		if err != nil {
+			return err
+		}
+		if twinTransaction == nil {
+			return legacy.NewError(legacy.ErrorKindValidation, "Transfer pair is missing")
+		}
+		if *normalized.TwinAccountID != twinTransaction.AccountID {
+			return legacy.NewError(legacy.ErrorKindValidation, "Account cannot be changed")
+		}
+		return s.repo.UpdateTransferPair(ctx, userID, existing.ID, twinTransaction.ID, normalized)
+	}
+
+	if err := s.ensureTransactionCategory(ctx, userID, normalized.CategoryID, normalized.Kind); err != nil {
+		return err
+	}
+	if err := s.repo.UpdateTransaction(ctx, userID, transactionID, normalized); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Service) DeleteTransaction(ctx context.Context, userID int64, transactionID int64) error {
+	existing, err := s.repo.GetTransactionByID(ctx, userID, transactionID)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return legacy.NewError(legacy.ErrorKindNotFound, "Transaction not found")
+	}
+	return s.repo.DeleteTransaction(ctx, userID, transactionID)
+}
+
 func (s *Service) ensureAccountReferences(ctx context.Context, userID int64, input AccountInput) error {
 	currency, err := s.repo.GetCurrencyByID(ctx, userID, input.CurrencyID)
 	if err != nil {
@@ -409,6 +497,44 @@ func (s *Service) ensureAssetAccounts(ctx context.Context, userID int64, account
 		if account.Kind != AccountKindBrokerage && account.Kind != AccountKindCrypto {
 			return legacy.NewError(legacy.ErrorKindValidation, fmt.Sprintf("Asset account must be brokerage or crypto: %d", accountID))
 		}
+	}
+	return nil
+}
+
+func (s *Service) ensureTransactionAccount(ctx context.Context, userID int64, accountID int64) error {
+	account, err := s.repo.GetAccountByID(ctx, userID, accountID)
+	if err != nil {
+		return err
+	}
+	if account == nil {
+		return legacy.NewError(legacy.ErrorKindValidation, "Account not found")
+	}
+	return nil
+}
+
+func (s *Service) ensureTransactionCategory(ctx context.Context, userID int64, categoryID *int64, kind TransactionKind) error {
+	if categoryID == nil {
+		return nil
+	}
+	category, err := s.repo.GetCategoryByID(ctx, userID, *categoryID)
+	if err != nil {
+		return err
+	}
+	if category == nil {
+		return legacy.NewError(legacy.ErrorKindValidation, "Category not found")
+	}
+	if category.CategoryType != CategoryType(kind) {
+		return legacy.NewError(legacy.ErrorKindValidation, "Category type must match transaction kind")
+	}
+	if category.ParentID == nil {
+		return nil
+	}
+	parentCategory, err := s.repo.GetCategoryByID(ctx, userID, *category.ParentID)
+	if err != nil {
+		return err
+	}
+	if parentCategory == nil || parentCategory.CategoryType != CategoryType(kind) {
+		return legacy.NewError(legacy.ErrorKindValidation, "Category parent must match transaction kind")
 	}
 	return nil
 }
@@ -565,6 +691,70 @@ func validateAssetInput(input AssetInput) (AssetInput, error) {
 	}, nil
 }
 
+func validateTransactionInput(input TransactionInput) (TransactionInput, error) {
+	dateISO := strings.TrimSpace(input.DateISO)
+
+	var missing []string
+	if dateISO == "" {
+		missing = append(missing, "dateISO")
+	}
+	if input.AccountID <= 0 {
+		missing = append(missing, "accountId")
+	}
+	if input.Kind == "" {
+		missing = append(missing, "kind")
+	}
+	if len(missing) > 0 {
+		return TransactionInput{}, missingFieldsError(missing...)
+	}
+	if !isSupportedTransactionKind(input.Kind) {
+		return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "kind must be one of: income, expense, transfer")
+	}
+
+	normalized := TransactionInput{
+		DateISO:    dateISO,
+		AccountID:  input.AccountID,
+		Amount:     input.Amount,
+		CategoryID: normalizeOptionalID(input.CategoryID),
+		Kind:       input.Kind,
+		IsGift:     input.IsGift,
+		Notes:      normalizeOptionalString(input.Notes),
+	}
+
+	if input.Kind == TransactionKindTransfer {
+		if input.Amount <= 0 {
+			return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "amount must be greater than 0")
+		}
+		if input.TwinAccountID == nil || *input.TwinAccountID <= 0 {
+			return TransactionInput{}, missingFieldsError("twinAccountId")
+		}
+		if input.TwinAmount == nil {
+			return TransactionInput{}, missingFieldsError("twinAmount")
+		}
+		if *input.TwinAmount <= 0 {
+			return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "amount must be greater than 0")
+		}
+		if input.AccountID == *input.TwinAccountID {
+			return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "Transfer accounts must be different")
+		}
+		if normalized.CategoryID != nil {
+			return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "Category is not allowed for transfer")
+		}
+		twinAccountID := *input.TwinAccountID
+		twinAmount := *input.TwinAmount
+		normalized.TwinAccountID = &twinAccountID
+		normalized.TwinAmount = &twinAmount
+		normalized.CategoryID = nil
+		normalized.IsGift = false
+		return normalized, nil
+	}
+
+	if input.Amount <= 0 {
+		return TransactionInput{}, legacy.NewError(legacy.ErrorKindValidation, "amount must be greater than 0")
+	}
+	return normalized, nil
+}
+
 func isValidAccountKind(kind AccountKind) bool {
 	switch kind {
 	case AccountKindCash, AccountKindCard, AccountKindChecking, AccountKindDeposit, AccountKindBrokerage, AccountKindCrypto:
@@ -583,8 +773,33 @@ func isValidAssetType(assetType AssetType) bool {
 	}
 }
 
+func isSupportedTransactionKind(kind TransactionKind) bool {
+	switch kind {
+	case TransactionKindIncome, TransactionKindExpense, TransactionKindTransfer:
+		return true
+	default:
+		return false
+	}
+}
+
 func missingFieldsError(fields ...string) error {
 	return legacy.NewError(legacy.ErrorKindValidation, fmt.Sprintf("Missing required fields: %s", strings.Join(fields, ", ")))
+}
+
+func normalizeOptionalID(value *int64) *int64 {
+	if value == nil || *value <= 0 {
+		return nil
+	}
+	result := *value
+	return &result
+}
+
+func normalizeOptionalString(value *string) *string {
+	if value == nil || *value == "" {
+		return nil
+	}
+	result := *value
+	return &result
 }
 
 func normalizeISODate(value *string, field string) (*string, error) {

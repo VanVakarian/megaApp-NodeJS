@@ -640,7 +640,11 @@
 - проверить, что balances/списки не ломаются
 
 ### Result
-- Status: Pending
+- Status: Done
+- Test status: `go test ./...` in `megaapp-back` passed after the Step 14 implementation pass.
+- Manual check status: User manually verified the Transactions-tab income, expense, transfer, update, and delete flows and confirmed that the migrated transaction paths work correctly in the current frontend.
+- Findings: Restored authenticated `/api/money/transactions` read/write routes in the Go money module, implemented income and expense persistence with category compatibility checks, implemented transfer pair creation and update semantics with explicit SQL transaction boundaries, preserved legacy transfer pair shape with `twinId` and `detailsJSON.direction`, and relied on inherited SQLite cascade deletion so removing one transfer side removes the paired row as well.
+- Issues and resolutions: The existing frontend boot path still loads transactions from the compatibility snapshot added earlier, while create/update/delete operations hit `/api/money/transactions` directly. Step 14 therefore had to restore route-level write compatibility without changing the snapshot-first frontend startup model.
 
 ---
 

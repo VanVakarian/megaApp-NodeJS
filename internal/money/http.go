@@ -48,6 +48,11 @@ func RegisterRoutes(router chi.Router, authService *auth.Service, handler *Handl
 		r.Post("/assets", handler.CreateAsset)
 		r.Put("/assets/{id}", handler.UpdateAsset)
 		r.Delete("/assets/{id}", handler.DeleteAsset)
+
+		r.Get("/transactions", handler.GetTransactions)
+		r.Post("/transactions", handler.CreateTransaction)
+		r.Put("/transactions/{id}", handler.UpdateTransaction)
+		r.Delete("/transactions/{id}", handler.DeleteTransaction)
 	})
 }
 
@@ -485,6 +490,94 @@ func (h *Handler) DeleteAsset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeSuccessMessage(w, http.StatusOK, "Asset deleted successfully")
+}
+
+func (h *Handler) GetTransactions(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.UserClaimsFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	response, err := h.service.GetTransactions(r.Context(), claims.UserID)
+	if err != nil {
+		writeAppError(w, err, http.StatusInternalServerError, "Failed to get transactions")
+		return
+	}
+
+	writeSuccessData(w, http.StatusOK, response)
+}
+
+func (h *Handler) CreateTransaction(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.UserClaimsFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var request TransactionInput
+	if err := legacy.DecodeJSON(r, &request); err != nil {
+		writeAppError(w, err, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	created, err := h.service.CreateTransaction(r.Context(), claims.UserID, request)
+	if err != nil {
+		writeAppError(w, err, http.StatusInternalServerError, "Failed to create transaction")
+		return
+	}
+
+	if created.TwinID != nil {
+		writeSuccessData(w, http.StatusCreated, map[string]any{"id": created.ID, "twinId": *created.TwinID})
+		return
+	}
+	writeSuccessData(w, http.StatusCreated, map[string]int64{"id": created.ID})
+}
+
+func (h *Handler) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.UserClaimsFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	id, ok := parseIDParam(w, r, "id")
+	if !ok {
+		return
+	}
+
+	var request TransactionInput
+	if err := legacy.DecodeJSON(r, &request); err != nil {
+		writeAppError(w, err, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if err := h.service.UpdateTransaction(r.Context(), claims.UserID, id, request); err != nil {
+		writeAppError(w, err, http.StatusInternalServerError, "Failed to update transaction")
+		return
+	}
+
+	writeSuccessMessage(w, http.StatusOK, "Transaction updated successfully")
+}
+
+func (h *Handler) DeleteTransaction(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.UserClaimsFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	id, ok := parseIDParam(w, r, "id")
+	if !ok {
+		return
+	}
+
+	if err := h.service.DeleteTransaction(r.Context(), claims.UserID, id); err != nil {
+		writeAppError(w, err, http.StatusInternalServerError, "Failed to delete transaction")
+		return
+	}
+
+	writeSuccessMessage(w, http.StatusOK, "Transaction deleted successfully")
 }
 
 func parseIDParam(w http.ResponseWriter, r *http.Request, name string) (int64, bool) {

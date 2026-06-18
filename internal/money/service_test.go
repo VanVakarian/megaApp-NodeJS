@@ -188,6 +188,191 @@ func TestServiceAssetValidationAndGuards(t *testing.T) {
 	assertMoneyConflictError(t, err, "Asset is linked to existing transactions")
 }
 
+func TestServiceTransactionLifecycleAndValidation(t *testing.T) {
+	db := openMoneyTestDB(t)
+	insertMoneyTestUser(t, db, 1, "alice")
+	insertMoneyReferenceFixtures(t, db, 1)
+	insertMoneyAccount(t, db, 1, 2, "Card", AccountKindCard)
+	insertMoneyCategory(t, db, 1, 3, "Salary", nil, CategoryTypeIncome)
+	service := NewService(NewRepository(db))
+
+	created, err := service.CreateTransaction(context.Background(), 1, TransactionInput{
+		DateISO:    "2026-06-18",
+		AccountID:  1,
+		Amount:     1500,
+		CategoryID: int64Ptr(3),
+		Kind:       TransactionKindIncome,
+		IsGift:     true,
+		Notes:      stringPtr("Salary"),
+	})
+	if err != nil {
+		t.Fatalf("CreateTransaction() error = %v", err)
+	}
+	if created.ID <= 0 || created.TwinID != nil {
+		t.Fatalf("CreateTransaction() result = %+v, want single transaction id", created)
+	}
+
+	stored, err := service.repo.GetTransactionByID(context.Background(), 1, created.ID)
+	if err != nil {
+		t.Fatalf("GetTransactionByID() error = %v", err)
+	}
+	if stored == nil || stored.Kind != TransactionKindIncome || stored.CategoryID == nil || *stored.CategoryID != 3 {
+		t.Fatalf("stored transaction = %+v", stored)
+	}
+
+	err = service.UpdateTransaction(context.Background(), 1, created.ID, TransactionInput{
+		DateISO:   "2026-06-19",
+		AccountID: 1,
+		Amount:    1700,
+		Kind:      TransactionKindIncome,
+		IsGift:    false,
+		Notes:     stringPtr("Salary updated"),
+	})
+	if err != nil {
+		t.Fatalf("UpdateTransaction() error = %v", err)
+	}
+
+	stored, err = service.repo.GetTransactionByID(context.Background(), 1, created.ID)
+	if err != nil {
+		t.Fatalf("GetTransactionByID() error = %v", err)
+	}
+	if stored == nil || stored.Amount != 1700 || stored.CategoryID != nil || stored.IsGift {
+		t.Fatalf("updated transaction = %+v", stored)
+	}
+
+	err = service.UpdateTransaction(context.Background(), 1, created.ID, TransactionInput{
+		DateISO:   "2026-06-19",
+		AccountID: 2,
+		Amount:    1700,
+		Kind:      TransactionKindIncome,
+	})
+	assertMoneyValidationError(t, err, "Account cannot be changed")
+
+	err = service.UpdateTransaction(context.Background(), 1, created.ID, TransactionInput{
+		DateISO:   "2026-06-19",
+		AccountID: 1,
+		Amount:    1700,
+		Kind:      TransactionKindExpense,
+	})
+	assertMoneyValidationError(t, err, "Transaction kind cannot be changed")
+
+	err = service.DeleteTransaction(context.Background(), 1, created.ID)
+	if err != nil {
+		t.Fatalf("DeleteTransaction() error = %v", err)
+	}
+	stored, err = service.repo.GetTransactionByID(context.Background(), 1, created.ID)
+	if err != nil {
+		t.Fatalf("GetTransactionByID() error = %v", err)
+	}
+	if stored != nil {
+		t.Fatalf("stored transaction after delete = %+v, want nil", stored)
+	}
+}
+
+func TestServiceTransferLifecycleAndRollback(t *testing.T) {
+	db := openMoneyTestDB(t)
+	insertMoneyTestUser(t, db, 1, "alice")
+	insertMoneyReferenceFixtures(t, db, 1)
+	insertMoneyAccount(t, db, 1, 2, "Card", AccountKindCard)
+	insertMoneyAccount(t, db, 1, 3, "Savings", AccountKindChecking)
+	service := NewService(NewRepository(db))
+
+	created, err := service.CreateTransaction(context.Background(), 1, TransactionInput{
+		DateISO:       "2026-06-18",
+		AccountID:     1,
+		Amount:        100,
+		TwinAccountID: int64Ptr(2),
+		TwinAmount:    float64Ptr(95),
+		Kind:          TransactionKindTransfer,
+		Notes:         stringPtr("Move"),
+	})
+	if err != nil {
+		t.Fatalf("CreateTransaction() error = %v", err)
+	}
+	if created.ID <= 0 || created.TwinID == nil || *created.TwinID <= 0 {
+		t.Fatalf("CreateTransaction() result = %+v, want pair ids", created)
+	}
+
+	fromTransaction, err := service.repo.GetTransactionByID(context.Background(), 1, created.ID)
+	if err != nil {
+		t.Fatalf("GetTransactionByID() error = %v", err)
+	}
+	toTransaction, err := service.repo.GetTransactionByID(context.Background(), 1, *created.TwinID)
+	if err != nil {
+		t.Fatalf("GetTransactionByID() error = %v", err)
+	}
+	if fromTransaction == nil || toTransaction == nil || fromTransaction.TwinID == nil || toTransaction.TwinID == nil {
+		t.Fatalf("transfer pair = %+v %+v", fromTransaction, toTransaction)
+	}
+	if *fromTransaction.TwinID != toTransaction.ID || *toTransaction.TwinID != fromTransaction.ID {
+		t.Fatalf("transfer pair twin ids = %+v %+v", fromTransaction, toTransaction)
+	}
+
+	err = service.UpdateTransaction(context.Background(), 1, created.ID, TransactionInput{
+		DateISO:       "2026-06-19",
+		AccountID:     1,
+		Amount:        110,
+		TwinAccountID: int64Ptr(2),
+		TwinAmount:    float64Ptr(108),
+		Kind:          TransactionKindTransfer,
+		Notes:         stringPtr("Move updated"),
+	})
+	if err != nil {
+		t.Fatalf("UpdateTransaction() error = %v", err)
+	}
+
+	fromTransaction, err = service.repo.GetTransactionByID(context.Background(), 1, created.ID)
+	if err != nil {
+		t.Fatalf("GetTransactionByID() error = %v", err)
+	}
+	toTransaction, err = service.repo.GetTransactionByID(context.Background(), 1, *created.TwinID)
+	if err != nil {
+		t.Fatalf("GetTransactionByID() error = %v", err)
+	}
+	if fromTransaction == nil || toTransaction == nil || fromTransaction.Amount != 110 || toTransaction.Amount != 108 || fromTransaction.DateISO != "2026-06-19" || toTransaction.DateISO != "2026-06-19" {
+		t.Fatalf("updated transfer pair = %+v %+v", fromTransaction, toTransaction)
+	}
+
+	err = service.UpdateTransaction(context.Background(), 1, created.ID, TransactionInput{
+		DateISO:       "2026-06-19",
+		AccountID:     1,
+		Amount:        110,
+		TwinAccountID: int64Ptr(3),
+		TwinAmount:    float64Ptr(108),
+		Kind:          TransactionKindTransfer,
+	})
+	assertMoneyValidationError(t, err, "Account cannot be changed")
+
+	err = service.DeleteTransaction(context.Background(), 1, created.ID)
+	if err != nil {
+		t.Fatalf("DeleteTransaction() error = %v", err)
+	}
+	fromTransaction, err = service.repo.GetTransactionByID(context.Background(), 1, created.ID)
+	if err != nil {
+		t.Fatalf("GetTransactionByID() error = %v", err)
+	}
+	toTransaction, err = service.repo.GetTransactionByID(context.Background(), 1, *created.TwinID)
+	if err != nil {
+		t.Fatalf("GetTransactionByID() error = %v", err)
+	}
+	if fromTransaction != nil || toTransaction != nil {
+		t.Fatalf("deleted transfer pair = %+v %+v, want nil nil", fromTransaction, toTransaction)
+	}
+
+	_, err = service.repo.CreateTransferPair(context.Background(), 1, TransactionInput{
+		DateISO:       "2026-06-20",
+		AccountID:     1,
+		Amount:        50,
+		TwinAccountID: int64Ptr(999),
+		TwinAmount:    float64Ptr(49),
+		Kind:          TransactionKindTransfer,
+	})
+	if err == nil {
+		t.Fatal("CreateTransferPair() error = nil, want rollback error")
+	}
+	assertMoneyTransactionCount(t, db, 0, `SELECT COUNT(*) FROM moneyTransaction WHERE userId = 1 AND kind = 'transfer'`)
+}
+
 func openMoneyTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 
@@ -331,6 +516,20 @@ func insertMoneyBrokerageAccount(t *testing.T, db *sql.DB, userID int64, account
 	}
 }
 
+func insertMoneyAccount(t *testing.T, db *sql.DB, userID int64, accountID int64, title string, kind AccountKind) {
+	t.Helper()
+	if _, err := db.Exec(`INSERT INTO moneyAccount (id, userId, title, currencyId, isInvest, isArchived, kind, organizationId) VALUES (?, ?, ?, 1, 0, 0, ?, 1)`, accountID, userID, title, kind); err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+}
+
+func insertMoneyCategory(t *testing.T, db *sql.DB, userID int64, categoryID int64, name string, parentID *int64, categoryType CategoryType) {
+	t.Helper()
+	if _, err := db.Exec(`INSERT INTO moneyCategories (id, userId, name, parentId, categoryType) VALUES (?, ?, ?, ?, ?)`, categoryID, userID, name, nullableValue(parentID), categoryType); err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+}
+
 func insertMoneyReadFixtures(t *testing.T, db *sql.DB, userID int64) {
 	t.Helper()
 	if _, err := db.Exec(`INSERT INTO moneyAsset (id, userId, accountIdsJSON, ticker, title, type, suspendedSince, suspendedUntil) VALUES (1, ?, '[1,1]', 'AAPL', 'Apple', 'stock', NULL, NULL)`, userID); err != nil {
@@ -370,6 +569,10 @@ func stringPtr(value string) *string {
 	return &value
 }
 
+func float64Ptr(value float64) *float64 {
+	return &value
+}
+
 func assertMoneyValidationError(t *testing.T, err error, want string) {
 	t.Helper()
 	if err == nil {
@@ -393,5 +596,16 @@ func assertMoneyConflictError(t *testing.T, err error, want string) {
 	}
 	if err.Error() != want {
 		t.Fatalf("error = %q, want %q", err.Error(), want)
+	}
+}
+
+func assertMoneyTransactionCount(t *testing.T, db *sql.DB, want int64, query string, args ...any) {
+	t.Helper()
+	var got int64
+	if err := db.QueryRow(query, args...).Scan(&got); err != nil {
+		t.Fatalf("QueryRow() error = %v", err)
+	}
+	if got != want {
+		t.Fatalf("transaction count = %d, want %d", got, want)
 	}
 }

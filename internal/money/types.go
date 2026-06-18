@@ -33,6 +33,17 @@ const (
 	AssetTypeCrypto AssetType = "crypto"
 )
 
+type TransactionKind string
+
+const (
+	TransactionKindIncome         TransactionKind = "income"
+	TransactionKindExpense        TransactionKind = "expense"
+	TransactionKindTransfer       TransactionKind = "transfer"
+	TransactionKindInvestBuy      TransactionKind = "invest_buy"
+	TransactionKindInvestSell     TransactionKind = "invest_sell"
+	TransactionKindInvestDividend TransactionKind = "invest_dividend"
+)
+
 type Organization struct {
 	ID         int64   `json:"id"`
 	Title      string  `json:"title"`
@@ -76,30 +87,30 @@ type Asset struct {
 }
 
 type Transaction struct {
-	ID          int64   `json:"id"`
-	DateISO     string  `json:"dateISO"`
-	AccountID   int64   `json:"accountId"`
-	Amount      float64 `json:"amount"`
-	CategoryID  *int64  `json:"categoryId"`
-	Kind        string  `json:"kind"`
-	IsGift      bool    `json:"isGift"`
-	Notes       *string `json:"notes"`
-	DetailsJSON *string `json:"detailsJSON"`
-	TwinID      *int64  `json:"twinId"`
+	ID          int64           `json:"id"`
+	DateISO     string          `json:"dateISO"`
+	AccountID   int64           `json:"accountId"`
+	Amount      float64         `json:"amount"`
+	CategoryID  *int64          `json:"categoryId"`
+	Kind        TransactionKind `json:"kind"`
+	IsGift      bool            `json:"isGift"`
+	Notes       *string         `json:"notes"`
+	DetailsJSON *string         `json:"detailsJSON"`
+	TwinID      *int64          `json:"twinId"`
 }
 
 type InvestAssetTrade struct {
-	ID          int64   `json:"id"`
-	DateISO     string  `json:"dateISO"`
-	AccountID   int64   `json:"accountId"`
-	Amount      float64 `json:"amount"`
-	Kind        string  `json:"kind"`
-	Notes       *string `json:"notes"`
-	DetailsJSON *string `json:"detailsJSON"`
-	AssetID     *int64  `json:"assetId"`
-	AssetTitle  *string `json:"assetTitle"`
-	AssetTicker *string `json:"assetTicker"`
-	AssetType   *string `json:"assetType"`
+	ID          int64           `json:"id"`
+	DateISO     string          `json:"dateISO"`
+	AccountID   int64           `json:"accountId"`
+	Amount      float64         `json:"amount"`
+	Kind        TransactionKind `json:"kind"`
+	Notes       *string         `json:"notes"`
+	DetailsJSON *string         `json:"detailsJSON"`
+	AssetID     *int64          `json:"assetId"`
+	AssetTitle  *string         `json:"assetTitle"`
+	AssetTicker *string         `json:"assetTicker"`
+	AssetType   *string         `json:"assetType"`
 }
 
 type RateHistory struct {
@@ -154,4 +165,21 @@ type AssetInput struct {
 	AccountIDs     []int64   `json:"accountIds"`
 	SuspendedSince *string   `json:"suspendedSince"`
 	SuspendedUntil *string   `json:"suspendedUntil"`
+}
+
+type TransactionInput struct {
+	DateISO       string          `json:"dateISO"`
+	AccountID     int64           `json:"accountId"`
+	Amount        float64         `json:"amount"`
+	TwinAccountID *int64          `json:"twinAccountId"`
+	TwinAmount    *float64        `json:"twinAmount"`
+	CategoryID    *int64          `json:"categoryId"`
+	Kind          TransactionKind `json:"kind"`
+	IsGift        bool            `json:"isGift"`
+	Notes         *string         `json:"notes"`
+}
+
+type CreateTransactionResult struct {
+	ID     int64
+	TwinID *int64
 }

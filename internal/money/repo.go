@@ -13,6 +13,11 @@ type Repository struct {
 	db *sql.DB
 }
 
+type txRunner interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
 func NewRepository(db *sql.DB) *Repository {
 	return &Repository{db: db}
 }
@@ -576,26 +581,143 @@ func (r *Repository) ListTransactions(ctx context.Context, userID int64) ([]Tran
 
 	var result []Transaction
 	for rows.Next() {
-		var item Transaction
-		var categoryID sql.NullInt64
-		var isGift int64
-		var notes sql.NullString
-		var detailsJSON sql.NullString
-		var twinID sql.NullInt64
-		if err := rows.Scan(&item.ID, &item.DateISO, &item.AccountID, &item.Amount, &categoryID, &item.Kind, &isGift, &notes, &detailsJSON, &twinID); err != nil {
+		item, err := scanTransaction(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan transaction: %w", err)
 		}
-		item.CategoryID = nullableInt64(categoryID)
-		item.IsGift = isGift != 0
-		item.Notes = nullableString(notes)
-		item.DetailsJSON = nullableString(detailsJSON)
-		item.TwinID = nullableInt64(twinID)
 		result = append(result, item)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate transactions: %w", err)
 	}
 	return result, nil
+}
+
+func (r *Repository) GetTransactionByID(ctx context.Context, userID int64, transactionID int64) (*Transaction, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, twinId
+		FROM moneyTransaction
+		WHERE id = ? AND userId = ?
+	`, transactionID, userID)
+
+	item, err := scanTransaction(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get transaction: %w", err)
+	}
+	return &item, nil
+}
+
+func (r *Repository) CreateTransaction(ctx context.Context, userID int64, input TransactionInput) (int64, error) {
+	return createTransactionWithRunner(ctx, r.db, userID, input, nil)
+}
+
+func (r *Repository) CreateTransferPair(ctx context.Context, userID int64, input TransactionInput) (CreateTransactionResult, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return CreateTransactionResult{}, fmt.Errorf("begin create transfer pair: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	fromDetails := `{"direction":"out"}`
+	fromID, err := createTransactionWithRunner(ctx, tx, userID, input, &fromDetails)
+	if err != nil {
+		return CreateTransactionResult{}, err
+	}
+
+	toDetails := `{"direction":"in"}`
+	toInput := TransactionInput{
+		DateISO:    input.DateISO,
+		AccountID:  *input.TwinAccountID,
+		Amount:     *input.TwinAmount,
+		CategoryID: nil,
+		Kind:       TransactionKindTransfer,
+		IsGift:     false,
+		Notes:      input.Notes,
+	}
+	toID, err := createTransactionWithRunner(ctx, tx, userID, toInput, &toDetails)
+	if err != nil {
+		return CreateTransactionResult{}, err
+	}
+
+	if err := updateTwinIDWithRunner(ctx, tx, userID, fromID, &toID); err != nil {
+		return CreateTransactionResult{}, err
+	}
+	if err := updateTwinIDWithRunner(ctx, tx, userID, toID, &fromID); err != nil {
+		return CreateTransactionResult{}, err
+	}
+
+	if err = tx.Commit(); err != nil {
+		return CreateTransactionResult{}, fmt.Errorf("commit create transfer pair: %w", err)
+	}
+	return CreateTransactionResult{ID: fromID, TwinID: &toID}, nil
+}
+
+func (r *Repository) UpdateTransaction(ctx context.Context, userID int64, transactionID int64, input TransactionInput) error {
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE moneyTransaction
+		SET dateISO = ?, accountId = ?, amount = ?, categoryId = ?, kind = ?, isGift = ?, notes = ?, detailsJSON = NULL
+		WHERE id = ? AND userId = ?
+	`, input.DateISO, input.AccountID, input.Amount, nullableValue(input.CategoryID), input.Kind, boolToInt64(input.IsGift), valueOrNil(input.Notes), transactionID, userID)
+	if err != nil {
+		return fmt.Errorf("update transaction: %w", err)
+	}
+	changedRows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("transaction rows affected: %w", err)
+	}
+	if changedRows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *Repository) UpdateTransferPair(ctx context.Context, userID int64, fromID int64, toID int64, input TransactionInput) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin update transfer pair: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if err = updateTransferRowWithRunner(ctx, tx, userID, fromID, input.DateISO, input.Amount, input.Notes); err != nil {
+		return err
+	}
+	if err = updateTransferRowWithRunner(ctx, tx, userID, toID, input.DateISO, *input.TwinAmount, input.Notes); err != nil {
+		return err
+	}
+
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit update transfer pair: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) DeleteTransaction(ctx context.Context, userID int64, transactionID int64) error {
+	result, err := r.db.ExecContext(ctx, `
+		DELETE FROM moneyTransaction
+		WHERE id = ? AND userId = ?
+	`, transactionID, userID)
+	if err != nil {
+		return fmt.Errorf("delete transaction: %w", err)
+	}
+	changedRows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete transaction rows affected: %w", err)
+	}
+	if changedRows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (r *Repository) ListInvestAssetTrades(ctx context.Context, userID int64) ([]InvestAssetTrade, error) {
@@ -666,6 +788,13 @@ func (r *Repository) ListRateHistory(ctx context.Context) ([]RateHistory, error)
 	return result, nil
 }
 
+func createTransactionDetailsValue(detailsJSON *string) any {
+	if detailsJSON == nil {
+		return nil
+	}
+	return *detailsJSON
+}
+
 func scanAsset(scanner interface{ Scan(dest ...any) error }) (Asset, error) {
 	var item Asset
 	var accountIDsJSON string
@@ -681,6 +810,24 @@ func scanAsset(scanner interface{ Scan(dest ...any) error }) (Asset, error) {
 	item.AccountIDs = accountIDs
 	item.SuspendedSince = nullableString(suspendedSince)
 	item.SuspendedUntil = nullableString(suspendedUntil)
+	return item, nil
+}
+
+func scanTransaction(scanner interface{ Scan(dest ...any) error }) (Transaction, error) {
+	var item Transaction
+	var categoryID sql.NullInt64
+	var isGift int64
+	var notes sql.NullString
+	var detailsJSON sql.NullString
+	var twinID sql.NullInt64
+	if err := scanner.Scan(&item.ID, &item.DateISO, &item.AccountID, &item.Amount, &categoryID, &item.Kind, &isGift, &notes, &detailsJSON, &twinID); err != nil {
+		return Transaction{}, err
+	}
+	item.CategoryID = nullableInt64(categoryID)
+	item.IsGift = isGift != 0
+	item.Notes = nullableString(notes)
+	item.DetailsJSON = nullableString(detailsJSON)
+	item.TwinID = nullableInt64(twinID)
 	return item, nil
 }
 
@@ -707,6 +854,59 @@ func parseAccountIDs(value string) ([]int64, error) {
 	}
 	sort.Slice(result, func(i int, j int) bool { return result[i] < result[j] })
 	return result, nil
+}
+
+func createTransactionWithRunner(ctx context.Context, runner txRunner, userID int64, input TransactionInput, detailsJSON *string) (int64, error) {
+	result, err := runner.ExecContext(ctx, `
+		INSERT INTO moneyTransaction (dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, userId, twinId)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+	`, input.DateISO, input.AccountID, input.Amount, nullableValue(input.CategoryID), input.Kind, boolToInt64(input.IsGift), valueOrNil(input.Notes), createTransactionDetailsValue(detailsJSON), userID)
+	if err != nil {
+		return 0, fmt.Errorf("create transaction: %w", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("transaction last insert id: %w", err)
+	}
+	return id, nil
+}
+
+func updateTwinIDWithRunner(ctx context.Context, runner txRunner, userID int64, transactionID int64, twinID *int64) error {
+	result, err := runner.ExecContext(ctx, `
+		UPDATE moneyTransaction
+		SET twinId = ?
+		WHERE id = ? AND userId = ?
+	`, nullableValue(twinID), transactionID, userID)
+	if err != nil {
+		return fmt.Errorf("update transaction twin id: %w", err)
+	}
+	changedRows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("transaction twin rows affected: %w", err)
+	}
+	if changedRows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func updateTransferRowWithRunner(ctx context.Context, runner txRunner, userID int64, transactionID int64, dateISO string, amount float64, notes *string) error {
+	result, err := runner.ExecContext(ctx, `
+		UPDATE moneyTransaction
+		SET dateISO = ?, amount = ?, notes = ?
+		WHERE id = ? AND userId = ?
+	`, dateISO, amount, valueOrNil(notes), transactionID, userID)
+	if err != nil {
+		return fmt.Errorf("update transfer row: %w", err)
+	}
+	changedRows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("transfer row rows affected: %w", err)
+	}
+	if changedRows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func marshalAccountIDs(accountIDs []int64) string {
