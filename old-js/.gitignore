@@ -1,0 +1,17 @@
+node_modules
+env.js
+*.db
+prettierrc.json
+*.project_src
+.DS_Store
+backups
+nodemon.json
+*.log
+del
+experiments
+db-population-data.js
+GEMINI.md
+*.instructions.md
+public
+bd-scripts
+env-*.js
