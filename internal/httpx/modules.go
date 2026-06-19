@@ -8,11 +8,13 @@ import (
 	"time"
 
 	"megaapp-back/internal/auth"
+	"megaapp-back/internal/backup"
 	"megaapp-back/internal/config"
 	"megaapp-back/internal/food"
 	"megaapp-back/internal/jobs"
 	"megaapp-back/internal/money"
 	clockplatform "megaapp-back/internal/platform/clock"
+	s3platform "megaapp-back/internal/platform/s3"
 	"megaapp-back/internal/quotes"
 	"megaapp-back/internal/settings"
 	"megaapp-back/internal/ws"
@@ -41,6 +43,11 @@ type moneyModule struct {
 type quotesModule struct {
 	service      *quotes.Service
 	debugHandler *quotes.DebugHandler
+}
+
+type backupModule struct {
+	service      *backup.Service
+	debugHandler *backup.DebugHandler
 }
 
 type foodModule struct {
@@ -97,6 +104,41 @@ func buildQuotesModule(db *sql.DB, cfg config.Config, logger *slog.Logger, clk c
 		}
 	}
 	return quotesModule{service: service, debugHandler: quotes.NewDebugHandler(service)}, nil
+}
+
+func buildBackupModule(db *sql.DB, cfg config.Config, logger *slog.Logger, clk clockplatform.Clock, runtime *jobs.Runtime) (backupModule, error) {
+	var uploader *s3platform.Client
+	if cfg.BackupStorageEnabled {
+		uploader = s3platform.NewClient(s3platform.Config{
+			Region:          cfg.BackupStorageRegion,
+			Bucket:          cfg.BackupStorageBucket,
+			Endpoint:        cfg.BackupStorageEndpoint,
+			ForcePathStyle:  cfg.BackupStorageForcePathStyle,
+			StorageClass:    cfg.BackupStorageClass,
+			AccessKeyID:     cfg.BackupStorageAccessKeyID,
+			SecretAccessKey: cfg.BackupStorageSecretAccessKey,
+		})
+	}
+	service := backup.NewService(db, backup.Config{
+		DatabaseName:    cfg.DatabaseName,
+		DatabaseEnv:     cfg.DatabaseEnv,
+		DatabaseVersion: cfg.DatabaseVersion,
+		BackupsDir:      cfg.BackupsDir,
+		StorageEnabled:  cfg.BackupStorageEnabled,
+		StorageClass:    cfg.BackupStorageClass,
+	}, clk, uploader)
+	if cfg.BackupJobEnabled {
+		if err := runtime.Register("backup", cfg.BackupJobSchedule, func(ctx context.Context) error {
+			backupCtx, cancel := context.WithTimeout(ctx, cfg.BackupOperationTimeout)
+			defer cancel()
+			_, err := service.Run(backupCtx)
+			return err
+		}); err != nil {
+			return backupModule{}, err
+		}
+	}
+	_ = logger
+	return backupModule{service: service, debugHandler: backup.NewDebugHandler(service)}, nil
 }
 
 func buildFoodModule(db *sql.DB, cfg config.Config, hub *ws.Hub, clk clockplatform.Clock) (foodModule, error) {

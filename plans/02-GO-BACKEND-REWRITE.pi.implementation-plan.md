@@ -799,7 +799,11 @@
 - проверить cleanup временных файлов
 
 ### Result
-- Status: Pending
+- Status: Done
+- Test status: `go test ./...` in `megaapp-back` passed after the Step 18 implementation pass.
+- Manual check status: User manually verified backup triggering, local snapshot and archive creation, successful upload, and temp-file cleanup and confirmed that the migrated backup flow works correctly.
+- Findings: Added a dedicated Go backup module with SQLite snapshot creation through `VACUUM INTO`, ZIP archive creation, S3-compatible upload through the AWS SDK, guaranteed local temp-file cleanup, config-gated scheduled execution on the shared job runtime, and a manual compatibility trigger at `/api/debug/run-backup-job`. Backup temp files now consistently use the shared `./backups` directory instead of a separate test-only folder.
+- Issues and resolutions: Backup execution needs to reuse the already-running SQLite database safely without copying WAL side files by hand. Step 18 therefore uses SQLite-native snapshot creation first, then archives that snapshot, uploads the archive, and cleans temporary files afterward instead of trying to zip the live DB files directly. Environment separation remains in DB names, env values, and remote object keys rather than in different local backup directory names.
 
 ---
 

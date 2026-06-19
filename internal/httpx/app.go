@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"megaapp-back/internal/auth"
+	"megaapp-back/internal/backup"
 	"megaapp-back/internal/config"
 	"megaapp-back/internal/food"
 	"megaapp-back/internal/jobs"
@@ -60,6 +61,12 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 		_ = db.Close()
 		return nil, err
 	}
+	backupModule, err := buildBackupModule(db.SQL(), cfg, logger, clk, jobRuntime)
+	if err != nil {
+		_ = jobRuntime.Close()
+		_ = db.Close()
+		return nil, err
+	}
 	wsModule := buildWSModule(cfg, authModule.service)
 	foodModule, err := buildFoodModule(db.SQL(), cfg, wsModule.hub, clk)
 	if err != nil {
@@ -86,6 +93,7 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 	food.RegisterLabRoutes(router, foodModule.labHandler)
 	food.RegisterDebugRoutes(router, foodModule.debugHandler)
 	quotes.RegisterDebugRoutes(router, quotesModule.debugHandler)
+	backup.RegisterDebugRoutes(router, backupModule.debugHandler)
 	ws.RegisterRoutes(router, wsModule.handler)
 
 	server := &http.Server{

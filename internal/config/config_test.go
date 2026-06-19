@@ -34,6 +34,17 @@ func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("QUOTES_RETRY_ATTEMPTS", "")
 	t.Setenv("QUOTES_RETRY_DELAY_SECONDS", "")
 	t.Setenv("QUOTES_REQUEST_TIMEOUT_SECONDS", "")
+	t.Setenv("BACKUP_JOB_ENABLED", "")
+	t.Setenv("BACKUP_JOB_SCHEDULE", "")
+	t.Setenv("BACKUP_STORAGE_ENABLED", "")
+	t.Setenv("BACKUP_STORAGE_REGION", "")
+	t.Setenv("BACKUP_STORAGE_BUCKET", "")
+	t.Setenv("BACKUP_STORAGE_ENDPOINT", "")
+	t.Setenv("BACKUP_STORAGE_FORCE_PATH_STYLE", "")
+	t.Setenv("BACKUP_STORAGE_STORAGE_CLASS", "")
+	t.Setenv("BACKUP_STORAGE_ACCESS_KEY_ID", "")
+	t.Setenv("BACKUP_STORAGE_SECRET_ACCESS_KEY", "")
+	t.Setenv("BACKUP_OPERATION_TIMEOUT_SECONDS", "")
 	t.Setenv("HTTP_READ_TIMEOUT_SECONDS", "")
 	t.Setenv("HTTP_WRITE_TIMEOUT_SECONDS", "")
 	t.Setenv("HTTP_IDLE_TIMEOUT_SECONDS", "")
@@ -129,6 +140,18 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.QuotesRequestTimeout != 20*time.Second {
 		t.Fatalf("QuotesRequestTimeout = %v, want 20s", cfg.QuotesRequestTimeout)
 	}
+	if cfg.BackupJobEnabled {
+		t.Fatal("BackupJobEnabled = true, want false")
+	}
+	if cfg.BackupJobSchedule != "0 2 * * *" {
+		t.Fatalf("BackupJobSchedule = %q, want 0 2 * * *", cfg.BackupJobSchedule)
+	}
+	if cfg.BackupStorageEnabled {
+		t.Fatal("BackupStorageEnabled = true, want false")
+	}
+	if cfg.BackupOperationTimeout != 300*time.Second {
+		t.Fatalf("BackupOperationTimeout = %v, want 300s", cfg.BackupOperationTimeout)
+	}
 	if cfg.HTTPReadTimeout != 15*time.Second {
 		t.Fatalf("HTTPReadTimeout = %v, want 15s", cfg.HTTPReadTimeout)
 	}
@@ -192,36 +215,53 @@ func TestValidateRejectsInvalidQuotesConfig(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsInvalidBackupConfig(t *testing.T) {
+	cfg := validTestConfig()
+	cfg.BackupJobEnabled = true
+	cfg.BackupStorageEnabled = false
+
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+}
+
 func validTestConfig() Config {
 	return Config{
-		AppEnv:                "test",
-		AppHost:               "127.0.0.1",
-		AppPort:               3000,
-		LogLevel:              "info",
-		DataDir:               "./data",
-		DatabaseName:          "megaapp",
-		DatabaseEnv:           "test",
-		DatabaseVersion:       "005",
-		DatabasePath:          "./data/megaapp-test-005.db",
-		MigrationsDir:         "./migrations",
-		PublicDir:             "./public",
-		BackupsDir:            "./backups",
-		JWTSecret:             "secret",
-		OpenRouterTimeout:     time.Second,
-		OpenAIEmbeddingDims:   768,
-		OpenAITimeout:         time.Second,
-		QuotesJobSchedule:     "0 3 * * *",
-		QuotesFetchDays:       7,
-		QuotesRetryAttempts:   3,
-		QuotesRetryDelay:      30 * time.Second,
-		QuotesRequestTimeout:  20 * time.Second,
-		HTTPReadTimeout:       time.Second,
-		HTTPWriteTimeout:      time.Second,
-		HTTPIdleTimeout:       time.Second,
-		ShutdownTimeout:       time.Second,
-		MaxRequestBodyBytes:   1024,
-		MaxMultipartBodyBytes: 8 * 1024,
-		WSReadLimitBytes:      1024,
-		WSWriteTimeout:        time.Second,
+		AppEnv:                       "test",
+		AppHost:                      "127.0.0.1",
+		AppPort:                      3000,
+		LogLevel:                     "info",
+		DataDir:                      "./data",
+		DatabaseName:                 "megaapp",
+		DatabaseEnv:                  "test",
+		DatabaseVersion:              "005",
+		DatabasePath:                 "./data/megaapp-test-005.db",
+		MigrationsDir:                "./migrations",
+		PublicDir:                    "./public",
+		BackupsDir:                   "./backups",
+		JWTSecret:                    "secret",
+		OpenRouterTimeout:            time.Second,
+		OpenAIEmbeddingDims:          768,
+		OpenAITimeout:                time.Second,
+		QuotesJobSchedule:            "0 3 * * *",
+		QuotesFetchDays:              7,
+		QuotesRetryAttempts:          3,
+		QuotesRetryDelay:             30 * time.Second,
+		QuotesRequestTimeout:         20 * time.Second,
+		BackupJobSchedule:            "0 2 * * *",
+		BackupStorageEnabled:         true,
+		BackupStorageRegion:          "eu-north-1",
+		BackupStorageBucket:          "bucket",
+		BackupStorageAccessKeyID:     "key",
+		BackupStorageSecretAccessKey: "secret",
+		BackupOperationTimeout:       300 * time.Second,
+		HTTPReadTimeout:              time.Second,
+		HTTPWriteTimeout:             time.Second,
+		HTTPIdleTimeout:              time.Second,
+		ShutdownTimeout:              time.Second,
+		MaxRequestBodyBytes:          1024,
+		MaxMultipartBodyBytes:        8 * 1024,
+		WSReadLimitBytes:             1024,
+		WSWriteTimeout:               time.Second,
 	}
 }

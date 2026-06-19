@@ -11,46 +11,57 @@ import (
 )
 
 type Config struct {
-	AppEnv                string
-	AppHost               string
-	AppPort               int
-	LogLevel              string
-	DataDir               string
-	DatabaseName          string
-	DatabaseEnv           string
-	DatabaseVersion       string
-	DatabasePath          string
-	MigrationsDir         string
-	PublicDir             string
-	BackupsDir            string
-	JWTSecret             string
-	OpenRouterAPIKey      string
-	OpenRouterModel       string
-	OpenRouterVisionModel string
-	OpenRouterImageModel  string
-	OpenRouterTimeout     time.Duration
-	OpenAIAPIKey          string
-	OpenAIEmbeddingModel  string
-	OpenAIEmbeddingDims   int
-	OpenAITimeout         time.Duration
-	QuotesJobEnabled      bool
-	QuotesJobSchedule     string
-	QuotesFetchDays       int
-	QuotesRetryAttempts   int
-	QuotesRetryDelay      time.Duration
-	QuotesRequestTimeout  time.Duration
-	HTTPReadTimeout       time.Duration
-	HTTPWriteTimeout      time.Duration
-	HTTPIdleTimeout       time.Duration
-	ShutdownTimeout       time.Duration
-	MaxRequestBodyBytes   int64
-	MaxMultipartBodyBytes int64
-	WSReadLimitBytes      int64
-	WSWriteTimeout        time.Duration
-	BuildVersion          string
-	BuildCommit           string
-	BuildTime             string
-	GoVersion             string
+	AppEnv                       string
+	AppHost                      string
+	AppPort                      int
+	LogLevel                     string
+	DataDir                      string
+	DatabaseName                 string
+	DatabaseEnv                  string
+	DatabaseVersion              string
+	DatabasePath                 string
+	MigrationsDir                string
+	PublicDir                    string
+	BackupsDir                   string
+	JWTSecret                    string
+	OpenRouterAPIKey             string
+	OpenRouterModel              string
+	OpenRouterVisionModel        string
+	OpenRouterImageModel         string
+	OpenRouterTimeout            time.Duration
+	OpenAIAPIKey                 string
+	OpenAIEmbeddingModel         string
+	OpenAIEmbeddingDims          int
+	OpenAITimeout                time.Duration
+	QuotesJobEnabled             bool
+	QuotesJobSchedule            string
+	QuotesFetchDays              int
+	QuotesRetryAttempts          int
+	QuotesRetryDelay             time.Duration
+	QuotesRequestTimeout         time.Duration
+	BackupJobEnabled             bool
+	BackupJobSchedule            string
+	BackupStorageEnabled         bool
+	BackupStorageRegion          string
+	BackupStorageBucket          string
+	BackupStorageEndpoint        string
+	BackupStorageForcePathStyle  bool
+	BackupStorageClass           string
+	BackupStorageAccessKeyID     string
+	BackupStorageSecretAccessKey string
+	BackupOperationTimeout       time.Duration
+	HTTPReadTimeout              time.Duration
+	HTTPWriteTimeout             time.Duration
+	HTTPIdleTimeout              time.Duration
+	ShutdownTimeout              time.Duration
+	MaxRequestBodyBytes          int64
+	MaxMultipartBodyBytes        int64
+	WSReadLimitBytes             int64
+	WSWriteTimeout               time.Duration
+	BuildVersion                 string
+	BuildCommit                  string
+	BuildTime                    string
+	GoVersion                    string
 }
 
 func Load() (Config, error) {
@@ -66,30 +77,40 @@ func Load() (Config, error) {
 	databasePath := getString("DATABASE_PATH", filepath.Join(dataDir, buildDatabaseFileName(databaseName, databaseEnv, databaseVersion)))
 
 	cfg := Config{
-		AppEnv:                appEnv,
-		AppHost:               getString("APP_HOST", "127.0.0.1"),
-		LogLevel:              strings.ToLower(getString("LOG_LEVEL", "info")),
-		DataDir:               dataDir,
-		DatabaseName:          databaseName,
-		DatabaseEnv:           databaseEnv,
-		DatabaseVersion:       databaseVersion,
-		DatabasePath:          databasePath,
-		MigrationsDir:         getString("MIGRATIONS_DIR", "./migrations"),
-		PublicDir:             getString("PUBLIC_DIR", "./public"),
-		BackupsDir:            getString("BACKUPS_DIR", "./backups"),
-		JWTSecret:             getString("JWT_SECRET", "dev-insecure-jwt-secret"),
-		OpenRouterAPIKey:      getString("OPENROUTER_API_KEY", ""),
-		OpenRouterModel:       getString("OPENROUTER_MODEL", "google/gemini-2.5-pro"),
-		OpenRouterVisionModel: getString("OPENROUTER_VISION_MODEL", "google/gemini-2.5-flash"),
-		OpenRouterImageModel:  getString("OPENROUTER_IMAGE_MODEL", "google/gemini-2.5-flash-image"),
-		OpenAIAPIKey:          getString("OPENAI_API_KEY", ""),
-		OpenAIEmbeddingModel:  getString("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
-		QuotesJobEnabled:      getBool("QUOTES_JOB_ENABLED", false),
-		QuotesJobSchedule:     getString("QUOTES_JOB_SCHEDULE", "0 3 * * *"),
-		BuildVersion:          getString("APP_BUILD_VERSION", "dev"),
-		BuildCommit:           getString("APP_BUILD_COMMIT", "local"),
-		BuildTime:             getString("APP_BUILD_TIME", "unknown"),
-		GoVersion:             runtime.Version(),
+		AppEnv:                       appEnv,
+		AppHost:                      getString("APP_HOST", "127.0.0.1"),
+		LogLevel:                     strings.ToLower(getString("LOG_LEVEL", "info")),
+		DataDir:                      dataDir,
+		DatabaseName:                 databaseName,
+		DatabaseEnv:                  databaseEnv,
+		DatabaseVersion:              databaseVersion,
+		DatabasePath:                 databasePath,
+		MigrationsDir:                getString("MIGRATIONS_DIR", "./migrations"),
+		PublicDir:                    getString("PUBLIC_DIR", "./public"),
+		BackupsDir:                   getString("BACKUPS_DIR", "./backups"),
+		JWTSecret:                    getString("JWT_SECRET", "dev-insecure-jwt-secret"),
+		OpenRouterAPIKey:             getString("OPENROUTER_API_KEY", ""),
+		OpenRouterModel:              getString("OPENROUTER_MODEL", "google/gemini-2.5-pro"),
+		OpenRouterVisionModel:        getString("OPENROUTER_VISION_MODEL", "google/gemini-2.5-flash"),
+		OpenRouterImageModel:         getString("OPENROUTER_IMAGE_MODEL", "google/gemini-2.5-flash-image"),
+		OpenAIAPIKey:                 getString("OPENAI_API_KEY", ""),
+		OpenAIEmbeddingModel:         getString("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
+		QuotesJobEnabled:             getBool("QUOTES_JOB_ENABLED", false),
+		QuotesJobSchedule:            getString("QUOTES_JOB_SCHEDULE", "0 3 * * *"),
+		BackupJobEnabled:             getBool("BACKUP_JOB_ENABLED", false),
+		BackupJobSchedule:            getString("BACKUP_JOB_SCHEDULE", "0 2 * * *"),
+		BackupStorageEnabled:         getBool("BACKUP_STORAGE_ENABLED", false),
+		BackupStorageRegion:          getString("BACKUP_STORAGE_REGION", ""),
+		BackupStorageBucket:          getString("BACKUP_STORAGE_BUCKET", ""),
+		BackupStorageEndpoint:        getString("BACKUP_STORAGE_ENDPOINT", ""),
+		BackupStorageForcePathStyle:  getBool("BACKUP_STORAGE_FORCE_PATH_STYLE", false),
+		BackupStorageClass:           getString("BACKUP_STORAGE_STORAGE_CLASS", ""),
+		BackupStorageAccessKeyID:     getString("BACKUP_STORAGE_ACCESS_KEY_ID", ""),
+		BackupStorageSecretAccessKey: getString("BACKUP_STORAGE_SECRET_ACCESS_KEY", ""),
+		BuildVersion:                 getString("APP_BUILD_VERSION", "dev"),
+		BuildCommit:                  getString("APP_BUILD_COMMIT", "local"),
+		BuildTime:                    getString("APP_BUILD_TIME", "unknown"),
+		GoVersion:                    runtime.Version(),
 	}
 
 	port, err := getInt("APP_PORT", 3000)
@@ -188,6 +209,12 @@ func Load() (Config, error) {
 	}
 	cfg.QuotesRequestTimeout = time.Duration(quotesRequestTimeoutSeconds) * time.Second
 
+	backupOperationTimeoutSeconds, err := getInt("BACKUP_OPERATION_TIMEOUT_SECONDS", 300)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.BackupOperationTimeout = time.Duration(backupOperationTimeoutSeconds) * time.Second
+
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
@@ -252,6 +279,29 @@ func (c Config) Validate() error {
 	}
 	if c.QuotesRequestTimeout <= 0 {
 		return fmt.Errorf("validate config: QUOTES_REQUEST_TIMEOUT_SECONDS must be greater than 0")
+	}
+	if strings.TrimSpace(c.BackupJobSchedule) == "" {
+		return fmt.Errorf("validate config: BACKUP_JOB_SCHEDULE is required")
+	}
+	if c.BackupOperationTimeout <= 0 {
+		return fmt.Errorf("validate config: BACKUP_OPERATION_TIMEOUT_SECONDS must be greater than 0")
+	}
+	if c.BackupJobEnabled && !c.BackupStorageEnabled {
+		return fmt.Errorf("validate config: BACKUP_STORAGE_ENABLED must be true when BACKUP_JOB_ENABLED is true")
+	}
+	if c.BackupStorageEnabled {
+		if strings.TrimSpace(c.BackupStorageRegion) == "" {
+			return fmt.Errorf("validate config: BACKUP_STORAGE_REGION is required when backup storage is enabled")
+		}
+		if strings.TrimSpace(c.BackupStorageBucket) == "" {
+			return fmt.Errorf("validate config: BACKUP_STORAGE_BUCKET is required when backup storage is enabled")
+		}
+		if strings.TrimSpace(c.BackupStorageAccessKeyID) == "" {
+			return fmt.Errorf("validate config: BACKUP_STORAGE_ACCESS_KEY_ID is required when backup storage is enabled")
+		}
+		if strings.TrimSpace(c.BackupStorageSecretAccessKey) == "" {
+			return fmt.Errorf("validate config: BACKUP_STORAGE_SECRET_ACCESS_KEY is required when backup storage is enabled")
+		}
 	}
 	if c.HTTPReadTimeout <= 0 {
 		return fmt.Errorf("validate config: HTTP_READ_TIMEOUT_SECONDS must be greater than 0")
