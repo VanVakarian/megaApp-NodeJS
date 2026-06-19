@@ -236,7 +236,7 @@ func legacyFixtureConfig(t *testing.T, tempDir string) config.Config {
 	}
 
 	databasePath := filepath.Join(dataDir, "megaapp-test-005.db")
-	copyLegacyFixtureDB(t, filepath.Join("..", "..", "old-js", "megaapp-test-005.db"), databasePath)
+	copyLegacyFixtureDB(t, legacyFixtureDBPath(t), databasePath)
 
 	cfg := config.Config{
 		AppEnv:                 "test",
@@ -275,6 +275,23 @@ func legacyFixtureConfig(t *testing.T, tempDir string) config.Config {
 		t.Fatalf("Validate() error = %v", err)
 	}
 	return cfg
+}
+
+func legacyFixtureDBPath(t *testing.T) string {
+	t.Helper()
+	candidates := []string{}
+	if override := filepath.Clean(os.Getenv("MEGAAPP_LEGACY_FIXTURE_DB")); override != "." && override != "" {
+		candidates = append(candidates, override)
+	}
+	candidates = append(candidates, filepath.Join("..", "..", "old-js", "megaapp-test-005.db"))
+	for _, candidate := range candidates {
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	t.Skip("legacy fixture db not available; reference parity suite skipped")
+	return ""
 }
 
 func copyLegacyFixtureDB(t *testing.T, from string, to string) {

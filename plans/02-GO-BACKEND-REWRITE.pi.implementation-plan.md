@@ -915,6 +915,37 @@
 
 ---
 
+## Step 22. Legacy Detachment And Old JS Removal
+
+### Goal
+Полностью отвязать Go backend workspace и deploy/runtime flows от `old-js`, чтобы reference код можно было безопасно удалить после подтверждённой стабилизации.
+
+### Depends On
+- Step 20
+- Step 21
+
+### Includes
+- audit of remaining code, test, workflow, and documentation references to `old-js`
+- replacement of any remaining runtime or CI dependencies on files inside `old-js`
+- removal or relocation of legacy reference-only fixtures that should no longer live inside the active backend workspace
+- cleanup of obsolete migration-era compatibility hooks that exist only to support side-by-side coexistence with the old source tree
+- safe deletion plan for `megaapp-back/old-js`
+
+### Go Test Focus
+- full suite without relying on `old-js` presence
+- deploy workflow smoke without legacy source-tree assumptions
+- fixture and parity tests using explicit standalone test assets if they are still needed
+
+### Manual Check
+- убедиться, что backend стартует, тесты проходят и deploy workflow работает при физически отсутствующей папке `old-js`
+- убедиться, что cutover checklist, env handling, and runtime paths больше не ссылаются на старый JS source tree
+- убедиться, что удаление `old-js` не ломает локальный run, test deploy или prod deploy
+
+### Result
+- Status: Pending
+
+---
+
 ## 6. Почему порядок именно такой
 
 - Auth нужен почти всему.
@@ -926,6 +957,7 @@
 - Quotes и backup лучше переносить после доменной базы, но уже поверх общего job/runtime foundation и clock discipline, чтобы не собирать второй раз infrastructure patterns в каждом job-oriented модуле.
 - Final parity и основной cutover идут после завершения главных пользовательских доменов, потому что стратегия миграции сознательно не предполагает piece-by-piece production release.
 - Коэффициентный recalculation parity вынесен отдельным post-cutover stepом, потому что текущий UI зависит от чтения и применения уже сохранённых coefficients, а не от постоянной пользовательской доступности самого пересчётного trigger path.
+- Полное удаление `old-js` вынесено последним шагом, потому что до этого момента legacy source tree ещё может служить reference baseline для parity work, manual investigation, and controlled migration cleanup.
 
 ---
 
@@ -941,6 +973,7 @@
 - backup flow
 - final cutover checklist
 - coefficients recalculation parity
+- legacy detachment and old-js removal
 
 ---
 
