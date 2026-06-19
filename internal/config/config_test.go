@@ -225,6 +225,17 @@ func TestValidateRejectsInvalidBackupConfig(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsProdLikeConfig(t *testing.T) {
+	cfg := validTestConfig()
+	cfg.AppEnv = "prod"
+	cfg.DatabaseEnv = "prod"
+	cfg.JWTSecret = "prod-secret"
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
 func validTestConfig() Config {
 	return Config{
 		AppEnv:                       "test",

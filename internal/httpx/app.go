@@ -37,8 +37,11 @@ type App struct {
 }
 
 func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, error) {
+	return newApp(ctx, cfg, logger, clockplatform.NewRealClock())
+}
+
+func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clockplatform.Clock) (*App, error) {
 	observer := NoopObserver{}
-	clk := clockplatform.NewRealClock()
 
 	db, err := sqliteplatform.Open(ctx, cfg.DatabasePath)
 	if err != nil {

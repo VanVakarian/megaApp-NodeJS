@@ -838,7 +838,11 @@
 - проверить jobs, если они запускаются вручную в test env
 
 ### Result
-- Status: Pending
+- Status: Done
+- Test status: `go test ./...` in `megaapp-back` passed after the Step 19 parity pass implementation.
+- Manual check status: User reran the full end-to-end regression, cross-tab sync check, and manual jobs sanity and confirmed that all checked flows work correctly.
+- Findings: Added deterministic legacy-fixture parity coverage on a copied inherited database for `food/stats`, `money/snapshot`, `money/rate-history`, and `money/trades`, plus prod-like startup rehearsal and low-concurrency critical-route sanity checks.
+- Issues and resolutions: Final parity checks needed deterministic time control at the application composition root. `internal/httpx/app.go` now uses an internal clock-injected bootstrap helper for tests so fixture parity assertions stay stable without changing production startup behavior.
 
 ---
 
