@@ -49,7 +49,7 @@ The final parity pass concentrates on routes that carry the most frontend-visibl
 
 ## 3.4 Prod-like startup rehearsal before cutover
 
-The test suite now verifies that the application can start under a prod-like config profile with a non-dev JWT secret before the actual cutover step begins.
+The test suite now verifies that the application can start under a prod-like config profile with a non-default JWT secret before the actual cutover step begins.
 
 ---
 

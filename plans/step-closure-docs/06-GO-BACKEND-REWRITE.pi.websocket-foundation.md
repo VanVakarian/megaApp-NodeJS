@@ -92,7 +92,7 @@ Heartbeat реализован JSON-сообщениями:
 
 Ожидания:
 - WebSocket connect идёт в `GET /api/ws`
-- в локальном dev run frontend на `:4200` или `:4201` должен открывать WebSocket напрямую в backend на `:3000`
+- в локальном run frontend на `:4200` или `:4201` должен открывать WebSocket напрямую в backend на `:3000`
 - успешный upgrade виден как `101 Switching Protocols`
 - параллельный `GET /api/settings/` не даёт `401`, `404` или `500`
 - после refresh WebSocket поднимается заново без бесконечного reconnect loop

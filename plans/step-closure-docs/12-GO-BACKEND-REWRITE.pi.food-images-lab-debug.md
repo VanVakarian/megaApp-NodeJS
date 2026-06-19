@@ -41,7 +41,6 @@ Added files:
 Updated:
 - `megaapp-back/.env`
 - `megaapp-back/.env.example`
-- `megaapp-back/.env.dev.example`
 - `megaapp-back/.env.test.example`
 - `megaapp-back/.gitignore`
 - `megaapp-back/go.mod`

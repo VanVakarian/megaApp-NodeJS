@@ -69,7 +69,7 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("load env files: %w", err)
 	}
 
-	appEnv := getString("APP_ENV", "dev")
+	appEnv := getString("APP_ENV", "test")
 	databaseEnv := getString("DB_ENV", appEnv)
 	databaseName := getString("DB_NAME", "megaapp")
 	databaseVersion := getString("DB_VERSION", "005")
@@ -88,7 +88,7 @@ func Load() (Config, error) {
 		MigrationsDir:                getString("MIGRATIONS_DIR", "./migrations"),
 		PublicDir:                    getString("PUBLIC_DIR", "./public"),
 		BackupsDir:                   getString("BACKUPS_DIR", "./backups"),
-		JWTSecret:                    getString("JWT_SECRET", "dev-insecure-jwt-secret"),
+		JWTSecret:                    getString("JWT_SECRET", "test-insecure-jwt-secret"),
 		OpenRouterAPIKey:             getString("OPENROUTER_API_KEY", ""),
 		OpenRouterModel:              getString("OPENROUTER_MODEL", "google/gemini-2.5-pro"),
 		OpenRouterVisionModel:        getString("OPENROUTER_VISION_MODEL", "google/gemini-2.5-flash"),
@@ -107,7 +107,7 @@ func Load() (Config, error) {
 		BackupStorageClass:           getString("BACKUP_STORAGE_STORAGE_CLASS", ""),
 		BackupStorageAccessKeyID:     getString("BACKUP_STORAGE_ACCESS_KEY_ID", ""),
 		BackupStorageSecretAccessKey: getString("BACKUP_STORAGE_SECRET_ACCESS_KEY", ""),
-		BuildVersion:                 getString("APP_BUILD_VERSION", "dev"),
+		BuildVersion:                 getString("APP_BUILD_VERSION", "unknown"),
 		BuildCommit:                  getString("APP_BUILD_COMMIT", "local"),
 		BuildTime:                    getString("APP_BUILD_TIME", "unknown"),
 		GoVersion:                    runtime.Version(),
@@ -333,8 +333,8 @@ func (c Config) Validate() error {
 	default:
 		return fmt.Errorf("validate config: LOG_LEVEL must be one of debug, info, warn, error")
 	}
-	if c.usesInsecureJWTSecret() && !c.isDevLike() {
-		return fmt.Errorf("validate config: JWT_SECRET insecure default is allowed only in dev-like environments")
+	if c.usesInsecureJWTSecret() && !c.isTestLike() {
+		return fmt.Errorf("validate config: JWT_SECRET insecure default is allowed only in test-like environments")
 	}
 	if strings.TrimSpace(c.OpenRouterAPIKey) != "" && strings.TrimSpace(c.OpenRouterModel) == "" {
 		return fmt.Errorf("validate config: OPENROUTER_MODEL is required when OPENROUTER_API_KEY is set")
@@ -366,9 +366,9 @@ func getString(key string, fallback string) string {
 	return value
 }
 
-func (c Config) isDevLike() bool {
+func (c Config) isTestLike() bool {
 	switch strings.ToLower(strings.TrimSpace(c.AppEnv)) {
-	case "dev", "test", "local":
+	case "test", "local":
 		return true
 	default:
 		return false
@@ -376,7 +376,8 @@ func (c Config) isDevLike() bool {
 }
 
 func (c Config) usesInsecureJWTSecret() bool {
-	return strings.TrimSpace(c.JWTSecret) == "dev-insecure-jwt-secret"
+	secret := strings.TrimSpace(c.JWTSecret)
+	return secret == "test-insecure-jwt-secret" || secret == "dev-insecure-jwt-secret"
 }
 
 func getBool(key string, fallback bool) bool {

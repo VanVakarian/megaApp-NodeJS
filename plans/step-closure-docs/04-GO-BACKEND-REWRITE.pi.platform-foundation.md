@@ -34,7 +34,6 @@ Step сознательно не включает:
 - `megaapp-back/go.mod`
 - `megaapp-back/.gitignore`
 - `megaapp-back/.env.example`
-- `megaapp-back/.env.dev.example`
 - `megaapp-back/.env.test.example`
 - `megaapp-back/cmd/server/main.go`
 - `megaapp-back/internal/config/config.go`
@@ -75,7 +74,7 @@ Step сознательно не включает:
 Config сейчас читается из `.env` / `.env.<APP_ENV>` и env, затем валидируется на старте.
 
 Operational rule for this workspace:
-- when config keys are added or changed, update `.env.example`, `.env.dev.example`, `.env.test.example`, and the active local `.env` together so the working backend run stays immediately usable without manual catch-up
+- when config keys are added or changed, update `.env.example`, `.env.test.example`, and the active local `.env` together so the working backend run stays immediately usable without manual catch-up
 
 Заложены поля:
 - `APP_ENV`

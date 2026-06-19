@@ -93,7 +93,7 @@ Added guardrails:
 - WebSocket read-size limit
 - WebSocket write deadline
 - WebSocket read deadline extension on activity
-- stricter config validation for insecure JWT default usage outside dev-like environments
+- stricter config validation for insecure JWT default usage outside test-like environments
 - feature-scoped provider config validation
 
 ## 3.7 Stats runtime model fixed explicitly
@@ -111,7 +111,7 @@ No separate debounce scheduler is required at this stage unless later profiling 
 
 Covered:
 - config defaults for new timeout and limit settings
-- config rejection of insecure JWT default outside dev-like environments
+- config rejection of insecure JWT default outside test-like environments
 - oversized HTTP request rejection
 - continued WebSocket upgrade through middleware
 - continued app startup and shutdown path

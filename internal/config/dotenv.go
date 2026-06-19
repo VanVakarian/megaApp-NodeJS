@@ -9,20 +9,24 @@ import (
 )
 
 func LoadEnvFiles() error {
-	if err := loadEnvFileIfExists(".env"); err != nil {
-		return err
+	if fileExists(".env") {
+		return loadEnvFileIfExists(".env")
 	}
 
 	appEnv := strings.TrimSpace(os.Getenv("APP_ENV"))
 	if appEnv == "" {
-		appEnv = "dev"
+		appEnv = "test"
 	}
 
-	if err := loadEnvFileIfExists(filepath.Clean(".env." + appEnv)); err != nil {
-		return err
-	}
+	return loadEnvFileIfExists(filepath.Clean(".env." + appEnv))
+}
 
-	return nil
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir()
 }
 
 func loadEnvFileIfExists(path string) error {

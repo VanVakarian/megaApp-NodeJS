@@ -37,7 +37,6 @@ Updated:
 - `megaapp-back/internal/httpx/app.go`
 - `megaapp-back/internal/httpx/modules.go`
 - `megaapp-back/.env.example`
-- `megaapp-back/.env.dev.example`
 - `megaapp-back/.env.test.example`
 - `megaapp-back/.env`
 - `megaapp-back/plans/02-GO-BACKEND-REWRITE.pi.implementation-plan.md`

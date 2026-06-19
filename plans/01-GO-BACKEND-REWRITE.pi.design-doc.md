@@ -566,7 +566,7 @@ Snapshot должен быть preserved as-is. Это один из самых 
 - cron schedules
 - image generation
 
-Для dev/test/prod — явные config profiles без дублирования бизнес-логики.
+Для test/prod — явные config profiles без дублирования бизнес-логики.
 
 Отдельно фиксируем:
 - рабочие SQLite-файлы живут в `data/`, а не в корне проекта

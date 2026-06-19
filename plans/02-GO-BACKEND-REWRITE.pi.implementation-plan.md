@@ -26,7 +26,7 @@
 - Промежуточные stepы не деплоятся в production по отдельности.
 - В этом плане `legacy-compatible` означает сохранение унаследованного внешнего контракта текущей системы для frontend и existing flows. Это migration tool, а не долгосрочная архитектурная цель.
 - Cleanup и modernization внешних API/WS contracts сознательно не смешиваются с текущим rewrite. Их можно планировать только отдельной post-cutover phase после полной функциональной готовности и периода стабилизации.
-- Когда добавляются или меняются config/env keys, их нужно синхронно обновлять в `.env.example`, `.env.dev.example`, `.env.test.example` и в актуальном рабочем `.env` этого backend workspace, чтобы локальный run оставался сразу рабочим без ручного догоняния.
+- Когда добавляются или меняются config/env keys, их нужно синхронно обновлять в `.env.example`, `.env.test.example` и в актуальном рабочем `.env` этого backend workspace, чтобы локальный run оставался сразу рабочим без ручного догоняния.
 - Финальный deploy делается один раз, когда весь backend на Go проходит интеграционную и ручную проверку.
 
 ---
@@ -243,7 +243,7 @@
 ### Manual Check
 - открыть `Settings` в двух вкладках под одним и тем же пользователем
 - открыть DevTools -> Network в обеих вкладках
-- убедиться, что WebSocket `GET /api/ws?...` открывается со статусом `101 Switching Protocols`; в локальном dev run при frontend на `:4200` или `:4201` он должен идти прямо на backend `:3000`
+- убедиться, что WebSocket `GET /api/ws?...` открывается со статусом `101 Switching Protocols`; в локальном run при frontend на `:4200` или `:4201` он должен идти прямо на backend `:3000`
 - убедиться, что `GET /api/settings/` проходит без ошибок
 - обновить одну из вкладок и убедиться, что сессия не теряется
 - после обновления убедиться, что WebSocket поднимается заново и снова остаётся в `101`
@@ -460,7 +460,7 @@
 - injected clock abstraction для stats, sync timestamps и будущих job flows
 - явная фиксация текущей stats runtime model как `cache + invalidate + recompute-on-read`, если profiling позже не докажет реальную необходимость отдельного debounce scheduler
 - разбиение composition root на более мелкие domain assembly units до того, как `app.go` разрастётся из-за money и jobs
-- runtime hardening: HTTP timeouts, request/body limits, WebSocket guardrails, feature-scoped config validation и явная policy для insecure defaults только в dev-compatible режимах
+- runtime hardening: HTTP timeouts, request/body limits, WebSocket guardrails, feature-scoped config validation и явная policy для insecure defaults только в test-compatible режимах
 
 ### Go Test Focus
 - service tests больше не зависят от transport request types
@@ -471,7 +471,7 @@
 - HTTP and WebSocket guardrail smoke tests for size and timeout handling
 
 ### Manual Check
-- запустить Go backend через обычный `.env` и убедиться, что startup rules не сломали нормальный dev run
+- запустить Go backend через обычный `.env` и убедиться, что startup rules не сломали нормальный локальный run с test profile
 - пройти smoke path: login, settings save, food search, add/edit/delete diary entry, body weight save, stats refresh, second-tab sync
 - подержать WebSocket в двух вкладках и убедиться, что `101` остаётся стабильным, нет reconnect loop и нет спонтанных auth failures
 - отправить один намеренно невалидный или oversized request в любой уже мигрированный endpoint и убедиться, что backend отвечает контролируемым `4xx`, а процесс не падает
@@ -481,7 +481,7 @@
 - Status: Done
 - Test status: `go test ./...` in `megaapp-back` passed after Step 10 architecture hardening.
 - Manual check status: User reran the Step 10 manual smoke checklist and confirmed that startup, settings, food search, diary writes, body-weight saves, stats refresh, stable WebSocket `101`, cross-tab sync, and the already migrated frontend-visible flows still work correctly after the hardening changes.
-- Findings: Shared internal error taxonomy and centralized legacy-compatible HTTP error writing are now in place. Settings single-field updates and food restore-day flows no longer leak raw transport shapes into the service layer. Food realtime publication now goes through a module-scoped publisher instead of raw handler-to-hub calls. Food stats, sync timestamps, and search timestamps now use injected clock seams. `internal/httpx/app.go` is split through smaller assembly helpers, HTTP and WebSocket guardrails are configured, and stricter config validation now blocks insecure JWT defaults outside dev-like environments. Step Closure Doc: `megaapp-back/plans/step-closure-docs/11-GO-BACKEND-REWRITE.pi.architecture-hardening-and-runtime-guardrails.md`.
+- Findings: Shared internal error taxonomy and centralized legacy-compatible HTTP error writing are now in place. Settings single-field updates and food restore-day flows no longer leak raw transport shapes into the service layer. Food realtime publication now goes through a module-scoped publisher instead of raw handler-to-hub calls. Food stats, sync timestamps, and search timestamps now use injected clock seams. `internal/httpx/app.go` is split through smaller assembly helpers, HTTP and WebSocket guardrails are configured, and stricter config validation now blocks insecure JWT defaults outside test-like environments. Step Closure Doc: `megaapp-back/plans/step-closure-docs/11-GO-BACKEND-REWRITE.pi.architecture-hardening-and-runtime-guardrails.md`.
 - Issues and resolutions: The old stats-step wording implied a future debounce scheduler, but the current implemented and now explicitly accepted runtime model is `cache + invalidate + recompute-on-read` until profiling proves a stronger need. Manual smoke verification is now complete for this step.
 
 ---
@@ -874,6 +874,43 @@
 - health/build/readiness sanity
 
 ### Result
+- Status: In Progress
+- Test status: `go test ./...` in `megaapp-back` passed after the Step 20 deploy-workflow update. Workflow YAML files were also syntax-validated.
+- Manual check status: Pending. Server-side cutover, rollback rehearsal, deploy execution, and post-deploy smoke still need real infrastructure verification.
+- Findings: Created a detailed cutover checklist covering the confirmed no-git runtime model, CI-built binary deployment, test-first rollout, systemd migration, safe rollback through `-old` assets, and post-stabilization cleanup for both test and prod. Reworked backend deployment workflows so test deploys now build the Go binary in GitHub Actions, run the Go test suite, upload only `megaapp-server` and `migrations/`, and restart the prepared runtime service without `git reset`, `npm ci`, or runtime-folder source checkouts.
+- Issues and resolutions: The existing server still runs Node.js services until the manual cutover completes. Step 20 therefore starts with an explicit manual cutover and rollback runbook, after which the updated GitHub Actions workflows can deploy into the prepared Go runtime folders.
+
+---
+
+## Step 21. Coefficients Recalculation Parity
+
+### Goal
+Перенести полный legacy-compatible пересчёт персональных food coefficients с возможностью ручного запуска и cron execution уже после cutover.
+
+### Depends On
+- Step 20
+
+### Includes
+- full port of the legacy coefficient recalculation logic
+- idiomatic Go redesign of the current JavaScript worker-based implementation without changing the calculation concept
+- manual trigger path for operator-driven recalculation
+- scheduled execution through the shared Go job runtime
+- persistence of recalculated coefficient payloads into `foodSettings.coefficients`
+- verification that diary and stats calculations consume the recalculated values correctly
+
+### Go Test Focus
+- deterministic coefficient recalculation tests on representative fixtures
+- parity tests against legacy outputs on copied data
+- manual trigger tests
+- scheduled job registration and execution tests
+
+### Manual Check
+- вручную запустить пересчёт коэффициентов через debug route
+- убедиться, что `foodSettings.coefficients` реально обновляются, а не только читаются
+- открыть diary и stats до и после пересчёта и проверить, что kcal totals меняются согласованно
+- проверить cron-конфигурацию и успешный job run в test environment
+
+### Result
 - Status: Pending
 
 ---
@@ -887,7 +924,8 @@
 - После завершения core food flows добавлен отдельный hardening step, потому что completed stepы уже вскрыли реальные cross-cutting проблемы границ: transport leakage, event ownership, time-dependence и runtime guardrails. Дешевле исправить это один раз до money и jobs, чем размножить в новых доменах.
 - Money сначала идёт через reference data, потом assets, потом transactions, потом investments, потом snapshot. Это соответствует реальной зависимости вкладок и данных во frontend.
 - Quotes и backup лучше переносить после доменной базы, но уже поверх общего job/runtime foundation и clock discipline, чтобы не собирать второй раз infrastructure patterns в каждом job-oriented модуле.
-- Final parity и deploy — только в самом конце, потому что стратегия миграции сознательно не предполагает piece-by-piece production release.
+- Final parity и основной cutover идут после завершения главных пользовательских доменов, потому что стратегия миграции сознательно не предполагает piece-by-piece production release.
+- Коэффициентный recalculation parity вынесен отдельным post-cutover stepом, потому что текущий UI зависит от чтения и применения уже сохранённых coefficients, а не от постоянной пользовательской доступности самого пересчётного trigger path.
 
 ---
 
@@ -902,6 +940,7 @@
 - quotes ingestion
 - backup flow
 - final cutover checklist
+- coefficients recalculation parity
 
 ---
 

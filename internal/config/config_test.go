@@ -74,14 +74,14 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.DatabaseName != "megaapp" {
 		t.Fatalf("DatabaseName = %q, want megaapp", cfg.DatabaseName)
 	}
-	if cfg.DatabaseEnv != "dev" {
-		t.Fatalf("DatabaseEnv = %q, want dev", cfg.DatabaseEnv)
+	if cfg.DatabaseEnv != "test" {
+		t.Fatalf("DatabaseEnv = %q, want test", cfg.DatabaseEnv)
 	}
 	if cfg.DatabaseVersion != "005" {
 		t.Fatalf("DatabaseVersion = %q, want 005", cfg.DatabaseVersion)
 	}
-	if cfg.DatabasePath != "./data/megaapp-dev-005.db" && cfg.DatabasePath != "data/megaapp-dev-005.db" {
-		t.Fatalf("DatabasePath = %q, want ./data/megaapp-dev-005.db", cfg.DatabasePath)
+	if cfg.DatabasePath != "./data/megaapp-test-005.db" && cfg.DatabasePath != "data/megaapp-test-005.db" {
+		t.Fatalf("DatabasePath = %q, want ./data/megaapp-test-005.db", cfg.DatabasePath)
 	}
 	if cfg.MigrationsDir != "./migrations" {
 		t.Fatalf("MigrationsDir = %q, want ./migrations", cfg.MigrationsDir)
@@ -92,8 +92,8 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.BackupsDir != "./backups" {
 		t.Fatalf("BackupsDir = %q, want ./backups", cfg.BackupsDir)
 	}
-	if cfg.JWTSecret != "dev-insecure-jwt-secret" {
-		t.Fatalf("JWTSecret = %q, want dev-insecure-jwt-secret", cfg.JWTSecret)
+	if cfg.JWTSecret != "test-insecure-jwt-secret" {
+		t.Fatalf("JWTSecret = %q, want test-insecure-jwt-secret", cfg.JWTSecret)
 	}
 	if cfg.OpenRouterAPIKey != "" {
 		t.Fatalf("OpenRouterAPIKey = %q, want empty", cfg.OpenRouterAPIKey)
@@ -196,10 +196,10 @@ func TestValidateRejectsInvalidLogLevel(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsInsecureJWTSecretOutsideDevLikeEnv(t *testing.T) {
+func TestValidateRejectsInsecureJWTSecretOutsideTestLikeEnv(t *testing.T) {
 	cfg := validTestConfig()
 	cfg.AppEnv = "prod"
-	cfg.JWTSecret = "dev-insecure-jwt-secret"
+	cfg.JWTSecret = "test-insecure-jwt-secret"
 
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("Validate() error = nil, want error")

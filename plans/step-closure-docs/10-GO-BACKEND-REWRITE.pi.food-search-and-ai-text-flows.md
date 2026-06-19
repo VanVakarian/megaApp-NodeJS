@@ -36,7 +36,6 @@ Updated:
 - `megaapp-back/go.mod`
 - `megaapp-back/.env`
 - `megaapp-back/.env.example`
-- `megaapp-back/.env.dev.example`
 - `megaapp-back/.env.test.example`
 - `megaapp-back/internal/config/config.go`
 - `megaapp-back/internal/config/config_test.go`
