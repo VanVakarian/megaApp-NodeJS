@@ -35,16 +35,16 @@ jobs:
     steps:
       - name: Check out selected commit
         if: ${{ inputs.commit_sha != '' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ inputs.commit_sha }}
 
       - name: Check out workflow commit
         if: ${{ inputs.commit_sha == '' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -57,7 +57,7 @@ jobs:
           set -eu
           rm -rf deploy
           mkdir -p deploy
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o deploy/megaapp-server ./cmd/server
+          GOOS=linux GOARCH=amd64 go build -trimpath -o deploy/megaapp-server ./cmd/server
           cp -a migrations deploy/migrations
           tar -C deploy -czf deploy/megaapp-server.tar.gz megaapp-server migrations
 
