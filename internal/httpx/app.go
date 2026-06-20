@@ -78,6 +78,26 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 		_ = db.Close()
 		return nil, err
 	}
+	if cfg.CoefficientsJobEnabled {
+		if err := jobRuntime.Register("coefficients", cfg.CoefficientsJobSchedule, func(ctx context.Context) error {
+			result, err := foodModule.service.RunCoefficientsJob(ctx)
+			if err != nil {
+				return err
+			}
+			if result.FailedCount > 0 {
+				logger.Warn("coefficients job completed with user failures", "failedCount", result.FailedCount)
+			}
+			return nil
+		}); err != nil {
+			for _, background := range foodModule.backgrounds {
+				_ = background.Close()
+			}
+			_ = wsModule.hub.Close()
+			_ = jobRuntime.Close()
+			_ = db.Close()
+			return nil, err
+		}
+	}
 	jobRuntime.Start()
 
 	router := chiRouter(logger, observer, cfg.MaxRequestBodyBytes, cfg.MaxMultipartBodyBytes)

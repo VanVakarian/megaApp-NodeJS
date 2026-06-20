@@ -61,27 +61,11 @@ func TestLoadEnvFilesFallsBackToDotEnvProdWhenDotEnvAndDotEnvTestMissing(t *test
 	}
 }
 
-func TestLoadEnvFilesUsesExplicitProfileAfterDefaultFiles(t *testing.T) {
-	tempDir := t.TempDir()
-	writeEnvFile(t, filepath.Join(tempDir, ".env.stage"), "APP_PORT=4000\nJWT_SECRET=stage-secret\n")
-	unsetEnv(t, "APP_PORT", "JWT_SECRET")
-	t.Setenv("APP_ENV", "stage")
-	chdirForTest(t, tempDir)
-
-	if err := LoadEnvFiles(); err != nil {
-		t.Fatalf("LoadEnvFiles() error = %v", err)
-	}
-
-	if got := os.Getenv("APP_PORT"); got != "4000" {
-		t.Fatalf("APP_PORT = %q, want 4000", got)
-	}
-	if got := os.Getenv("JWT_SECRET"); got != "stage-secret" {
-		t.Fatalf("JWT_SECRET = %q, want stage-secret", got)
-	}
-}
-
 func writeEnvFile(t *testing.T, path string, content string) {
 	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}

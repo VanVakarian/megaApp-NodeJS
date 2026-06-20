@@ -28,11 +28,21 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 	authService := auth.NewService(authRepo, tokenManager)
 	service := NewService(NewRepository(db))
 	service.SetProductGenerator(fakeProductGenerator{})
-	readHandler := NewHandler(service)
+	service.SetClock(fixedFoodClock{now: time.Date(2026, time.June, 20, 12, 0, 0, 0, time.UTC)})
+	service.SetCoefficientsConfig(CoefficientsConfig{
+		DifferentTriesPerRound: 4,
+		ChildrenAmt:            2,
+		BestAmt:                2,
+		Days7:                  2,
+		Days60:                 3,
+		MaxTriesIfUnchanged:    1,
+	})
+	seedFoodCoefficientHistory(t, db, 1)
 	hub := wspkg.NewHub(time.Second, wspkg.NewSyncState())
 	defer func() { _ = hub.Close() }()
 	clk := clockplatform.NewRealClock()
 	realtime := NewWSRealtimePublisher(hub, clk)
+	readHandler := NewHandler(service, realtime)
 	hub.RegisterHandler("SEARCH_QUERY", NewSearchWSHandler(service, clk))
 	writeHandler := NewWriteHandler(service, realtime)
 	catalogueHandler := NewCatalogueHandler(service, realtime)
@@ -112,11 +122,11 @@ func TestFoodSearchAndCatalogueMutationEndpoints(t *testing.T) {
 	service := NewService(NewRepository(db))
 	service.SetProductGenerator(fakeProductGenerator{})
 	service.SetImageAnalyzer(fakeImageAnalyzer{name: "Apple"})
-	readHandler := NewHandler(service)
 	hub := wspkg.NewHub(time.Second, wspkg.NewSyncState())
 	defer func() { _ = hub.Close() }()
 	clk := clockplatform.NewRealClock()
 	realtime := NewWSRealtimePublisher(hub, clk)
+	readHandler := NewHandler(service, realtime)
 	hub.RegisterHandler("SEARCH_QUERY", NewSearchWSHandler(service, clk))
 	catalogueHandler := NewCatalogueHandler(service, realtime)
 	wsHandler := wspkg.NewHandler(authService, hub)
@@ -210,6 +220,36 @@ func TestFoodImageStaticRoutes(t *testing.T) {
 	}
 }
 
+func TestFoodDebugRunCoefficientsJobRoute(t *testing.T) {
+	db := openFoodTestDB(t)
+	seedFoodCoefficientHistory(t, db, 1)
+	service := NewService(NewRepository(db))
+	service.SetClock(fixedFoodClock{now: time.Date(2026, time.June, 20, 12, 0, 0, 0, time.UTC)})
+	service.SetCoefficientsConfig(CoefficientsConfig{
+		DifferentTriesPerRound: 4,
+		ChildrenAmt:            2,
+		BestAmt:                2,
+		Days7:                  2,
+		Days60:                 3,
+		MaxTriesIfUnchanged:    1,
+	})
+	debugHandler := NewDebugHandler(NewDebugService(NewRepository(db), t.TempDir(), nil, service, nil))
+
+	router := chi.NewRouter()
+	RegisterDebugRoutes(router, debugHandler)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	response, err := http.Get(server.URL + "/api/debug/run-coefficients-job")
+	if err != nil {
+		t.Fatalf("http.Get() error = %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", response.StatusCode)
+	}
+}
+
 func TestFoodReadEndpoints(t *testing.T) {
 	db := openFoodTestDB(t)
 	authRepo := auth.NewRepository(db)
@@ -217,7 +257,7 @@ func TestFoodReadEndpoints(t *testing.T) {
 	authService := auth.NewService(authRepo, tokenManager)
 	service := NewService(NewRepository(db))
 	service.SetProductGenerator(fakeProductGenerator{})
-	handler := NewHandler(service)
+	handler := NewHandler(service, nil)
 	hub := wspkg.NewHub(time.Second, wspkg.NewSyncState())
 	defer func() { _ = hub.Close() }()
 	clk := clockplatform.NewRealClock()

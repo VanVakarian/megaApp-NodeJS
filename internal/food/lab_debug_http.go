@@ -1,6 +1,7 @@
 package food
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -48,6 +49,7 @@ func RegisterDebugRoutes(router chi.Router, handler *DebugHandler) {
 		r.Get("/rate-limits", handler.CheckRateLimits)
 		r.Get("/export-catalogue", handler.ExportCatalogue)
 		r.Post("/import-catalogue", handler.ImportCatalogue)
+		r.Get("/run-coefficients-job", handler.RunCoefficientsJob)
 	})
 }
 
@@ -181,6 +183,25 @@ func (h *DebugHandler) ImportCatalogue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	legacy.WriteJSON(w, http.StatusOK, payload)
+}
+
+func (h *DebugHandler) RunCoefficientsJob(w http.ResponseWriter, r *http.Request) {
+	payload, err := h.service.RunCoefficientsJob(r.Context())
+	if err != nil {
+		statusCode := http.StatusInternalServerError
+		if errors.Is(err, ErrCoefficientsRecalculationAlreadyRunning) {
+			statusCode = http.StatusConflict
+		}
+		legacy.WriteAppResultError(w, err, statusCode, "Failed to run coefficients job")
+		return
+	}
+	legacy.WriteJSON(w, http.StatusOK, map[string]any{
+		"result":         true,
+		"processedCount": payload.ProcessedCount,
+		"successCount":   payload.SuccessCount,
+		"failedCount":    payload.FailedCount,
+		"users":          payload.Users,
+	})
 }
 
 func optionalQueryInt64(r *http.Request, key string) (int64, error) {

@@ -874,11 +874,11 @@
 - health/build/readiness sanity
 
 ### Result
-- Status: In Progress
-- Test status: `go test ./...` in `megaapp-back` passed after the Step 20 deploy-workflow update. Workflow YAML files were also syntax-validated.
-- Manual check status: Pending. Server-side cutover, rollback rehearsal, deploy execution, and post-deploy smoke still need real infrastructure verification.
-- Findings: Created a detailed cutover checklist covering the confirmed no-git runtime model, CI-built binary deployment, test-first rollout, systemd migration, safe rollback through `-old` assets, and post-stabilization cleanup for both test and prod. Reworked backend deployment workflows so test deploys now build the Go binary in GitHub Actions, run the Go test suite, upload only `megaapp-server` and `migrations/`, and restart the prepared runtime service without `git reset`, `npm ci`, or runtime-folder source checkouts.
-- Issues and resolutions: The existing server still runs Node.js services until the manual cutover completes. Step 20 therefore starts with an explicit manual cutover and rollback runbook, after which the updated GitHub Actions workflows can deploy into the prepared Go runtime folders.
+- Status: Done
+- Test status: `go test ./...` in `megaapp-back` passed after the Step 20 deploy-workflow and cutover hardening updates. Workflow YAML files were also syntax-validated.
+- Manual check status: Done. Test and prod cutover were executed through the prepared GitHub Actions path, startup/runtime issues were resolved, and the backend now serves both environments from the Go runtime.
+- Findings: The final cutover needed several real-world hardening fixes beyond the original workflow draft: CI parity tests had to stop hard-failing when the local legacy fixture DB is absent, Linux deploy builds had to keep CGO enabled for WebP support, env file fallback order had to stop accidentally loading test defaults in prod, and `diary-full-update` needed an out-of-range guard for inherited prod data shape.
+- Issues and resolutions: After these fixes, the Step 20 target model is now working end-to-end: CI builds and deploys the Go binary, systemd runs `megaapp-server`, and both test and prod were manually confirmed alive on the migrated runtime folders.
 
 ---
 
@@ -911,7 +911,11 @@
 - проверить cron-конфигурацию и успешный job run в test environment
 
 ### Result
-- Status: Pending
+- Status: In Progress
+- Test status: `go test ./...` in `megaapp-back` passed after the initial Step 21 implementation.
+- Manual check status: Pending.
+- Findings: Added a full Go port of the legacy coefficient recalculation loop, user-wide scheduled job wiring, manual debug trigger support, and real recalculation on `GET /api/food/coefficients-gen` instead of the previous normalization-only compatibility stub.
+- Issues and resolutions: The recalculation flow needed new runtime config, whole-user job orchestration, deterministic test seams, and protection against data-shape drift while preserving the legacy calculation concept.
 
 ---
 

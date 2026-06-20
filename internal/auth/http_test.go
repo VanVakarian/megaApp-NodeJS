@@ -71,6 +71,20 @@ func TestAuthEndpointsAndMiddleware(t *testing.T) {
 	}
 	_ = refreshResponse.Body.Close()
 
+	verifyRequest, err := http.NewRequest(http.MethodGet, server.URL+"/api/auth/verify", nil)
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	verifyRequest.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	verifyResponse, err := http.DefaultClient.Do(verifyRequest)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if verifyResponse.StatusCode != http.StatusOK {
+		t.Fatalf("verify status = %d, want 200", verifyResponse.StatusCode)
+	}
+	_ = verifyResponse.Body.Close()
+
 	protectedHandler := Middleware(service)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := UserClaimsFromContext(r.Context())
 		if !ok {
