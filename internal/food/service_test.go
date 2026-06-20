@@ -277,6 +277,34 @@ func TestGetDiaryFullUpdateReturnsFoodAndNutrients(t *testing.T) {
 	}
 }
 
+func TestGetDiaryFullUpdateIgnoresRowsOutsideRequestedRange(t *testing.T) {
+	db := openFoodTestDB(t)
+	if _, err := db.Exec(`
+		INSERT INTO foodDiary(id, dateISO, foodCatalogueId, foodWeight, history, usersId, ver, del) VALUES
+			(11, '2026-06-19', 1, 120, '[{"action":"init","value":120}]', 1, 0, 0);
+		INSERT INTO foodBodyWeight(dateISO, weight, usersId) VALUES ('2026-06-19', 81, 1);
+	`); err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+	service := NewService(NewRepository(db))
+
+	result, err := service.GetDiaryFullUpdate(context.Background(), 1, "2026-06-17", 1)
+	if err != nil {
+		t.Fatalf("GetDiaryFullUpdate() error = %v", err)
+	}
+
+	if _, ok := result["2026-06-19"]; ok {
+		t.Fatal("unexpected out-of-range day present")
+	}
+	day := result["2026-06-18"]
+	if len(day.Food) != 0 {
+		t.Fatalf("len(day.Food) = %d, want 0", len(day.Food))
+	}
+	if day.BodyWeight != nil {
+		t.Fatalf("BodyWeight = %v, want nil", day.BodyWeight)
+	}
+}
+
 func openFoodTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 

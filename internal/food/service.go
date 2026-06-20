@@ -154,7 +154,13 @@ func (s *Service) GetDiaryFullUpdate(ctx context.Context, userID int64, dateISO 
 	}
 
 	for _, row := range diaryRows {
-		day := result[row.DateISO]
+		day, ok := result[row.DateISO]
+		if !ok {
+			continue
+		}
+		if day.Food == nil {
+			day.Food = map[int64]DiaryEntry{}
+		}
 		day.Food[row.ID] = DiaryEntry{
 			ID:              row.ID,
 			DateISO:         row.DateISO,
@@ -167,8 +173,11 @@ func (s *Service) GetDiaryFullUpdate(ctx context.Context, userID int64, dateISO 
 
 	bodyWeightMap := make(map[string]float64, len(weights))
 	for _, row := range weights {
+		day, ok := result[row.DateISO]
+		if !ok {
+			continue
+		}
 		bodyWeightMap[row.DateISO] = row.Weight
-		day := result[row.DateISO]
 		weight := row.Weight
 		day.BodyWeight = &weight
 		result[row.DateISO] = day
