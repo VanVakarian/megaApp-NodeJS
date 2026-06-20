@@ -1,0 +1,476 @@
+package food
+
+import (
+	"context"
+	"encoding/binary"
+	"fmt"
+	"math"
+	"sort"
+	"strings"
+
+	"megaapp-back/internal/httpx/legacy"
+)
+
+type ProductPreviewData struct {
+	GeneralizedName string  `json:"generalizedName"`
+	Kcals           int64   `json:"kcals"`
+	Protein         float64 `json:"protein"`
+	Fat             float64 `json:"fat"`
+	Carbs           float64 `json:"carbs"`
+	Fiber           float64 `json:"fiber"`
+	Description     string  `json:"description"`
+	Confidence      float64 `json:"confidence"`
+}
+
+type VoiceAnalysisData struct {
+	DetectedProduct ProductPreviewData `json:"detectedProduct"`
+	SearchResults   []CatalogueEntry   `json:"searchResults"`
+}
+
+type scoredCatalogueEntry struct {
+	entry CatalogueEntry
+	score int
+}
+
+func (s *Service) SearchCatalogue(ctx context.Context, query string) ([]CatalogueEntry, error) {
+	ids, err := s.searchCatalogueIDs(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return []CatalogueEntry{}, nil
+	}
+
+	catalogue, err := s.GetCatalogue(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]CatalogueEntry, 0, len(ids))
+	for _, id := range ids {
+		entry, ok := catalogue[id]
+		if !ok {
+			continue
+		}
+		result = append(result, entry)
+	}
+
+	return result, nil
+}
+
+func (s *Service) SearchCatalogueRealtime(ctx context.Context, query string) ([]int64, error) {
+	return s.searchCatalogueIDs(ctx, query)
+}
+
+func (s *Service) GenerateProductPreview(ctx context.Context, query string) (ProductPreviewData, error) {
+	normalizedQuery := normalizeSearchText(query)
+	if normalizedQuery == "" {
+		return ProductPreviewData{}, legacy.NewError(legacy.ErrorKindValidation, "Description is required")
+	}
+	if s.productGenerator == nil {
+		return ProductPreviewData{}, legacy.NewError(legacy.ErrorKindInternal, "Product generator is not configured")
+	}
+	preview, err := s.productGenerator.GenerateProduct(ctx, normalizedQuery)
+	if err != nil {
+		return ProductPreviewData{}, legacy.WrapError(legacy.ErrorKindExternal, "Failed to generate product preview", err)
+	}
+	return preview, nil
+}
+
+func (s *Service) SaveProduct(ctx context.Context, catalogueID *int64, input ProductInput) (*CatalogueEntry, error) {
+	input = normalizeProductInput(input)
+	if err := validateProductInput(input); err != nil {
+		return nil, legacy.WrapError(legacy.ErrorKindValidation, err.Error(), err)
+	}
+
+	existingByName, err := s.repo.GetCatalogueEntryByName(ctx, input.Name)
+	if err != nil {
+		return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to look up product by name", err)
+	}
+
+	nameVector, descriptionVector, err := s.generateProductEmbeddings(ctx, input)
+	if err != nil {
+		return nil, legacy.WrapError(legacy.ErrorKindExternal, "Failed to generate product embeddings", err)
+	}
+	input.NameVector = nameVector
+	input.DescriptionVec = descriptionVector
+
+	if catalogueID == nil {
+		if existingByName != nil {
+			return nil, legacy.NewError(legacy.ErrorKindValidation, "product with this name already exists")
+		}
+		id, err := s.repo.CreateCatalogueEntry(ctx, input)
+		if err != nil {
+			return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to create product", err)
+		}
+		s.searchCache.Clear()
+		entry, err := s.GetCatalogueEntry(ctx, id)
+		if err != nil {
+			return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to load created product", err)
+		}
+		if entry != nil && s.imageGenerationRequest != nil {
+			s.imageGenerationRequest.RequestProductImageGeneration(entry.ID, entry.Name, entry.Description)
+		}
+		return entry, nil
+	}
+
+	existingByID, err := s.repo.GetCatalogueEntry(ctx, *catalogueID)
+	if err != nil {
+		return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to load product", err)
+	}
+	if existingByID == nil {
+		return nil, legacy.NewError(legacy.ErrorKindNotFound, "product not found")
+	}
+	if existingByName != nil && existingByName.ID != *catalogueID {
+		return nil, legacy.NewError(legacy.ErrorKindValidation, "product with this name already exists")
+	}
+
+	updated, err := s.repo.UpdateCatalogueEntry(ctx, *catalogueID, input)
+	if err != nil {
+		return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to update product", err)
+	}
+	if !updated {
+		return nil, legacy.NewError(legacy.ErrorKindNotFound, "product not found")
+	}
+
+	s.searchCache.Clear()
+	entry, err := s.GetCatalogueEntry(ctx, *catalogueID)
+	if err != nil {
+		return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to load updated product", err)
+	}
+	return entry, nil
+}
+
+func (s *Service) DeleteProduct(ctx context.Context, catalogueID int64) (bool, error) {
+	entry, err := s.repo.GetCatalogueEntry(ctx, catalogueID)
+	if err != nil {
+		return false, legacy.WrapError(legacy.ErrorKindInternal, "Failed to load product", err)
+	}
+	if entry == nil {
+		return false, legacy.NewError(legacy.ErrorKindNotFound, "product not found")
+	}
+
+	count, err := s.repo.CountDiaryEntriesByCatalogueID(ctx, catalogueID)
+	if err != nil {
+		return false, legacy.WrapError(legacy.ErrorKindInternal, "Failed to check product usage", err)
+	}
+	if count > 0 {
+		return false, legacy.NewError(legacy.ErrorKindConflict, "product is used in diary entries")
+	}
+
+	deleted, err := s.repo.DeleteCatalogueEntry(ctx, catalogueID)
+	if err != nil {
+		return false, legacy.WrapError(legacy.ErrorKindInternal, "Failed to delete product", err)
+	}
+	if deleted {
+		s.searchCache.Clear()
+	}
+	return deleted, nil
+}
+
+func (s *Service) AnalyzeVoiceTranscript(ctx context.Context, transcript string) (*VoiceAnalysisData, error) {
+	if strings.TrimSpace(transcript) == "" {
+		return nil, legacy.NewError(legacy.ErrorKindValidation, "Transcript is required")
+	}
+	if s.productGenerator == nil {
+		return nil, legacy.NewError(legacy.ErrorKindInternal, "Product generator is not configured")
+	}
+	preview, err := s.productGenerator.AnalyzeVoice(ctx, transcript)
+	if err != nil {
+		return nil, legacy.WrapError(legacy.ErrorKindExternal, "Failed to analyze voice transcript", err)
+	}
+	results, err := s.SearchCatalogue(ctx, preview.GeneralizedName)
+	if err != nil {
+		return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to search catalogue", err)
+	}
+	return &VoiceAnalysisData{DetectedProduct: preview, SearchResults: results}, nil
+}
+
+func (s *Service) searchCatalogueIDs(ctx context.Context, query string) ([]int64, error) {
+	normalizedQuery := normalizeSearchText(query)
+	if normalizedQuery == "" {
+		return []int64{}, nil
+	}
+	if cached, ok := s.searchCache.Get(normalizedQuery); ok {
+		return cached, nil
+	}
+
+	semanticIDs, err := s.searchCatalogueIDsByEmbedding(ctx, normalizedQuery)
+	if err != nil {
+		return nil, err
+	}
+	if len(semanticIDs) > 0 {
+		s.searchCache.Set(normalizedQuery, semanticIDs)
+		return semanticIDs, nil
+	}
+
+	catalogue, err := s.GetCatalogue(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	normalizedTokens := splitSearchTokens(normalizedQuery)
+	transliteratedQuery := transliterateEnToRu(normalizedQuery)
+	transliteratedTokens := splitSearchTokens(transliteratedQuery)
+	scored := make([]scoredCatalogueEntry, 0, len(catalogue))
+	for _, entry := range catalogue {
+		score := scoreCatalogueEntry(entry, normalizedQuery, normalizedTokens, transliteratedQuery, transliteratedTokens)
+		if score == 0 {
+			continue
+		}
+		scored = append(scored, scoredCatalogueEntry{entry: entry, score: score})
+	}
+
+	sort.Slice(scored, func(i int, j int) bool {
+		if scored[i].score == scored[j].score {
+			return scored[i].entry.Name < scored[j].entry.Name
+		}
+		return scored[i].score > scored[j].score
+	})
+
+	limit := 30
+	if len(scored) > limit {
+		scored = scored[:limit]
+	}
+	ids := make([]int64, 0, len(scored))
+	for _, item := range scored {
+		ids = append(ids, item.entry.ID)
+	}
+
+	s.searchCache.Set(normalizedQuery, ids)
+	return ids, nil
+}
+
+func (s *Service) searchCatalogueIDsByEmbedding(ctx context.Context, query string) ([]int64, error) {
+	embeddingBlob, err := s.repo.GetQueryEmbedding(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	if len(embeddingBlob) == 0 {
+		if s.embeddingGenerator == nil {
+			return nil, nil
+		}
+		embedding, err := s.embeddingGenerator.GenerateEmbedding(ctx, query)
+		if err != nil {
+			return nil, err
+		}
+		embeddingBlob = encodeFloat32Blob(embedding)
+		if err := s.repo.SaveQueryEmbedding(ctx, query, embeddingBlob); err != nil {
+			return nil, err
+		}
+	}
+	queryVector := decodeFloat32Blob(embeddingBlob)
+	if len(queryVector) == 0 {
+		return nil, nil
+	}
+
+	rows, err := s.repo.GetSearchVectors(ctx)
+	if err != nil {
+		return nil, err
+	}
+	type scoredVector struct {
+		id       int64
+		distance float64
+	}
+	results := make([]scoredVector, 0, len(rows))
+	for _, row := range rows {
+		nameVector := decodeFloat32Blob(row.NameVector)
+		descriptionVector := decodeFloat32Blob(row.DescriptionVec)
+		distance, ok := combinedDistance(queryVector, nameVector, descriptionVector)
+		if !ok {
+			continue
+		}
+		results = append(results, scoredVector{id: row.ID, distance: distance})
+	}
+	if len(results) == 0 {
+		return nil, nil
+	}
+
+	sort.Slice(results, func(i int, j int) bool {
+		if results[i].distance == results[j].distance {
+			return results[i].id < results[j].id
+		}
+		return results[i].distance < results[j].distance
+	})
+
+	limit := 30
+	if len(results) > limit {
+		results = results[:limit]
+	}
+	ids := make([]int64, 0, len(results))
+	for _, item := range results {
+		ids = append(ids, item.id)
+	}
+	return ids, nil
+}
+
+func scoreCatalogueEntry(entry CatalogueEntry, query string, tokens []string, transliteratedQuery string, transliteratedTokens []string) int {
+	name := normalizeSearchText(entry.Name)
+	legacy := normalizeSearchText(nullableStringOrEmpty(entry.LegacyName))
+	description := normalizeSearchText(entry.Description)
+
+	score := 0
+	score += scoreField(name, query, tokens, 1000, 500, 80, 140)
+	score += scoreField(legacy, query, transliteratedTokens, 850, 420, 70, 120)
+	score += scoreField(description, query, tokens, 120, 80, 20, 40)
+	if transliteratedQuery != query {
+		score += scoreField(name, transliteratedQuery, transliteratedTokens, 700, 300, 60, 100)
+		score += scoreField(legacy, query, tokens, 700, 300, 60, 100)
+	}
+	return score
+}
+
+func scoreField(field string, query string, tokens []string, exact int, prefix int, tokenScore int, allTokens int) int {
+	if field == "" || query == "" {
+		return 0
+	}
+	if field == query {
+		return exact
+	}
+	score := 0
+	if strings.HasPrefix(field, query) {
+		score += prefix
+	}
+	matched := 0
+	for _, token := range tokens {
+		if token == "" {
+			continue
+		}
+		if strings.Contains(field, token) {
+			score += tokenScore
+			matched++
+		}
+	}
+	if matched > 0 && matched == len(tokens) {
+		score += allTokens
+	}
+	return score
+}
+
+func (s *Service) generateProductEmbeddings(ctx context.Context, input ProductInput) ([]byte, []byte, error) {
+	if s.embeddingGenerator == nil {
+		return nil, nil, nil
+	}
+	nameEmbedding, err := s.embeddingGenerator.GenerateEmbedding(ctx, input.Name)
+	if err != nil {
+		return nil, nil, err
+	}
+	descriptionEmbedding, err := s.embeddingGenerator.GenerateEmbedding(ctx, input.Description)
+	if err != nil {
+		return nil, nil, err
+	}
+	return encodeFloat32Blob(nameEmbedding), encodeFloat32Blob(descriptionEmbedding), nil
+}
+
+func normalizeProductInput(input ProductInput) ProductInput {
+	input.Name = strings.TrimSpace(input.Name)
+	input.Description = strings.TrimSpace(input.Description)
+	return input
+}
+
+func validateProductInput(input ProductInput) error {
+	if input.Name == "" || input.Description == "" {
+		return fmt.Errorf("all fields are required")
+	}
+	if input.Kcals < 0 || input.Kcals > 1000 {
+		return fmt.Errorf("calories must be between 0 and 1000")
+	}
+	if input.Protein < 0 || input.Protein > 100 || input.Fat < 0 || input.Fat > 100 || input.Carbs < 0 || input.Carbs > 100 {
+		return fmt.Errorf("protein, fat, and carbs must be between 0 and 100")
+	}
+	if input.Fiber < 0 || input.Fiber > 50 {
+		return fmt.Errorf("fiber must be between 0 and 50")
+	}
+	if utfLen(input.Name) > 100 {
+		return fmt.Errorf("name must be between 1 and 100 characters")
+	}
+	if utfLen(input.Description) > 2000 {
+		return fmt.Errorf("description must be between 1 and 2000 characters")
+	}
+	return nil
+}
+
+func utfLen(value string) int {
+	return len([]rune(value))
+}
+
+func normalizeSearchText(value string) string {
+	fields := strings.Fields(strings.ToLower(strings.TrimSpace(value)))
+	return strings.Join(fields, " ")
+}
+
+func splitSearchTokens(value string) []string {
+	if value == "" {
+		return nil
+	}
+	return strings.Fields(value)
+}
+
+func nullableStringOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+var enToRuTransliterationRules = map[rune]rune{
+	'q': 'й', 'w': 'ц', 'e': 'у', 'r': 'к', 't': 'е', 'y': 'н', 'u': 'г', 'i': 'ш', 'o': 'щ', 'p': 'з', '[': 'х', ']': 'ъ',
+	'a': 'ф', 's': 'ы', 'd': 'в', 'f': 'а', 'g': 'п', 'h': 'р', 'j': 'о', 'k': 'л', 'l': 'д', ';': 'ж', '\'': 'э',
+	'z': 'я', 'x': 'ч', 'c': 'с', 'v': 'м', 'b': 'и', 'n': 'т', 'm': 'ь', ',': 'б', '.': 'ю',
+}
+
+func transliterateEnToRu(text string) string {
+	runes := []rune(strings.ToLower(text))
+	for idx, r := range runes {
+		if mapped, ok := enToRuTransliterationRules[r]; ok {
+			runes[idx] = mapped
+		}
+	}
+	return string(runes)
+}
+
+func decodeFloat32Blob(blob []byte) []float64 {
+	if len(blob) == 0 || len(blob)%4 != 0 {
+		return nil
+	}
+	result := make([]float64, 0, len(blob)/4)
+	for idx := 0; idx < len(blob); idx += 4 {
+		bits := binary.LittleEndian.Uint32(blob[idx : idx+4])
+		result = append(result, float64(math.Float32frombits(bits)))
+	}
+	return result
+}
+
+func combinedDistance(query []float64, nameVector []float64, descriptionVector []float64) (float64, bool) {
+	hasName := len(nameVector) == len(query) && len(nameVector) > 0
+	hasDescription := len(descriptionVector) == len(query) && len(descriptionVector) > 0
+	if !hasName && !hasDescription {
+		return 0, false
+	}
+	if hasName && hasDescription {
+		return cosineDistance(query, nameVector)*0.5 + cosineDistance(query, descriptionVector)*0.5, true
+	}
+	if hasName {
+		return cosineDistance(query, nameVector), true
+	}
+	return cosineDistance(query, descriptionVector), true
+}
+
+func cosineDistance(a []float64, b []float64) float64 {
+	if len(a) == 0 || len(a) != len(b) {
+		return 1
+	}
+	dot := 0.0
+	normA := 0.0
+	normB := 0.0
+	for idx := range a {
+		dot += a[idx] * b[idx]
+		normA += a[idx] * a[idx]
+		normB += b[idx] * b[idx]
+	}
+	normProduct := math.Sqrt(normA) * math.Sqrt(normB)
+	if normProduct == 0 {
+		return 1
+	}
+	return 1 - dot/normProduct
+}

@@ -3,18 +3,14 @@ name: Deploy Backend
 on:
   workflow_call:
     inputs:
-      branch:
-        required: true
-        type: string
-        description: 'Branch to deploy'
       server-path:
         required: true
         type: string
-        description: 'Server path for deployment'
+        description: 'Server runtime path'
       service-name:
         required: true
         type: string
-        description: 'Service name to restart'
+        description: 'Systemd service name'
       commit_sha:
         required: false
         type: string
@@ -32,24 +28,65 @@ jobs:
     name: Deploy Backend
     runs-on: ubuntu-latest
     environment: VPS_31
+    concurrency:
+      group: deploy-${{ inputs.service-name }}
+      cancel-in-progress: true
 
     steps:
-      - name: Deploy via SSH
+      - name: Check out selected commit
+        if: ${{ inputs.commit_sha != '' }}
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.commit_sha }}
+
+      - name: Check out workflow commit
+        if: ${{ inputs.commit_sha == '' }}
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run Go tests
+        run: go test ./...
+
+      - name: Build deploy package
+        run: |
+          set -eu
+          rm -rf deploy
+          mkdir -p deploy
+          GOOS=linux GOARCH=amd64 go build -trimpath -o deploy/megaapp-server ./cmd/server
+          cp -a migrations deploy/migrations
+          tar -C deploy -czf deploy/megaapp-server.tar.gz megaapp-server migrations
+
+      - name: Upload deploy package
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USER }}
+          key: ${{ secrets.SSH_KEY }}
+          source: deploy/megaapp-server.tar.gz
+          target: ${{ inputs.server-path }}
+          overwrite: true
+
+      - name: Activate deploy package
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USER }}
           key: ${{ secrets.SSH_KEY }}
           script: |
-            export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-            nvm use 22
+            set -eu
+            install -d -m 755 ${{ inputs.server-path }}
             cd ${{ inputs.server-path }}
-            git fetch origin
-            if [ -n "${{ inputs.commit_sha }}" ]; then
-              git reset --hard ${{ inputs.commit_sha }}
-            else
-              git reset --hard origin/${{ inputs.branch }}
-            fi
-            npm ci
+            rm -f megaapp-server
+            rm -rf migrations
+            tar -xzf deploy/megaapp-server.tar.gz
+            rm -f deploy/megaapp-server.tar.gz
+            rmdir --ignore-fail-on-non-empty deploy || true
+            chmod 755 megaapp-server
+            systemctl daemon-reload
             systemctl restart ${{ inputs.service-name }}
+            systemctl is-active --quiet ${{ inputs.service-name }}
