@@ -9,16 +9,34 @@ import (
 )
 
 func LoadEnvFiles() error {
-	if fileExists(".env") {
-		return loadEnvFileIfExists(".env")
+	for _, path := range envFileCandidates() {
+		if fileExists(path) {
+			return loadEnvFileIfExists(path)
+		}
 	}
+	return nil
+}
 
+func envFileCandidates() []string {
 	appEnv := strings.TrimSpace(os.Getenv("APP_ENV"))
-	if appEnv == "" {
-		appEnv = "test"
+	candidates := []string{".env", ".env.test", ".env.prod"}
+	if appEnv != "" {
+		candidates = append(candidates, filepath.Clean(".env."+appEnv))
 	}
+	return uniqueStrings(candidates)
+}
 
-	return loadEnvFileIfExists(filepath.Clean(".env." + appEnv))
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func fileExists(path string) bool {
