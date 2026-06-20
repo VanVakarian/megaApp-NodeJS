@@ -28,6 +28,15 @@ func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("OPENAI_EMBEDDING_MODEL", "")
 	t.Setenv("OPENAI_EMBEDDING_DIMENSIONS", "")
 	t.Setenv("OPENAI_TIMEOUT_SECONDS", "")
+	t.Setenv("COEFFICIENTS_JOB_ENABLED", "")
+	t.Setenv("COEFFICIENTS_JOB_SCHEDULE", "")
+	t.Setenv("COEFFICIENTS_START_WITH_ZEROS", "")
+	t.Setenv("COEFFICIENTS_DIFFERENT_TRIES_PER_ROUND", "")
+	t.Setenv("COEFFICIENTS_CHILDREN_AMT", "")
+	t.Setenv("COEFFICIENTS_BEST_AMT", "")
+	t.Setenv("COEFFICIENTS_DAYS_7", "")
+	t.Setenv("COEFFICIENTS_DAYS_60", "")
+	t.Setenv("COEFFICIENTS_MAX_TRIES_IF_UNCHANGED", "")
 	t.Setenv("QUOTES_JOB_ENABLED", "")
 	t.Setenv("QUOTES_JOB_SCHEDULE", "")
 	t.Setenv("QUOTES_FETCH_DAYS", "")
@@ -122,6 +131,33 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.OpenAITimeout != 60*time.Second {
 		t.Fatalf("OpenAITimeout = %v, want 60s", cfg.OpenAITimeout)
 	}
+	if cfg.CoefficientsJobEnabled {
+		t.Fatal("CoefficientsJobEnabled = true, want false")
+	}
+	if cfg.CoefficientsJobSchedule != "0 1 * * *" {
+		t.Fatalf("CoefficientsJobSchedule = %q, want 0 1 * * *", cfg.CoefficientsJobSchedule)
+	}
+	if cfg.CoefficientsStartWithDefaults {
+		t.Fatal("CoefficientsStartWithDefaults = true, want false")
+	}
+	if cfg.CoefficientsDifferentTriesPerRound != 100 {
+		t.Fatalf("CoefficientsDifferentTriesPerRound = %d, want 100", cfg.CoefficientsDifferentTriesPerRound)
+	}
+	if cfg.CoefficientsChildrenAmt != 10 {
+		t.Fatalf("CoefficientsChildrenAmt = %d, want 10", cfg.CoefficientsChildrenAmt)
+	}
+	if cfg.CoefficientsBestAmt != 10 {
+		t.Fatalf("CoefficientsBestAmt = %d, want 10", cfg.CoefficientsBestAmt)
+	}
+	if cfg.CoefficientsDays7 != 7 {
+		t.Fatalf("CoefficientsDays7 = %d, want 7", cfg.CoefficientsDays7)
+	}
+	if cfg.CoefficientsDays60 != 60 {
+		t.Fatalf("CoefficientsDays60 = %d, want 60", cfg.CoefficientsDays60)
+	}
+	if cfg.CoefficientsMaxTriesIfUnchanged != 20 {
+		t.Fatalf("CoefficientsMaxTriesIfUnchanged = %d, want 20", cfg.CoefficientsMaxTriesIfUnchanged)
+	}
 	if cfg.QuotesJobEnabled {
 		t.Fatal("QuotesJobEnabled = true, want false")
 	}
@@ -206,6 +242,15 @@ func TestValidateRejectsInsecureJWTSecretOutsideTestLikeEnv(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsInvalidCoefficientsConfig(t *testing.T) {
+	cfg := validTestConfig()
+	cfg.CoefficientsBestAmt = cfg.CoefficientsDifferentTriesPerRound + 1
+
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+}
+
 func TestValidateRejectsInvalidQuotesConfig(t *testing.T) {
 	cfg := validTestConfig()
 	cfg.QuotesFetchDays = 0
@@ -238,41 +283,48 @@ func TestValidateAcceptsProdLikeConfig(t *testing.T) {
 
 func validTestConfig() Config {
 	return Config{
-		AppEnv:                       "test",
-		AppHost:                      "127.0.0.1",
-		AppPort:                      3000,
-		LogLevel:                     "info",
-		DataDir:                      "./data",
-		DatabaseName:                 "megaapp",
-		DatabaseEnv:                  "test",
-		DatabaseVersion:              "005",
-		DatabasePath:                 "./data/megaapp-test-005.db",
-		MigrationsDir:                "./migrations",
-		PublicDir:                    "./public",
-		BackupsDir:                   "./backups",
-		JWTSecret:                    "secret",
-		OpenRouterTimeout:            time.Second,
-		OpenAIEmbeddingDims:          768,
-		OpenAITimeout:                time.Second,
-		QuotesJobSchedule:            "0 3 * * *",
-		QuotesFetchDays:              7,
-		QuotesRetryAttempts:          3,
-		QuotesRetryDelay:             30 * time.Second,
-		QuotesRequestTimeout:         20 * time.Second,
-		BackupJobSchedule:            "0 2 * * *",
-		BackupStorageEnabled:         true,
-		BackupStorageRegion:          "eu-north-1",
-		BackupStorageBucket:          "bucket",
-		BackupStorageAccessKeyID:     "key",
-		BackupStorageSecretAccessKey: "secret",
-		BackupOperationTimeout:       300 * time.Second,
-		HTTPReadTimeout:              time.Second,
-		HTTPWriteTimeout:             time.Second,
-		HTTPIdleTimeout:              time.Second,
-		ShutdownTimeout:              time.Second,
-		MaxRequestBodyBytes:          1024,
-		MaxMultipartBodyBytes:        8 * 1024,
-		WSReadLimitBytes:             1024,
-		WSWriteTimeout:               time.Second,
+		AppEnv:                             "test",
+		AppHost:                            "127.0.0.1",
+		AppPort:                            3000,
+		LogLevel:                           "info",
+		DataDir:                            "./data",
+		DatabaseName:                       "megaapp",
+		DatabaseEnv:                        "test",
+		DatabaseVersion:                    "005",
+		DatabasePath:                       "./data/megaapp-test-005.db",
+		MigrationsDir:                      "./migrations",
+		PublicDir:                          "./public",
+		BackupsDir:                         "./backups",
+		JWTSecret:                          "secret",
+		OpenRouterTimeout:                  time.Second,
+		OpenAIEmbeddingDims:                768,
+		OpenAITimeout:                      time.Second,
+		CoefficientsJobSchedule:            "0 1 * * *",
+		CoefficientsDifferentTriesPerRound: 100,
+		CoefficientsChildrenAmt:            10,
+		CoefficientsBestAmt:                10,
+		CoefficientsDays7:                  7,
+		CoefficientsDays60:                 60,
+		CoefficientsMaxTriesIfUnchanged:    20,
+		QuotesJobSchedule:                  "0 3 * * *",
+		QuotesFetchDays:                    7,
+		QuotesRetryAttempts:                3,
+		QuotesRetryDelay:                   30 * time.Second,
+		QuotesRequestTimeout:               20 * time.Second,
+		BackupJobSchedule:                  "0 2 * * *",
+		BackupStorageEnabled:               true,
+		BackupStorageRegion:                "eu-north-1",
+		BackupStorageBucket:                "bucket",
+		BackupStorageAccessKeyID:           "key",
+		BackupStorageSecretAccessKey:       "secret",
+		BackupOperationTimeout:             300 * time.Second,
+		HTTPReadTimeout:                    time.Second,
+		HTTPWriteTimeout:                   time.Second,
+		HTTPIdleTimeout:                    time.Second,
+		ShutdownTimeout:                    time.Second,
+		MaxRequestBodyBytes:                1024,
+		MaxMultipartBodyBytes:              8 * 1024,
+		WSReadLimitBytes:                   1024,
+		WSWriteTimeout:                     time.Second,
 	}
 }

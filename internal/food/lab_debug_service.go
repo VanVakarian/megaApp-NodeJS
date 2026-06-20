@@ -23,6 +23,8 @@ type DebugService struct {
 	repo             *Repository
 	backupsDir       string
 	rateLimitChecker ImageRateLimitChecker
+	food             *Service
+	realtime         RealtimePublisher
 }
 
 type CatalogueImportEntry struct {
@@ -69,8 +71,26 @@ func NewLabService(repo *Repository, food *Service, pipeline *ImagePipeline) *La
 	return &LabService{repo: repo, food: food, pipeline: pipeline}
 }
 
-func NewDebugService(repo *Repository, backupsDir string, rateLimitChecker ImageRateLimitChecker) *DebugService {
-	return &DebugService{repo: repo, backupsDir: backupsDir, rateLimitChecker: rateLimitChecker}
+func NewDebugService(repo *Repository, backupsDir string, rateLimitChecker ImageRateLimitChecker, food *Service, realtime RealtimePublisher) *DebugService {
+	return &DebugService{repo: repo, backupsDir: backupsDir, rateLimitChecker: rateLimitChecker, food: food, realtime: realtime}
+}
+
+func (s *DebugService) RunCoefficientsJob(ctx context.Context) (*CoefficientsJobResult, error) {
+	if s.food == nil {
+		return nil, legacy.NewError(legacy.ErrorKindValidation, "Coefficients job is not configured")
+	}
+	result, err := s.food.RunCoefficientsJob(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.realtime != nil {
+		for _, user := range result.Users {
+			if user.Success {
+				s.realtime.MarkUserUpdated(user.UserID)
+			}
+		}
+	}
+	return result, nil
 }
 
 func (s *LabService) GenerateProduct(ctx context.Context, description string, catalogueID int64, nextN int, useKcals bool, saveToDB bool) (*LabGenerateProductResult, error) {

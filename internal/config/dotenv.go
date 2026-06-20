@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -18,25 +17,7 @@ func LoadEnvFiles() error {
 }
 
 func envFileCandidates() []string {
-	appEnv := strings.TrimSpace(os.Getenv("APP_ENV"))
-	candidates := []string{".env", ".env.test", ".env.prod"}
-	if appEnv != "" {
-		candidates = append(candidates, filepath.Clean(".env."+appEnv))
-	}
-	return uniqueStrings(candidates)
-}
-
-func uniqueStrings(values []string) []string {
-	seen := make(map[string]struct{}, len(values))
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		result = append(result, value)
-	}
-	return result
+	return []string{".env", ".env.test", ".env.prod"}
 }
 
 func fileExists(path string) bool {

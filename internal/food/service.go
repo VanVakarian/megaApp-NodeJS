@@ -8,6 +8,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"megaapp-back/internal/httpx/legacy"
@@ -23,9 +24,13 @@ type Service struct {
 	productGenerator       ProductGenerator
 	embeddingGenerator     EmbeddingGenerator
 	imageAnalyzer          ImageAnalyzer
-	imageGenerationRequest ImageGenerationRequester
-	imageVersions          ImageVersionProvider
-	clock                  clockplatform.Clock
+	imageGenerationRequest  ImageGenerationRequester
+	imageVersions           ImageVersionProvider
+	clock                   clockplatform.Clock
+	coefficientsConfig      CoefficientsConfig
+	coefficientsRunMu       sync.Mutex
+	coefficientsBatchActive bool
+	coefficientsUsersActive map[int64]bool
 }
 
 type DiaryEntry struct {
@@ -81,7 +86,7 @@ type CatalogueEntry struct {
 }
 
 func NewService(repo *Repository) *Service {
-	return &Service{repo: repo, statsCache: NewStatsCache(), searchCache: NewSearchCache(), clock: clockplatform.NewRealClock()}
+	return &Service{repo: repo, statsCache: NewStatsCache(), searchCache: NewSearchCache(), clock: clockplatform.NewRealClock(), coefficientsConfig: DefaultCoefficientsConfig(), coefficientsUsersActive: make(map[int64]bool)}
 }
 
 func (s *Service) SetProductGenerator(generator ProductGenerator) {
