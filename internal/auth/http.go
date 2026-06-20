@@ -38,6 +38,7 @@ func RegisterRoutes(router chi.Router, handler *Handler) {
 		r.Post("/register", handler.Register)
 		r.Post("/login", handler.Login)
 		r.Post("/refresh", handler.Refresh)
+		r.With(Middleware(handler.service)).Get("/verify", handler.Verify)
 	})
 }
 
@@ -102,6 +103,15 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	legacy.WriteJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) Verify(w http.ResponseWriter, r *http.Request) {
+	claims, ok := UserClaimsFromContext(r.Context())
+	if !ok {
+		legacy.WriteDetail(w, http.StatusUnauthorized, "Invalid token")
+		return
+	}
+	legacy.WriteJSON(w, http.StatusOK, map[string]any{"authenticated": true, "userId": claims.UserID, "username": claims.Username})
 }
 
 func Middleware(service *Service) func(http.Handler) http.Handler {

@@ -63,20 +63,22 @@ func (r *Repository) GetDiaryRange(ctx context.Context, userID int64, startDate 
 	}
 	defer rows.Close()
 
-	var result []DiaryRow
-	for rows.Next() {
-		var row DiaryRow
-		if err := rows.Scan(&row.ID, &row.DateISO, &row.FoodCatalogueID, &row.FoodWeight, &row.History); err != nil {
-			return nil, fmt.Errorf("scan diary row: %w", err)
-		}
-		result = append(result, row)
-	}
+	return scanDiaryRows(rows)
+}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate diary rows: %w", err)
+func (r *Repository) GetAllDiaryEntries(ctx context.Context, userID int64) ([]DiaryRow, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, dateISO, foodCatalogueId, foodWeight, history
+		FROM foodDiary
+		WHERE usersId = ?
+		ORDER BY dateISO ASC, id ASC
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get all diary entries: %w", err)
 	}
+	defer rows.Close()
 
-	return result, nil
+	return scanDiaryRows(rows)
 }
 
 func (r *Repository) GetWeightRange(ctx context.Context, userID int64, startDate string, endDate string) ([]WeightRow, error) {
@@ -91,20 +93,22 @@ func (r *Repository) GetWeightRange(ctx context.Context, userID int64, startDate
 	}
 	defer rows.Close()
 
-	var result []WeightRow
-	for rows.Next() {
-		var row WeightRow
-		if err := rows.Scan(&row.DateISO, &row.Weight); err != nil {
-			return nil, fmt.Errorf("scan weight row: %w", err)
-		}
-		result = append(result, row)
-	}
+	return scanWeightRows(rows)
+}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate weight rows: %w", err)
+func (r *Repository) GetAllWeightEntries(ctx context.Context, userID int64) ([]WeightRow, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT dateISO, weight
+		FROM foodBodyWeight
+		WHERE usersId = ?
+		ORDER BY dateISO ASC, id ASC
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get all weight entries: %w", err)
 	}
+	defer rows.Close()
 
-	return result, nil
+	return scanWeightRows(rows)
 }
 
 func (r *Repository) GetCatalogue(ctx context.Context) ([]CatalogueRow, error) {
@@ -228,6 +232,57 @@ func (r *Repository) GetUserFirstDate(ctx context.Context, userID int64) (string
 	}
 
 	return firstDate.String, nil
+}
+
+func (r *Repository) GetAllUserIDs(ctx context.Context) ([]int64, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id FROM users ORDER BY id ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("get all user ids: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]int64, 0)
+	for rows.Next() {
+		var userID int64
+		if err := rows.Scan(&userID); err != nil {
+			return nil, fmt.Errorf("scan user id: %w", err)
+		}
+		result = append(result, userID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate user ids: %w", err)
+	}
+	return result, nil
+}
+
+func scanDiaryRows(rows *sql.Rows) ([]DiaryRow, error) {
+	var result []DiaryRow
+	for rows.Next() {
+		var row DiaryRow
+		if err := rows.Scan(&row.ID, &row.DateISO, &row.FoodCatalogueID, &row.FoodWeight, &row.History); err != nil {
+			return nil, fmt.Errorf("scan diary row: %w", err)
+		}
+		result = append(result, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate diary rows: %w", err)
+	}
+	return result, nil
+}
+
+func scanWeightRows(rows *sql.Rows) ([]WeightRow, error) {
+	var result []WeightRow
+	for rows.Next() {
+		var row WeightRow
+		if err := rows.Scan(&row.DateISO, &row.Weight); err != nil {
+			return nil, fmt.Errorf("scan weight row: %w", err)
+		}
+		result = append(result, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate weight rows: %w", err)
+	}
+	return result, nil
 }
 
 func (r *Repository) GetStatsDiaryHistory(ctx context.Context, userID int64, startDate string, endDate string) ([]StatsDiaryRow, error) {

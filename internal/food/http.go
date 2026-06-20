@@ -2,6 +2,7 @@ package food
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,11 +13,12 @@ import (
 )
 
 type Handler struct {
-	service *Service
+	service  *Service
+	realtime RealtimePublisher
 }
 
-func NewHandler(service *Service) *Handler {
-	return &Handler{service: service}
+func NewHandler(service *Service, realtime RealtimePublisher) *Handler {
+	return &Handler{service: service, realtime: realtime}
 }
 
 func RegisterRoutes(router chi.Router, authService *auth.Service, handler *Handler) {
@@ -111,14 +113,20 @@ func (h *Handler) GenerateCoefficients(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, err := h.service.GetCoefficients(r.Context(), claims.UserID)
+	response, err := h.service.RecalculateCoefficients(r.Context(), claims.UserID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"result": false, "error": err.Error()})
+		statusCode := http.StatusInternalServerError
+		if errors.Is(err, ErrCoefficientsRecalculationAlreadyRunning) {
+			statusCode = http.StatusConflict
+		}
+		writeJSON(w, statusCode, map[string]any{"result": false, "error": err.Error()})
 		return
 	}
+	if h.realtime != nil {
+		h.realtime.MarkUserUpdated(claims.UserID)
+	}
 
-	h.service.InvalidateStats(claims.UserID)
-	writeJSON(w, http.StatusOK, map[string]any{"result": true, "message": "Coefficients calculated and saved.", "data": response})
+	writeJSON(w, http.StatusOK, map[string]any{"result": true, "message": "Coefficients calculated and saved.", "data": response.Coefficients})
 }
 
 func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {

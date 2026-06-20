@@ -3,7 +3,9 @@ package food
 import (
 	"context"
 	"database/sql"
+	"reflect"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -41,6 +43,14 @@ func (fakeProductGenerator) AnalyzeVoice(ctx context.Context, transcript string)
 }
 
 type fakeEmbeddingGenerator struct{}
+
+type fixedFoodClock struct {
+	now time.Time
+}
+
+func (c fixedFoodClock) Now() time.Time {
+	return c.now
+}
 
 func (fakeEmbeddingGenerator) GenerateEmbedding(ctx context.Context, text string) ([]float64, error) {
 	switch text {
@@ -162,6 +172,88 @@ func TestGetCoefficientsRepairsInvalidValues(t *testing.T) {
 	}
 	if coefficients[1] != 1 || coefficients[2] != 1 {
 		t.Fatalf("coefficients = %+v, want defaults repaired", coefficients)
+	}
+}
+
+func TestRecalculateCoefficientsStoresResultAndInvalidatesStats(t *testing.T) {
+	db := openFoodTestDB(t)
+	seedFoodCoefficientHistory(t, db, 1)
+	if _, err := db.Exec(`INSERT INTO foodSettings(usersId, coefficients) VALUES (1, '{"1":1.20,"2":0.85}')`); err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+	service := NewService(NewRepository(db))
+	service.SetClock(fixedFoodClock{now: time.Date(2026, time.June, 20, 12, 0, 0, 0, time.UTC)})
+	service.SetCoefficientsConfig(CoefficientsConfig{
+		DifferentTriesPerRound: 4,
+		ChildrenAmt:            2,
+		BestAmt:                2,
+		Days7:                  2,
+		Days60:                 3,
+		MaxTriesIfUnchanged:    1,
+	})
+
+	if _, err := service.GetStats(context.Background(), 1); err != nil {
+		t.Fatalf("GetStats() error = %v", err)
+	}
+	if _, ok := service.statsCache.Get(1); !ok {
+		t.Fatal("stats cache missing before recalculation")
+	}
+
+	result, err := service.RecalculateCoefficients(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("RecalculateCoefficients() error = %v", err)
+	}
+	if result.Laps <= 0 {
+		t.Fatalf("Laps = %d, want > 0", result.Laps)
+	}
+	if len(result.Coefficients) != 2 {
+		t.Fatalf("len(Coefficients) = %d, want 2", len(result.Coefficients))
+	}
+	if _, ok := service.statsCache.Get(1); ok {
+		t.Fatal("stats cache still present after recalculation")
+	}
+
+	stored, err := service.GetCoefficients(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("GetCoefficients() error = %v", err)
+	}
+	if !reflect.DeepEqual(stored, result.Coefficients) {
+		t.Fatalf("stored coefficients = %+v, want %+v", stored, result.Coefficients)
+	}
+}
+
+func TestRunCoefficientsJobProcessesAllUsersAndCollectsFailures(t *testing.T) {
+	db := openFoodTestDB(t)
+	seedFoodCoefficientHistory(t, db, 1)
+	if _, err := db.Exec(`INSERT INTO users(id, username, isAdmin) VALUES (2, 'bob', 0)`); err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+	service := NewService(NewRepository(db))
+	service.SetClock(fixedFoodClock{now: time.Date(2026, time.June, 20, 12, 0, 0, 0, time.UTC)})
+	service.SetCoefficientsConfig(CoefficientsConfig{
+		DifferentTriesPerRound: 4,
+		ChildrenAmt:            2,
+		BestAmt:                2,
+		Days7:                  2,
+		Days60:                 3,
+		MaxTriesIfUnchanged:    1,
+	})
+
+	result, err := service.RunCoefficientsJob(context.Background())
+	if err != nil {
+		t.Fatalf("RunCoefficientsJob() error = %v", err)
+	}
+	if result.ProcessedCount != 2 || result.SuccessCount != 1 || result.FailedCount != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+	if len(result.Users) != 2 {
+		t.Fatalf("len(Users) = %d, want 2", len(result.Users))
+	}
+	if !result.Users[0].Success || result.Users[0].UserID != 1 {
+		t.Fatalf("first user result = %+v", result.Users[0])
+	}
+	if result.Users[1].Success || result.Users[1].UserID != 2 || result.Users[1].Error == "" {
+		t.Fatalf("second user result = %+v", result.Users[1])
 	}
 }
 
@@ -302,6 +394,30 @@ func TestGetDiaryFullUpdateIgnoresRowsOutsideRequestedRange(t *testing.T) {
 	}
 	if day.BodyWeight != nil {
 		t.Fatalf("BodyWeight = %v, want nil", day.BodyWeight)
+	}
+}
+
+func seedFoodCoefficientHistory(t *testing.T, db *sql.DB, userID int64) {
+	t.Helper()
+	if _, err := db.Exec(`
+		INSERT INTO foodDiary(id, dateISO, foodCatalogueId, foodWeight, history, usersId, ver, del) VALUES
+			(101, '2026-06-10', 1, 180, '[{"action":"init","value":180}]', ?, 0, 0),
+			(102, '2026-06-11', 2, 140, '[{"action":"init","value":140}]', ?, 0, 0),
+			(103, '2026-06-12', 1, 190, '[{"action":"init","value":190}]', ?, 0, 0),
+			(104, '2026-06-13', 2, 150, '[{"action":"init","value":150}]', ?, 0, 0),
+			(105, '2026-06-14', 1, 200, '[{"action":"init","value":200}]', ?, 0, 0),
+			(106, '2026-06-15', 2, 160, '[{"action":"init","value":160}]', ?, 0, 0),
+			(107, '2026-06-16', 1, 170, '[{"action":"init","value":170}]', ?, 0, 0);
+		INSERT INTO foodBodyWeight(dateISO, weight, usersId) VALUES
+			('2026-06-10', 80.8, ?),
+			('2026-06-11', 80.6, ?),
+			('2026-06-12', 80.4, ?),
+			('2026-06-13', 80.2, ?),
+			('2026-06-14', 80.1, ?),
+			('2026-06-15', 79.9, ?),
+			('2026-06-16', 79.8, ?);
+	`, userID, userID, userID, userID, userID, userID, userID, userID, userID, userID, userID, userID, userID, userID); err != nil {
+		t.Fatalf("Exec() error = %v", err)
 	}
 }
 

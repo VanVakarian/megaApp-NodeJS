@@ -145,6 +145,15 @@ func buildFoodModule(db *sql.DB, cfg config.Config, hub *ws.Hub, clk clockplatfo
 	repo := food.NewRepository(db)
 	service := food.NewService(repo)
 	service.SetClock(clk)
+	service.SetCoefficientsConfig(food.CoefficientsConfig{
+		StartWithDefaults:      cfg.CoefficientsStartWithDefaults,
+		DifferentTriesPerRound: cfg.CoefficientsDifferentTriesPerRound,
+		ChildrenAmt:            cfg.CoefficientsChildrenAmt,
+		BestAmt:                cfg.CoefficientsBestAmt,
+		Days7:                  cfg.CoefficientsDays7,
+		Days60:                 cfg.CoefficientsDays60,
+		MaxTriesIfUnchanged:    cfg.CoefficientsMaxTriesIfUnchanged,
+	})
 	var mediaClient *food.OpenRouterMediaClient
 	if strings.TrimSpace(cfg.OpenRouterAPIKey) != "" {
 		productGenerator, err := food.NewOpenRouterProductGenerator(food.OpenRouterProductGeneratorConfig{
@@ -190,12 +199,12 @@ func buildFoodModule(db *sql.DB, cfg config.Config, hub *ws.Hub, clk clockplatfo
 	hub.RegisterHandler("SEARCH_QUERY", food.NewSearchWSHandler(service, clk))
 	return foodModule{
 		service:          service,
-		readHandler:      food.NewHandler(service),
+		readHandler:      food.NewHandler(service, realtime),
 		writeHandler:     food.NewWriteHandler(service, realtime),
 		catalogueHandler: food.NewCatalogueHandler(service, realtime),
 		imageHandler:     food.NewImageHandler(imageStore),
 		labHandler:       food.NewLabHandler(food.NewLabService(repo, service, imagePipeline)),
-		debugHandler:     food.NewDebugHandler(food.NewDebugService(repo, cfg.BackupsDir, mediaClient)),
+		debugHandler:     food.NewDebugHandler(food.NewDebugService(repo, cfg.BackupsDir, mediaClient, service, realtime)),
 		backgrounds:      []interface{ Close() error }{imagePipeline, imageStore},
 	}, nil
 }
