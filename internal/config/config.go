@@ -67,7 +67,6 @@ type Config struct {
 	MaxMultipartBodyBytes              int64
 	WSReadLimitBytes                   int64
 	WSWriteTimeout                     time.Duration
-	BuildVersion                       string
 	BuildCommit                        string
 	BuildTime                          string
 	GoVersion                          string
@@ -84,6 +83,7 @@ func Load() (Config, error) {
 	databaseVersion := getString("DB_VERSION", "005")
 	dataDir := getString("DATA_DIR", "./data")
 	databasePath := getString("DATABASE_PATH", filepath.Join(dataDir, buildDatabaseFileName(databaseName, databaseEnv, databaseVersion)))
+	buildCommit, buildTime := loadBuildInfo("build-info.json")
 
 	cfg := Config{
 		AppEnv:                        appEnv,
@@ -119,9 +119,8 @@ func Load() (Config, error) {
 		BackupStorageClass:            getString("BACKUP_STORAGE_STORAGE_CLASS", ""),
 		BackupStorageAccessKeyID:      getString("BACKUP_STORAGE_ACCESS_KEY_ID", ""),
 		BackupStorageSecretAccessKey:  getString("BACKUP_STORAGE_SECRET_ACCESS_KEY", ""),
-		BuildVersion:                  getString("APP_BUILD_VERSION", "unknown"),
-		BuildCommit:                   getString("APP_BUILD_COMMIT", "local"),
-		BuildTime:                     getString("APP_BUILD_TIME", "unknown"),
+		BuildCommit:                   buildCommit,
+		BuildTime:                     buildTime,
 		GoVersion:                     runtime.Version(),
 	}
 

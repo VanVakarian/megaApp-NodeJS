@@ -52,6 +52,12 @@ jobs:
       - name: Run Go tests
         run: go test ./...
 
+      - name: Resolve build info
+        run: |
+          set -eu
+          echo "COMMIT_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          echo "BUILD_TIME=$(git show -s --format=%cd --date=format:'%d.%m.%Y, %H:%M:%S' HEAD)" >> "$GITHUB_ENV"
+
       - name: Build deploy package
         run: |
           set -eu
@@ -59,7 +65,8 @@ jobs:
           mkdir -p deploy
           GOOS=linux GOARCH=amd64 go build -trimpath -o deploy/megaapp-server ./cmd/server
           cp -a migrations deploy/migrations
-          tar -C deploy -czf deploy/megaapp-server.tar.gz megaapp-server migrations
+          printf '{"commit":"%s","time":"%s"}' "$COMMIT_SHA" "$BUILD_TIME" > deploy/build-info.json
+          tar -C deploy -czf deploy/megaapp-server.tar.gz megaapp-server migrations build-info.json
 
       - name: Upload deploy package
         uses: appleboy/scp-action@v0.1.7
@@ -81,7 +88,7 @@ jobs:
             set -eu
             install -d -m 755 ${{ inputs.server-path }}
             cd ${{ inputs.server-path }}
-            rm -f megaapp-server
+            rm -f megaapp-server build-info.json
             rm -rf migrations
             tar -xzf deploy/megaapp-server.tar.gz
             rm -f deploy/megaapp-server.tar.gz
