@@ -55,7 +55,6 @@ func TestOpsRoutes(t *testing.T) {
 		MaxMultipartBodyBytes:              8 * 1024,
 		WSReadLimitBytes:                   1024,
 		WSWriteTimeout:                     time.Second,
-		BuildVersion:                       "test-version",
 		BuildCommit:                        "test-commit",
 		BuildTime:                          "test-time",
 		GoVersion:                          "test-go",
@@ -96,7 +95,7 @@ func TestOpsRoutes(t *testing.T) {
 		t.Fatalf("Decode() error = %v", err)
 	}
 
-	if body.Version != cfg.BuildVersion || body.Commit != cfg.BuildCommit {
+	if body.Commit != cfg.BuildCommit {
 		t.Fatalf("unexpected build info body = %+v", body)
 	}
 
