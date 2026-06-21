@@ -14,7 +14,6 @@ type StatusResponse struct {
 }
 
 type BuildInfoResponse struct {
-	Version   string `json:"version"`
 	Commit    string `json:"commit"`
 	BuildTime string `json:"buildTime"`
 	GoVersion string `json:"goVersion"`
@@ -51,7 +50,6 @@ func ReadinessHandler(check readinessChecker) http.HandlerFunc {
 func BuildInfoHandler(cfg config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, BuildInfoResponse{
-			Version:   cfg.BuildVersion,
 			Commit:    cfg.BuildCommit,
 			BuildTime: cfg.BuildTime,
 			GoVersion: cfg.GoVersion,
