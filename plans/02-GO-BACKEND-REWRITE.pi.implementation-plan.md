@@ -911,9 +911,9 @@
 - проверить cron-конфигурацию и успешный job run в test environment
 
 ### Result
-- Status: In Progress
-- Test status: `go test ./...` in `megaapp-back` passed after the initial Step 21 implementation.
-- Manual check status: Pending.
+- Status: Done
+- Test status: `go test ./...` in `megaapp-back` passed after the Step 21 implementation.
+- Manual check status: Done. User manually triggered recalculation via the debug route, confirmed `foodSettings.coefficients` actually updates (not just read), confirmed diary/stats kcal totals change consistently before and after recalculation, and confirmed cron schedule registration and a successful job run in the test environment.
 - Findings: Added a full Go port of the legacy coefficient recalculation loop, user-wide scheduled job wiring, manual debug trigger support, and real recalculation on `GET /api/food/coefficients-gen` instead of the previous normalization-only compatibility stub.
 - Issues and resolutions: The recalculation flow needed new runtime config, whole-user job orchestration, deterministic test seams, and protection against data-shape drift while preserving the legacy calculation concept.
 
@@ -946,7 +946,11 @@
 - убедиться, что удаление `old-js` не ломает локальный run, test deploy или prod deploy
 
 ### Result
-- Status: Pending
+- Status: Done
+- Test status: `go test ./...` in `megaapp-back` passed with `old-js` physically absent from the workspace (moved out, not just gitignored). The legacy fixture parity suite degrades gracefully via `t.Skip` instead of failing when the reference DB is unavailable.
+- Manual check status: Done. User confirmed backend startup, full test suite, and deploy workflow all work with `old-js` physically removed from the active workspace; cutover checklist, env handling, and CI workflows carry no remaining references to the old JS source tree; removal does not break local run, test deploy, or prod deploy.
+- Findings: Audit found exactly one remaining reference to `old-js` in the entire codebase — an optional legacy fixture DB path in `internal/httpx/legacy_fixture_test.go`, already designed to skip cleanly when absent. No CI workflow, runtime code, or deploy script ever depended on `old-js` directly. No side-by-side coexistence mechanism existed to clean up — the migration was a one-shot cutover (Step 20), not a gradual one. `old-js` was relocated out of the git-tracked tree (72 tracked files removed) into a gitignored local folder, keeping it recoverable without it being part of the active backend workspace.
+- Issues and resolutions: None. The Go backend workspace has no structural dependency on `old-js` presence.
 
 ---
 
@@ -978,6 +982,8 @@
 - final cutover checklist
 - coefficients recalculation parity
 - legacy detachment and old-js removal
+
+Status: resolved. All ten items above now have a closing record — either a dedicated `plans/step-closure-docs/*.md` file (architecture hardening, food stats parity, food search/AI, money invest, money snapshot, quotes, backup, coefficients recalculation parity, legacy detachment) or a dedicated top-level checklist (`20-GO-BACKEND-REWRITE.pi.cutover-and-one-shot-deploy-checklist.md` for final cutover). Nothing further to clarify in a separate document.
 
 ---
 
