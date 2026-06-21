@@ -111,7 +111,7 @@ func (h *Handler) Verify(w http.ResponseWriter, r *http.Request) {
 		legacy.WriteDetail(w, http.StatusUnauthorized, "Invalid token")
 		return
 	}
-	legacy.WriteJSON(w, http.StatusOK, map[string]any{"authenticated": true, "userId": claims.UserID, "username": claims.Username})
+	legacy.WriteJSON(w, http.StatusOK, map[string]any{"authenticated": true, "userId": claims.UserID, "username": claims.Username, "isAdmin": claims.IsAdmin})
 }
 
 func Middleware(service *Service) func(http.Handler) http.Handler {

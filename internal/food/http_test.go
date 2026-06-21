@@ -44,7 +44,7 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 	realtime := NewWSRealtimePublisher(hub, clk)
 	readHandler := NewHandler(service, realtime)
 	hub.RegisterHandler("SEARCH_QUERY", NewSearchWSHandler(service, clk))
-	writeHandler := NewWriteHandler(service, realtime)
+	writeHandler := NewWriteHandler(service, realtime, nil)
 	catalogueHandler := NewCatalogueHandler(service, realtime)
 	wsHandler := wspkg.NewHandler(authService, hub)
 

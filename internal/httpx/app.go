@@ -71,7 +71,14 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 		return nil, err
 	}
 	wsModule := buildWSModule(cfg, authModule.service)
-	foodModule, err := buildFoodModule(db.SQL(), cfg, wsModule.hub, clk)
+	metricsModule, err := buildMetricsModule(db.SQL(), wsModule.hub, authModule.service, clk, jobRuntime)
+	if err != nil {
+		_ = wsModule.hub.Close()
+		_ = jobRuntime.Close()
+		_ = db.Close()
+		return nil, err
+	}
+	foodModule, err := buildFoodModule(db.SQL(), cfg, wsModule.hub, clk, metricsModule.service)
 	if err != nil {
 		_ = wsModule.hub.Close()
 		_ = jobRuntime.Close()

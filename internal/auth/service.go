@@ -65,6 +65,7 @@ func (s *Service) Login(ctx context.Context, username string, password string) (
 	return s.tokenManager.Issue(TokenClaims{
 		UserID:   user.ID,
 		Username: user.Username,
+		IsAdmin:  user.IsAdmin,
 	})
 }
 
@@ -81,6 +82,7 @@ func (s *Service) Refresh(_ context.Context, refreshToken string) (TokenPair, er
 	return s.tokenManager.Issue(TokenClaims{
 		UserID:   claims.UserID,
 		Username: claims.Username,
+		IsAdmin:  claims.IsAdmin,
 	})
 }
 
@@ -90,4 +92,8 @@ func (s *Service) Verify(token string) (TokenClaims, error) {
 		return TokenClaims{}, ErrInvalidToken
 	}
 	return claims, nil
+}
+
+func (s *Service) ListAdminUserIDs(ctx context.Context) ([]int64, error) {
+	return s.repo.ListAdminUserIDs(ctx)
 }
