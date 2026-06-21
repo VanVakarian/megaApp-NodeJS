@@ -65,7 +65,8 @@ jobs:
           mkdir -p deploy
           GOOS=linux GOARCH=amd64 go build -trimpath -o deploy/megaapp-server ./cmd/server
           cp -a migrations deploy/migrations
-          tar -C deploy -czf deploy/megaapp-server.tar.gz megaapp-server migrations
+          printf '{"commit":"%s","time":"%s"}' "$COMMIT_SHA" "$BUILD_TIME" > deploy/build-info.json
+          tar -C deploy -czf deploy/megaapp-server.tar.gz megaapp-server migrations build-info.json
 
       - name: Upload deploy package
         uses: appleboy/scp-action@v0.1.7
@@ -83,20 +84,16 @@ jobs:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USER }}
           key: ${{ secrets.SSH_KEY }}
-          envs: COMMIT_SHA,BUILD_TIME
           script: |
             set -eu
             install -d -m 755 ${{ inputs.server-path }}
             cd ${{ inputs.server-path }}
-            rm -f megaapp-server
+            rm -f megaapp-server build-info.json
             rm -rf migrations
             tar -xzf deploy/megaapp-server.tar.gz
             rm -f deploy/megaapp-server.tar.gz
             rmdir --ignore-fail-on-non-empty deploy || true
             chmod 755 megaapp-server
-            touch .env
-            grep -q '^APP_BUILD_COMMIT=' .env && sed -i "s/^APP_BUILD_COMMIT=.*/APP_BUILD_COMMIT=${COMMIT_SHA}/" .env || echo "APP_BUILD_COMMIT=${COMMIT_SHA}" >> .env
-            grep -q '^APP_BUILD_TIME=' .env && sed -i "s/^APP_BUILD_TIME=.*/APP_BUILD_TIME=${BUILD_TIME}/" .env || echo "APP_BUILD_TIME=${BUILD_TIME}" >> .env
             systemctl daemon-reload
             systemctl restart ${{ inputs.service-name }}
             systemctl is-active --quiet ${{ inputs.service-name }}
