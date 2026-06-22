@@ -126,12 +126,11 @@ func buildBackupModule(db *sql.DB, cfg config.Config, logger *slog.Logger, clk c
 		})
 	}
 	service := backup.NewService(db, backup.Config{
-		DatabaseName:    cfg.DatabaseName,
-		DatabaseEnv:     cfg.DatabaseEnv,
-		DatabaseVersion: cfg.DatabaseVersion,
-		BackupsDir:      cfg.BackupsDir,
-		StorageEnabled:  cfg.BackupStorageEnabled,
-		StorageClass:    cfg.BackupStorageClass,
+		DatabaseName:   cfg.DatabaseName,
+		DatabaseEnv:    cfg.DatabaseEnv,
+		BackupsDir:     cfg.BackupsDir,
+		StorageEnabled: cfg.BackupStorageEnabled,
+		StorageClass:   cfg.BackupStorageClass,
 	}, clk, uploader)
 	if cfg.BackupJobEnabled {
 		if err := runtime.Register("backup", cfg.BackupJobSchedule, func(ctx context.Context) error {

@@ -18,7 +18,6 @@ type Config struct {
 	DataDir                            string
 	DatabaseName                       string
 	DatabaseEnv                        string
-	DatabaseVersion                    string
 	DatabasePath                       string
 	MigrationsDir                      string
 	PublicDir                          string
@@ -80,9 +79,8 @@ func Load() (Config, error) {
 	appEnv := getString("APP_ENV", "test")
 	databaseEnv := getString("DB_ENV", appEnv)
 	databaseName := getString("DB_NAME", "megaapp")
-	databaseVersion := getString("DB_VERSION", "005")
 	dataDir := getString("DATA_DIR", "./data")
-	databasePath := getString("DATABASE_PATH", filepath.Join(dataDir, buildDatabaseFileName(databaseName, databaseEnv, databaseVersion)))
+	databasePath := getString("DATABASE_PATH", filepath.Join(dataDir, buildDatabaseFileName(databaseName, databaseEnv)))
 	buildCommit, buildTime := loadBuildInfo("build-info.json")
 
 	cfg := Config{
@@ -92,7 +90,6 @@ func Load() (Config, error) {
 		DataDir:                       dataDir,
 		DatabaseName:                  databaseName,
 		DatabaseEnv:                   databaseEnv,
-		DatabaseVersion:               databaseVersion,
 		DatabasePath:                  databasePath,
 		MigrationsDir:                 getString("MIGRATIONS_DIR", "./migrations"),
 		PublicDir:                     getString("PUBLIC_DIR", "./public"),
@@ -124,7 +121,7 @@ func Load() (Config, error) {
 		GoVersion:                     runtime.Version(),
 	}
 
-	port, err := getInt("APP_PORT", 3000)
+	port, err := getInt("APP_PORT", 3001)
 	if err != nil {
 		return Config{}, fmt.Errorf("load config: %w", err)
 	}
@@ -285,9 +282,6 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.DatabaseEnv) == "" {
 		return fmt.Errorf("validate config: DB_ENV is required")
 	}
-	if strings.TrimSpace(c.DatabaseVersion) == "" {
-		return fmt.Errorf("validate config: DB_VERSION is required")
-	}
 	if strings.TrimSpace(c.DatabasePath) == "" {
 		return fmt.Errorf("validate config: DATABASE_PATH is required")
 	}
@@ -421,8 +415,8 @@ func (c Config) HTTPAddress() string {
 	return fmt.Sprintf("%s:%d", c.AppHost, c.AppPort)
 }
 
-func buildDatabaseFileName(name string, env string, version string) string {
-	return fmt.Sprintf("%s-%s-%s.db", name, env, version)
+func buildDatabaseFileName(name string, env string) string {
+	return fmt.Sprintf("%s-%s.db", name, env)
 }
 
 func getString(key string, fallback string) string {

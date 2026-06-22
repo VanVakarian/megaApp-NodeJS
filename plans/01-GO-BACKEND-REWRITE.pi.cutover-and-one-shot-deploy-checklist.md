@@ -11,7 +11,8 @@ Confirmed:
 - Build the Go binary in GitHub Actions, not on the server.
 - Keep the Go runtime database inside `./data`.
 - Do not copy old local backup archives into the new runtime.
-- Keep scheduled jobs disabled on the first Go start.
+- Use explicit `.env.test` / `.env.prod` files on every runtime (server and local) — the loader still falls back to a generic `.env` if one exists, but the deploy convention never creates or ships one.
+- Keep scheduled jobs disabled on the first Go start, and re-enable them once the observation window ends (see 1.1).
 - Preserve rollback safety by renaming old server folders to `-old` and by preserving the old systemd unit content in `-old` files.
 - Do not delete old assets immediately after cutover.
 - Do not use git-based deploys inside the new Go runtime folder.
@@ -26,9 +27,9 @@ Use these rules in both environments:
 - Upload the release artifact before stopping the current service.
 - Stop the old service before copying SQLite files.
 - Copy `.db`, `.db-wal`, and `.db-shm` if they exist.
-- Use absolute paths in `.env` for `DATABASE_PATH`, `MIGRATIONS_DIR`, `PUBLIC_DIR`, and `BACKUPS_DIR`.
-- Keep `QUOTES_JOB_ENABLED=false` on the first Go start.
-- Keep `BACKUP_JOB_ENABLED=false` on the first Go start.
+- Use the same relative paths in `.env.test`/`.env.prod` as in `.env.test.example`/`.env.prod.example` (`./data`, `./migrations`, `./public`, `./backups`) — systemd's `WorkingDirectory` anchors them, so the same file works unmodified on the server and locally. Do not set `DATABASE_PATH` — it defaults from `DATA_DIR` + `DB_NAME` + `DB_ENV` + `DB_VERSION`.
+- Keep `QUOTES_JOB_ENABLED=false` and `BACKUP_JOB_ENABLED=false` on the first Go start.
+- **Re-enable both flags once the observation window ends** (see 2.4 / 3.4) and confirm via `journalctl` that `job completed` actually appears for `backup` and `quotes`. A skipped job produces no log line in either direction — leaving the flags off silently stops backups and quotes with no error anywhere.
 - Keep backup storage configured if manual backup smoke is required.
 - Do not touch nginx unless the folder names or ports change.
 - Do not delete `*-old` folders or `*-old.service` files until the observation window ends.
@@ -37,9 +38,10 @@ Use these rules in both environments:
 
 This checklist assumes the final Go deploy path is GitHub Actions based:
 - GitHub Actions builds `megaapp-server`
-- GitHub Actions uploads `megaapp-server` and `migrations/`
+- GitHub Actions uploads `megaapp-server`, `migrations/`, and `build-info.json`
 - GitHub Actions places the runtime payload into `/root/megatest` or `/root/megaback`
 - GitHub Actions restarts the target systemd service
+- GitHub Actions never touches `.env.test` / `.env.prod` — those are maintained by hand on each runtime
 
 This checklist intentionally does not use:
 - manual `go build` on the server
@@ -56,7 +58,8 @@ This checklist intentionally does not use:
 ```text
 /root/megatest/
   megaapp-server
-  .env
+  build-info.json
+  .env.test
   migrations/
   data/
     megaapp-test-005.db
@@ -70,7 +73,7 @@ This checklist intentionally does not use:
 Persistent data that must survive the test cutover:
 - SQLite database files
 - `public/images`
-- `.env`
+- `.env.test`
 
 Persistent data intentionally not copied:
 - old local backup archives from `/root/megatest-old/backups`
@@ -128,33 +131,70 @@ cp -a /root/megatest-old/public/images /root/megatest/public/
 find /root/megatest/public -maxdepth 3 | head -n 50
 ```
 
-### 2.2.7 Create the new test `.env`
+### 2.2.7 Create the new test `.env.test`
 
 Open the old secret source and the new target file:
 
 ```bash
 vim /root/megatest-old/env.js
-vim /root/megatest/.env
+vim /root/megatest/.env.test
 ```
 
-Suggested test `.env` template:
+`.env.test` must mirror [`.env.test.example`](../.env.test.example) structurally — same keys, same order, same relative paths. Only secrets and storage identifiers differ from the example placeholders:
 
 ```env
 APP_ENV=test
 APP_HOST=127.0.0.1
 APP_PORT=3001
 LOG_LEVEL=debug
+JWT_SECRET=REPLACE_ME
 
-DATA_DIR=/root/megatest/data
+DATA_DIR=./data
 DB_NAME=megaapp
 DB_ENV=test
 DB_VERSION=005
-DATABASE_PATH=/root/megatest/data/megaapp-test-005.db
+MIGRATIONS_DIR=./migrations
+PUBLIC_DIR=./public
+BACKUPS_DIR=./backups
 
-MIGRATIONS_DIR=/root/megatest/migrations
-PUBLIC_DIR=/root/megatest/public
-BACKUPS_DIR=/root/megatest/backups
-JWT_SECRET=REPLACE_ME
+HTTP_READ_TIMEOUT_SECONDS=15
+HTTP_WRITE_TIMEOUT_SECONDS=30
+HTTP_IDLE_TIMEOUT_SECONDS=60
+SHUTDOWN_TIMEOUT_SECONDS=10
+MAX_REQUEST_BODY_BYTES=1048576
+MAX_MULTIPART_BODY_BYTES=8388608
+WS_READ_LIMIT_BYTES=65536
+WS_WRITE_TIMEOUT_SECONDS=5
+
+COEFFICIENTS_JOB_ENABLED=false
+COEFFICIENTS_JOB_SCHEDULE=0 1 * * *
+COEFFICIENTS_START_WITH_ZEROS=false
+COEFFICIENTS_DIFFERENT_TRIES_PER_ROUND=100
+COEFFICIENTS_CHILDREN_AMT=10
+COEFFICIENTS_BEST_AMT=10
+COEFFICIENTS_DAYS_7=7
+COEFFICIENTS_DAYS_60=60
+COEFFICIENTS_MAX_TRIES_IF_UNCHANGED=20
+
+BACKUP_JOB_ENABLED=false
+BACKUP_JOB_SCHEDULE=0 2 * * *
+BACKUP_OPERATION_TIMEOUT_SECONDS=300
+BACKUP_STORAGE_ENABLED=true
+BACKUP_STORAGE_REGION=REPLACE_ME
+BACKUP_STORAGE_BUCKET=REPLACE_ME
+BACKUP_STORAGE_ENDPOINT=REPLACE_ME
+BACKUP_STORAGE_FORCE_PATH_STYLE=false
+BACKUP_STORAGE_STORAGE_CLASS=
+BACKUP_STORAGE_ACCESS_KEY_ID=REPLACE_ME
+BACKUP_STORAGE_SECRET_ACCESS_KEY=REPLACE_ME
+
+QUOTES_JOB_ENABLED=false
+QUOTES_JOB_SCHEDULE=0 3 * * *
+QUOTES_FETCH_DAYS=7
+QUOTES_RETRY_ATTEMPTS=3
+QUOTES_RETRY_DELAY_SECONDS=30
+QUOTES_REQUEST_TIMEOUT_SECONDS=20
+
 OPENROUTER_API_KEY=REPLACE_ME
 OPENROUTER_MODEL=google/gemini-2.5-pro
 OPENROUTER_VISION_MODEL=google/gemini-2.5-flash
@@ -164,35 +204,9 @@ OPENAI_API_KEY=REPLACE_ME
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_EMBEDDING_DIMENSIONS=768
 OPENAI_TIMEOUT_SECONDS=60
-QUOTES_JOB_ENABLED=false
-QUOTES_JOB_SCHEDULE=0 3 * * *
-QUOTES_FETCH_DAYS=7
-QUOTES_RETRY_ATTEMPTS=3
-QUOTES_RETRY_DELAY_SECONDS=30
-QUOTES_REQUEST_TIMEOUT_SECONDS=20
-BACKUP_JOB_ENABLED=false
-BACKUP_JOB_SCHEDULE=0 2 * * *
-BACKUP_STORAGE_ENABLED=true
-BACKUP_STORAGE_REGION=REPLACE_ME
-BACKUP_STORAGE_BUCKET=REPLACE_ME
-BACKUP_STORAGE_ENDPOINT=REPLACE_ME
-BACKUP_STORAGE_FORCE_PATH_STYLE=false
-BACKUP_STORAGE_STORAGE_CLASS=
-BACKUP_STORAGE_ACCESS_KEY_ID=REPLACE_ME
-BACKUP_STORAGE_SECRET_ACCESS_KEY=REPLACE_ME
-BACKUP_OPERATION_TIMEOUT_SECONDS=300
-HTTP_READ_TIMEOUT_SECONDS=15
-HTTP_WRITE_TIMEOUT_SECONDS=30
-HTTP_IDLE_TIMEOUT_SECONDS=60
-SHUTDOWN_TIMEOUT_SECONDS=10
-MAX_REQUEST_BODY_BYTES=1048576
-MAX_MULTIPART_BODY_BYTES=8388608
-WS_READ_LIMIT_BYTES=65536
-WS_WRITE_TIMEOUT_SECONDS=5
-APP_BUILD_VERSION=manual-test-cutover
-APP_BUILD_COMMIT=REPLACE_ME
-APP_BUILD_TIME=REPLACE_ME
 ```
+
+`APP_BUILD_VERSION` / `APP_BUILD_COMMIT` / `APP_BUILD_TIME` are not env vars — build/commit info comes from `build-info.json`, generated and uploaded by CI alongside the binary.
 
 ### 2.2.8 Preserve the old test systemd unit and create the new Go unit
 
@@ -319,11 +333,26 @@ curl -fsS http://127.0.0.1:3001/api/debug/commit-info
 
 Then rerun the main browser smoke on `https://test.vslav.dev`.
 
-## 2.4 Test post-stabilization cleanup
+## 2.4 Test post-stabilization steps
 
 Run these only after the Go test backend has been stable long enough and rollback is no longer needed.
 
-### 2.4.1 Inspect old test assets before deletion
+### 2.4.1 Re-enable scheduled jobs
+
+```bash
+vim /root/megatest/.env.test
+```
+
+Set `BACKUP_JOB_ENABLED=true` and `QUOTES_JOB_ENABLED=true`, then:
+
+```bash
+systemctl restart megatest
+journalctl -u megatest -f
+```
+
+Trigger both jobs manually (`/api/debug/run-backup-job`, `/api/debug/run-quotes-job`) or wait for the next scheduled window, and confirm a `job completed` line appears for each — not just `app_starting`/`http_request`. A silently skipped job produces no log at all, so absence of `job failed` is not enough on its own.
+
+### 2.4.2 Inspect old test assets before deletion
 
 ```bash
 ls -ld /root/megatest-old
@@ -332,7 +361,7 @@ du -sh /root/megatest-old
 find /root/megatest-old -maxdepth 2 | head -n 50
 ```
 
-### 2.4.2 Delete old test assets
+### 2.4.3 Delete old test assets
 
 ```bash
 rm -f /etc/systemd/system/megatest-old.service
@@ -348,10 +377,10 @@ find /root/megatest-go-old -maxdepth 2 | head -n 50
 rm -rf /root/megatest-go-old
 ```
 
-### 2.4.3 Minimum files that need manual editing during test cutover
+### 2.4.4 Minimum files that need manual editing during test cutover
 
 ```bash
-vim /root/megatest/.env
+vim /root/megatest/.env.test
 vim /etc/systemd/system/megatest.service
 vim /root/megatest-old/env.js
 ```
@@ -367,7 +396,8 @@ Run prod only after the test cutover is stable.
 ```text
 /root/megaback/
   megaapp-server
-  .env
+  build-info.json
+  .env.prod
   migrations/
   data/
     megaapp-prod-005.db
@@ -381,7 +411,7 @@ Run prod only after the test cutover is stable.
 Persistent data that must survive the prod cutover:
 - SQLite database files
 - `public/images`
-- `.env`
+- `.env.prod`
 
 Persistent data intentionally not copied:
 - old local backup archives from `/root/megaback-old/backups`
@@ -439,33 +469,70 @@ cp -a /root/megaback-old/public/images /root/megaback/public/
 find /root/megaback/public -maxdepth 3 | head -n 50
 ```
 
-### 3.2.7 Create the new prod `.env`
+### 3.2.7 Create the new prod `.env.prod`
 
 Open the old secret source and the new target file:
 
 ```bash
 vim /root/megaback-old/env.js
-vim /root/megaback/.env
+vim /root/megaback/.env.prod
 ```
 
-Suggested prod `.env` template:
+`.env.prod` must mirror [`.env.prod.example`](../.env.prod.example) structurally — same keys, same order, same relative paths. Only secrets and storage identifiers differ from the example placeholders:
 
 ```env
 APP_ENV=prod
 APP_HOST=127.0.0.1
 APP_PORT=3000
 LOG_LEVEL=info
+JWT_SECRET=REPLACE_ME
 
-DATA_DIR=/root/megaback/data
+DATA_DIR=./data
 DB_NAME=megaapp
 DB_ENV=prod
 DB_VERSION=005
-DATABASE_PATH=/root/megaback/data/megaapp-prod-005.db
+MIGRATIONS_DIR=./migrations
+PUBLIC_DIR=./public
+BACKUPS_DIR=./backups
 
-MIGRATIONS_DIR=/root/megaback/migrations
-PUBLIC_DIR=/root/megaback/public
-BACKUPS_DIR=/root/megaback/backups
-JWT_SECRET=REPLACE_ME
+HTTP_READ_TIMEOUT_SECONDS=15
+HTTP_WRITE_TIMEOUT_SECONDS=30
+HTTP_IDLE_TIMEOUT_SECONDS=60
+SHUTDOWN_TIMEOUT_SECONDS=10
+MAX_REQUEST_BODY_BYTES=1048576
+MAX_MULTIPART_BODY_BYTES=8388608
+WS_READ_LIMIT_BYTES=65536
+WS_WRITE_TIMEOUT_SECONDS=5
+
+COEFFICIENTS_JOB_ENABLED=false
+COEFFICIENTS_JOB_SCHEDULE=0 1 * * *
+COEFFICIENTS_START_WITH_ZEROS=false
+COEFFICIENTS_DIFFERENT_TRIES_PER_ROUND=100
+COEFFICIENTS_CHILDREN_AMT=10
+COEFFICIENTS_BEST_AMT=10
+COEFFICIENTS_DAYS_7=7
+COEFFICIENTS_DAYS_60=60
+COEFFICIENTS_MAX_TRIES_IF_UNCHANGED=20
+
+BACKUP_JOB_ENABLED=false
+BACKUP_JOB_SCHEDULE=0 2 * * *
+BACKUP_OPERATION_TIMEOUT_SECONDS=300
+BACKUP_STORAGE_ENABLED=true
+BACKUP_STORAGE_REGION=REPLACE_ME
+BACKUP_STORAGE_BUCKET=REPLACE_ME
+BACKUP_STORAGE_ENDPOINT=REPLACE_ME
+BACKUP_STORAGE_FORCE_PATH_STYLE=false
+BACKUP_STORAGE_STORAGE_CLASS=
+BACKUP_STORAGE_ACCESS_KEY_ID=REPLACE_ME
+BACKUP_STORAGE_SECRET_ACCESS_KEY=REPLACE_ME
+
+QUOTES_JOB_ENABLED=false
+QUOTES_JOB_SCHEDULE=0 3 * * *
+QUOTES_FETCH_DAYS=7
+QUOTES_RETRY_ATTEMPTS=3
+QUOTES_RETRY_DELAY_SECONDS=30
+QUOTES_REQUEST_TIMEOUT_SECONDS=20
+
 OPENROUTER_API_KEY=REPLACE_ME
 OPENROUTER_MODEL=google/gemini-2.5-pro
 OPENROUTER_VISION_MODEL=google/gemini-2.5-flash
@@ -475,35 +542,9 @@ OPENAI_API_KEY=REPLACE_ME
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_EMBEDDING_DIMENSIONS=768
 OPENAI_TIMEOUT_SECONDS=60
-QUOTES_JOB_ENABLED=false
-QUOTES_JOB_SCHEDULE=0 3 * * *
-QUOTES_FETCH_DAYS=7
-QUOTES_RETRY_ATTEMPTS=3
-QUOTES_RETRY_DELAY_SECONDS=30
-QUOTES_REQUEST_TIMEOUT_SECONDS=20
-BACKUP_JOB_ENABLED=false
-BACKUP_JOB_SCHEDULE=0 2 * * *
-BACKUP_STORAGE_ENABLED=true
-BACKUP_STORAGE_REGION=REPLACE_ME
-BACKUP_STORAGE_BUCKET=REPLACE_ME
-BACKUP_STORAGE_ENDPOINT=REPLACE_ME
-BACKUP_STORAGE_FORCE_PATH_STYLE=false
-BACKUP_STORAGE_STORAGE_CLASS=
-BACKUP_STORAGE_ACCESS_KEY_ID=REPLACE_ME
-BACKUP_STORAGE_SECRET_ACCESS_KEY=REPLACE_ME
-BACKUP_OPERATION_TIMEOUT_SECONDS=300
-HTTP_READ_TIMEOUT_SECONDS=15
-HTTP_WRITE_TIMEOUT_SECONDS=30
-HTTP_IDLE_TIMEOUT_SECONDS=60
-SHUTDOWN_TIMEOUT_SECONDS=10
-MAX_REQUEST_BODY_BYTES=1048576
-MAX_MULTIPART_BODY_BYTES=8388608
-WS_READ_LIMIT_BYTES=65536
-WS_WRITE_TIMEOUT_SECONDS=5
-APP_BUILD_VERSION=manual-prod-cutover
-APP_BUILD_COMMIT=REPLACE_ME
-APP_BUILD_TIME=REPLACE_ME
 ```
+
+`APP_BUILD_VERSION` / `APP_BUILD_COMMIT` / `APP_BUILD_TIME` are not env vars — build/commit info comes from `build-info.json`, generated and uploaded by CI alongside the binary.
 
 ### 3.2.8 Preserve the old prod systemd unit and create the new Go unit
 
@@ -630,11 +671,26 @@ curl -fsS http://127.0.0.1:3000/api/debug/commit-info
 
 Then rerun the main browser smoke on `https://app.vslav.dev`.
 
-## 3.4 Prod post-stabilization cleanup
+## 3.4 Prod post-stabilization steps
 
 Run these only after the Go prod backend has been stable long enough and rollback is no longer needed.
 
-### 3.4.1 Inspect old prod assets before deletion
+### 3.4.1 Re-enable scheduled jobs
+
+```bash
+vim /root/megaback/.env.prod
+```
+
+Set `BACKUP_JOB_ENABLED=true` and `QUOTES_JOB_ENABLED=true`, then:
+
+```bash
+systemctl restart megaback
+journalctl -u megaback -f
+```
+
+Trigger both jobs manually (`/api/debug/run-backup-job`, `/api/debug/run-quotes-job`) or wait for the next scheduled window, and confirm a `job completed` line appears for each, plus a fresh archive in the Backblaze B2 bucket. A silently skipped job produces no log at all, so absence of `job failed` is not enough on its own.
+
+### 3.4.2 Inspect old prod assets before deletion
 
 ```bash
 ls -ld /root/megaback-old
@@ -643,7 +699,7 @@ du -sh /root/megaback-old
 find /root/megaback-old -maxdepth 2 | head -n 50
 ```
 
-### 3.4.2 Delete old prod assets
+### 3.4.3 Delete old prod assets
 
 ```bash
 rm -f /etc/systemd/system/megaback-old.service
@@ -659,10 +715,10 @@ find /root/megaback-go-old -maxdepth 2 | head -n 50
 rm -rf /root/megaback-go-old
 ```
 
-### 3.4.3 Minimum files that need manual editing during prod cutover
+### 3.4.4 Minimum files that need manual editing during prod cutover
 
 ```bash
-vim /root/megaback/.env
+vim /root/megaback/.env.prod
 vim /etc/systemd/system/megaback.service
 vim /root/megaback-old/env.js
 ```
@@ -673,10 +729,11 @@ vim /root/megaback-old/env.js
 
 After the first manual cutover succeeds, the intended steady-state deploy model is:
 - CI builds `megaapp-server`
-- CI packages `megaapp-server` and `migrations/`
+- CI packages `megaapp-server`, `migrations/`, and `build-info.json`
 - CI uploads the artifact to the server
 - CI replaces only runtime release files in `/root/megatest` or `/root/megaback`
 - CI does not run `git fetch`, `git reset`, `npm ci`, or `nvm use` inside the runtime folder
+- CI never touches `.env.test` / `.env.prod` — those stay hand-maintained
 - CI restarts the target systemd service
 
 The runtime folder stays a plain runtime directory and not a git checkout.
@@ -691,4 +748,5 @@ Recommended order:
 3. Complete test smoke and observation.
 4. Execute the full prod block only after test is stable.
 5. Keep `*-old` assets during the observation window.
-6. Remove `*-old` assets only after rollback is no longer needed.
+6. Once the observation window ends: re-enable `BACKUP_JOB_ENABLED`/`QUOTES_JOB_ENABLED` and verify a `job completed` log line for each, **before** removing `*-old` assets.
+7. Remove `*-old` assets only after rollback is no longer needed.

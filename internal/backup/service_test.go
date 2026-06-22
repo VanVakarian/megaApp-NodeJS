@@ -51,19 +51,18 @@ func TestServiceRunCreatesUploadsAndCleansBackup(t *testing.T) {
 	backupsDir := filepath.Join(t.TempDir(), "backups")
 	uploader := &fakeUploader{}
 	service := NewService(db, Config{
-		DatabaseName:    "megaapp",
-		DatabaseEnv:     "test",
-		DatabaseVersion: "005",
-		BackupsDir:      backupsDir,
-		StorageEnabled:  true,
-		StorageClass:    "STANDARD_IA",
+		DatabaseName:   "megaapp",
+		DatabaseEnv:    "test",
+		BackupsDir:     backupsDir,
+		StorageEnabled: true,
+		StorageClass:   "STANDARD_IA",
 	}, fixedClock{now: time.Date(2026, time.July, 20, 10, 30, 0, 0, time.UTC)}, uploader)
 
 	result, err := service.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if result.UploadedKey != "test-005/megaapp-test-005-2026-07-20T10-30-00Z.zip" {
+	if result.UploadedKey != "test/megaapp-test-2026-07-20T10-30-00Z.zip" {
 		t.Fatalf("UploadedKey = %q", result.UploadedKey)
 	}
 	if !result.CleanedUp {
@@ -104,11 +103,10 @@ func TestServiceRunCleansFilesAfterUploadFailure(t *testing.T) {
 	seedBackupTestDB(t, db)
 	backupsDir := filepath.Join(t.TempDir(), "backups")
 	service := NewService(db, Config{
-		DatabaseName:    "megaapp",
-		DatabaseEnv:     "test",
-		DatabaseVersion: "005",
-		BackupsDir:      backupsDir,
-		StorageEnabled:  true,
+		DatabaseName:   "megaapp",
+		DatabaseEnv:    "test",
+		BackupsDir:     backupsDir,
+		StorageEnabled: true,
 	}, fixedClock{now: time.Date(2026, time.July, 20, 10, 30, 0, 0, time.UTC)}, &fakeUploader{err: errors.New("upload failed")})
 
 	_, err := service.Run(context.Background())

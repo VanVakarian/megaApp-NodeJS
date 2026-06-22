@@ -16,12 +16,11 @@ import (
 )
 
 type Config struct {
-	DatabaseName    string
-	DatabaseEnv     string
-	DatabaseVersion string
-	BackupsDir      string
-	StorageEnabled  bool
-	StorageClass    string
+	DatabaseName   string
+	DatabaseEnv    string
+	BackupsDir     string
+	StorageEnabled bool
+	StorageClass   string
 }
 
 type RunResult struct {
@@ -61,7 +60,7 @@ func (s *Service) Run(ctx context.Context) (result RunResult, err error) {
 	}
 
 	timestamp := s.clock.Now().UTC().Format("2006-01-02T15-04-05Z")
-	archiveBaseName := fmt.Sprintf("%s-%s-%s-%s", s.cfg.DatabaseName, s.cfg.DatabaseEnv, s.cfg.DatabaseVersion, timestamp)
+	archiveBaseName := fmt.Sprintf("%s-%s-%s", s.cfg.DatabaseName, s.cfg.DatabaseEnv, timestamp)
 	snapshotPath := filepath.Join(s.cfg.BackupsDir, archiveBaseName+".snapshot.db")
 	archivePath := filepath.Join(s.cfg.BackupsDir, archiveBaseName+".zip")
 	cleanupPaths := []string{snapshotPath, archivePath}
@@ -85,7 +84,7 @@ func (s *Service) Run(ctx context.Context) (result RunResult, err error) {
 		return RunResult{}, err
 	}
 
-	uploadedKey := fmt.Sprintf("%s-%s/%s", s.cfg.DatabaseEnv, s.cfg.DatabaseVersion, filepath.Base(archivePath))
+	uploadedKey := fmt.Sprintf("%s/%s", s.cfg.DatabaseEnv, filepath.Base(archivePath))
 	if err := s.uploader.UploadFile(ctx, uploadedKey, archivePath, "application/zip", s.cfg.StorageClass); err != nil {
 		return RunResult{}, legacy.WrapError(legacy.ErrorKindExternal, "Failed to upload backup archive", err)
 	}
