@@ -13,11 +13,16 @@ import (
 )
 
 const (
-	MetricDiaryEntryCreated = "food_diary_entry_created"
-	MetricDiaryEntryUpdated = "food_diary_entry_updated"
-	MetricDiaryEntryDeleted = "food_diary_entry_deleted"
-	MetricDiaryDayDeleted   = "food_diary_day_deleted"
-	MetricBodyWeightUpdated = "food_body_weight_updated"
+	MetricDiaryEntryCreated     = "food_diary_entry_created"
+	MetricDiaryEntryUpdated     = "food_diary_entry_updated"
+	MetricDiaryEntryDeleted     = "food_diary_entry_deleted"
+	MetricDiaryDayDeleted       = "food_diary_day_deleted"
+	MetricDiaryDayRestored      = "food_diary_day_restored"
+	MetricBodyWeightUpdated     = "food_body_weight_updated"
+	MetricCatalogueEntryCreated = "food_catalogue_entry_created"
+	MetricCatalogueEntryUpdated = "food_catalogue_entry_updated"
+	MetricCatalogueEntryDeleted = "food_catalogue_entry_deleted"
+	MetricCoefficientsJobRan    = "food_coefficients_job_ran"
 )
 
 type MetricsRecorder interface {
@@ -211,6 +216,7 @@ func (h *WriteHandler) RestoreDiaryEntriesForDay(w http.ResponseWriter, r *http.
 	for _, entry := range entries {
 		h.realtime.PublishDiaryEntryCreated(claims.UserID, entry, clientID)
 	}
+	h.recordMetric(MetricDiaryDayRestored)
 	legacy.WriteJSON(w, http.StatusCreated, map[string]any{"result": true, "diaryEntries": entries})
 }
 

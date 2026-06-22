@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ type OpenRouterMediaClientConfig struct {
 	VisionModel string
 	ImageModel  string
 	Timeout     time.Duration
+	Logger      *slog.Logger
 }
 
 type OpenRouterMediaClient struct {
@@ -27,6 +29,7 @@ type OpenRouterMediaClient struct {
 	apiKey      string
 	visionModel string
 	imageModel  string
+	logger      *slog.Logger
 }
 
 type aiMediaChatCompletionRequest struct {
@@ -100,11 +103,13 @@ func NewOpenRouterMediaClient(cfg OpenRouterMediaClientConfig) (*OpenRouterMedia
 		apiKey:      cfg.APIKey,
 		visionModel: strings.TrimSpace(cfg.VisionModel),
 		imageModel:  strings.TrimSpace(cfg.ImageModel),
+		logger:      cfg.Logger,
 	}, nil
 }
 
 func (c *OpenRouterMediaClient) AnalyzeFoodImage(ctx context.Context, imageData []byte, mimeType string) (string, error) {
 	if c.visionModel == "" {
+		c.logger.Debug("vision analysis skipped: model not configured")
 		return "", errors.New("openrouter vision model is not configured")
 	}
 	request := aiMediaChatCompletionRequest{
@@ -117,53 +122,80 @@ func (c *OpenRouterMediaClient) AnalyzeFoodImage(ctx context.Context, imageData 
 			}},
 		},
 	}
+	c.logger.Debug("vision analysis request built", "model", c.visionModel, "imageBytes", len(imageData), "mimeType", mimeType)
+
+	start := time.Now()
 	var response aiMediaChatCompletionResponse
 	if err := c.client.Post(ctx, "chat/completions", request, &response); err != nil {
+		c.logger.Error("vision analysis request failed", "model", c.visionModel, "duration", time.Since(start), "error", err)
 		return "", fmt.Errorf("openrouter image analysis request failed: %w", err)
 	}
+	duration := time.Since(start)
+	c.logger.Debug("vision analysis response received", "model", c.visionModel, "duration", duration, "choicesCount", len(response.Choices))
 	if len(response.Choices) == 0 {
+		c.logger.Error("vision analysis returned no choices", "model", c.visionModel, "duration", duration)
 		return "", errors.New("openrouter returned no choices")
 	}
 	payload, err := extractJSON(response.Choices[0].Message.Content)
 	if err != nil {
 		trimmed := strings.TrimSpace(response.Choices[0].Message.Content)
 		if strings.EqualFold(trimmed, "no_food") || strings.EqualFold(trimmed, "none") {
+			c.logger.Debug("vision analysis found no food in image")
 			return "", nil
 		}
+		c.logger.Error("vision analysis response parse failed", "model", c.visionModel, "content", response.Choices[0].Message.Content, "error", err)
 		return "", err
 	}
 	var parsed aiImageRecognitionPayload
 	if err := json.Unmarshal([]byte(payload), &parsed); err != nil {
+		c.logger.Error("vision analysis json unmarshal failed", "model", c.visionModel, "payload", payload, "error", err)
 		return "", fmt.Errorf("parse image analysis json: %w", err)
 	}
+	c.logger.Debug("vision analysis parsed", "model", c.visionModel, "productName", parsed.ProductName)
 	return strings.TrimSpace(parsed.ProductName), nil
 }
 
 func (c *OpenRouterMediaClient) GenerateFoodImage(ctx context.Context, prompt string) (GeneratedImage, error) {
 	if c.imageModel == "" {
+		c.logger.Debug("image generation skipped: model not configured")
 		return GeneratedImage{}, errors.New("openrouter image model is not configured")
 	}
 	request := aiMediaChatCompletionRequest{
 		Model:      c.imageModel,
 		Messages:   []aiMediaChatMessage{{Role: "user", Content: prompt}},
-		Modalities: []string{"image", "text"},
+		Modalities: []string{"image"},
 	}
+	c.logger.Debug("image generation request built", "model", c.imageModel, "promptLength", len(prompt))
+
+	start := time.Now()
 	var response aiMediaChatCompletionResponse
 	if err := c.client.Post(ctx, "chat/completions", request, &response); err != nil {
+		c.logger.Error("image generation request failed", "model", c.imageModel, "duration", time.Since(start), "error", err)
 		return GeneratedImage{}, fmt.Errorf("openrouter image generation request failed: %w", err)
 	}
-	if len(response.Choices) == 0 || len(response.Choices[0].Message.Images) == 0 {
+	duration := time.Since(start)
+	choicesCount := len(response.Choices)
+	imagesCount := 0
+	if choicesCount > 0 {
+		imagesCount = len(response.Choices[0].Message.Images)
+	}
+	c.logger.Debug("image generation response received", "model", c.imageModel, "duration", duration, "choicesCount", choicesCount, "imagesCount", imagesCount)
+	if choicesCount == 0 || imagesCount == 0 {
+		c.logger.Error("image generation returned no image data", "model", c.imageModel, "duration", duration, "choicesCount", choicesCount, "imagesCount", imagesCount)
 		return GeneratedImage{}, errors.New("openrouter returned no image data")
 	}
 	imageURL := strings.TrimSpace(response.Choices[0].Message.Images[0].ImageURL.URL)
 	format, payload, err := parseDataImageURL(imageURL)
 	if err != nil {
+		c.logger.Error("image generation url parse failed", "model", c.imageModel, "error", err)
 		return GeneratedImage{}, err
 	}
 	buffer, err := base64.StdEncoding.DecodeString(payload)
 	if err != nil {
+		c.logger.Error("image generation base64 decode failed", "model", c.imageModel, "format", format, "error", err)
 		return GeneratedImage{}, fmt.Errorf("decode generated image: %w", err)
 	}
+	c.logger.Debug("image generation decoded", "model", c.imageModel, "format", format, "bytes", len(buffer))
 	return GeneratedImage{Data: buffer, Format: format, Model: c.imageModel, Provider: "openrouter"}, nil
 }
 

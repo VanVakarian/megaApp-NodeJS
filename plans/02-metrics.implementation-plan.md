@@ -37,9 +37,17 @@ Backend-часть единого плана [`METRICS._implementation-plan.md`]
 - `food_diary_entry_updated` — Counter, изменение веса записи (любое +/- или новое значение).
 - `food_diary_entry_deleted` — Counter, удаление одной записи.
 - `food_diary_day_deleted` — Counter, удаление всех записей за день (отдельно от удаления одной записи).
+- `food_diary_day_restored` — Counter, восстановление записей за день (`RestoreDiaryEntriesForDay`) — один инкремент за вызов, не за каждую восстановленную запись. Изначально не заводилась ("технический откат, не пользовательское действие") — пересмотрено: это всё равно реальный запрос к серверу, выполняющий работу, метрика нагрузки должна его учитывать.
 - `food_body_weight_updated` — Counter, изменение веса тела (первый ввод и последующие — не различаются).
+- `food_catalogue_entry_created` — Counter, создание продукта в каталоге (`SaveProduct`, `request.ID == nil`).
+- `food_catalogue_entry_updated` — Counter, редактирование продукта в каталоге (`SaveProduct`, `request.ID != nil`).
+- `food_catalogue_entry_deleted` — Counter, удаление продукта из каталога.
+- `food_coefficients_job_ran` — Counter, один инкремент за прогон cron-джобы `coefficients` (не за каждого пользователя внутри батча).
+- `backup_job_ran` — Counter, один инкремент за успешный прогон cron-джобы `backup`.
 
-Restore-day (`RestoreDiaryEntriesForDay`, отмена удаления) метрику создания не инкрементирует — это технический откат, а не пользовательское действие создания.
+Генерация превью/анализ изображения/голоса (`GenerateProductPreview`, `AnalyzeImage`, `AnalyzeVoice`) — не персистят ничего сами, отдельной метрики не получают, считаются только через итоговый `SaveProduct`.
+
+**Принцип для всех метрик-счётчиков (зафиксировано явно):** это hit-counter "действие совершилось", не success/fail телеметрия. Инкремент стоит после успешного завершения операции — на ошибке обработчик делает `return` раньше, до строки инкремента, поэтому ошибки естественным образом не попадают в счётчик. Для джобов та же логика: считаем "джоба сработала" по разу за вызов, а не успех/неуспех каждого внутреннего шага — если нужно разобраться, что именно упало внутри джобы, для этого логи (`CoefficientsJobResult.FailedCount` и т.п.), не метрики.
 
 ## Открытые вопросы (не закрыты этим планом)
 
@@ -78,7 +86,7 @@ Restore-day (`RestoreDiaryEntriesForDay`, отмена удаления) мет�
 - ✅ `internal/metrics`: accumulator (mutex + map), `Service.Flush` (вызывается cron-джобой `"metrics"`), `Repository.AddToCounter` (upsert), `Repository.ListSince`.
 - ✅ Миграция `migrations/000003_metrics.sql`.
 - ✅ Модуль в `internal/httpx/modules.go` (`buildMetricsModule`) и `app.go`.
-- ✅ Список метрик зафиксирован (см. выше) и вызовы расставлены в `internal/food/write_http.go` (5 хендлеров).
+- ✅ Список метрик зафиксирован (см. выше) и вызовы расставлены в `internal/food/write_http.go`, `internal/food/catalogue_http.go`, плюс джобы `coefficients` (`internal/httpx/app.go`) и `backup` (`internal/httpx/modules.go`).
 
 ### Этап 2: Админ-доступ + доставка на фронт — ✅ готово
 - ✅ `isAdmin` прокинут по цепочке `Repository → User → TokenClaims → Service.Verify`, плюс `Service.ListAdminUserIDs`.
@@ -111,3 +119,15 @@ UNIQUE(service, metricName, minuteBucket)
 - Заодно убрали nil-guard в `food.WriteHandler.recordMetric` (`MetricsRecorder` — обязательная зависимость, не опциональная) — тест (`http_test.go`) теперь передаёт настоящий fake-recorder вместо `nil`. Это тоже было излишней защитной осторожностью без реального кейса.
 
 **Важно для реальной dev-БД**: таблица `metrics` была создана раньше со старой схемой (без `service`). `CREATE TABLE IF NOT EXISTS` в правленой миграции — no-op, если таблица уже существует. Чтобы подтянуть новую схему на уже существующей БД: удалить таблицу `metrics` и строку `000003_metrics` из `schema_migrations`, перезапустить сервер — миграция накатится заново с нуля. Сделано один раз в рамках этой правки; для последующих правок той же миграции до релиза — повторять то же самое.
+
+### Расширение списка метрик: каталог, restore-day, джобы
+
+По итогам ревизии всех действий пользователя в food-домене (см. список выше) добавлено:
+- `food_diary_day_restored` в `RestoreDiaryEntriesForDay` (`internal/food/write_http.go`) — раньше сознательно не заводилась, пересмотрено по той же причине, что и общая политика "не бояться менять решения до релиза".
+- `food.CatalogueHandler` получил поле `metrics MetricsRecorder` и параметр конструктора (`NewCatalogueHandler(service, realtime, metricsRecorder)`) — `food_catalogue_entry_created`/`_updated` в `SaveProduct`, `food_catalogue_entry_deleted` в `DeleteCatalogueEntry`.
+- `food_coefficients_job_ran` — инкремент в `internal/httpx/app.go`, в замыкании cron-джобы `coefficients`, после успешного `RunCoefficientsJob` (внутренний `FailedCount` по отдельным пользователям не блокирует инкремент — это деталь логов, не метрики).
+- `backup.MetricJobRan = "backup_job_ran"` — новая константа в `internal/backup/service.go`; инкремент в `internal/httpx/modules.go`, в замыкании cron-джобы `backup`, после успешного `service.Run`.
+
+Архитектурное следствие: `buildBackupModule` теперь принимает `metricsRecorder *metrics.Service` — для этого порядок сборки модулей в `internal/httpx/app.go` поменян: `wsModule` + `metricsModule` собираются раньше `quotesModule`/`backupModule` (а не после), чтобы recorder был готов к моменту регистрации backup-джобы. `quotesModule` (домен `money`) метрику не получил — пользователь явно сузил задачу до food-домена, money — отдельная, не начатая тема.
+
+Обновлены тесты: `internal/food/http_test.go` — все три вызова `NewCatalogueHandler` теперь передают `&fakeMetricsRecorder{}` вместо отсутствовавшего параметра. `go build ./...`, `go vet ./...`, `go test ./...` — чисто.

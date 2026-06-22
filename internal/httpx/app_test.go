@@ -163,7 +163,6 @@ func appTestConfig(tempDir string) config.Config {
 		LogLevel:                           "info",
 		DataDir:                            filepath.Join(tempDir, "data"),
 		DatabaseName:                       "megaapp",
-		DatabaseEnv:                        "test",
 		DatabasePath:                       filepath.Join(tempDir, "data", "megaapp-test.db"),
 		MigrationsDir:                      filepath.Join(tempDir, "migrations"),
 		PublicDir:                          filepath.Join(tempDir, "public"),

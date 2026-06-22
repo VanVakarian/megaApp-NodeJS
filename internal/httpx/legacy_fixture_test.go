@@ -120,7 +120,6 @@ func TestLegacyFixtureProdLikeStartupWorks(t *testing.T) {
 	tempDir := t.TempDir()
 	cfg := legacyFixtureConfig(t, tempDir)
 	cfg.AppEnv = "prod"
-	cfg.DatabaseEnv = "prod"
 	cfg.JWTSecret = "prod-fixture-secret"
 
 	if err := cfg.Validate(); err != nil {
@@ -245,7 +244,6 @@ func legacyFixtureConfig(t *testing.T, tempDir string) config.Config {
 		LogLevel:                           "info",
 		DataDir:                            dataDir,
 		DatabaseName:                       "megaapp",
-		DatabaseEnv:                        "test",
 		DatabasePath:                       databasePath,
 		MigrationsDir:                      filepath.Join("..", "..", "migrations"),
 		PublicDir:                          filepath.Join(tempDir, "public"),

@@ -56,7 +56,7 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 	readHandler := NewHandler(service, realtime)
 	hub.RegisterHandler("SEARCH_QUERY", NewSearchWSHandler(service, clk))
 	writeHandler := NewWriteHandler(service, realtime, &fakeMetricsRecorder{})
-	catalogueHandler := NewCatalogueHandler(service, realtime)
+	catalogueHandler := NewCatalogueHandler(service, realtime, &fakeMetricsRecorder{})
 	wsHandler := wspkg.NewHandler(authService, hub)
 
 	router := chi.NewRouter()
@@ -139,7 +139,7 @@ func TestFoodSearchAndCatalogueMutationEndpoints(t *testing.T) {
 	realtime := NewWSRealtimePublisher(hub, clk)
 	readHandler := NewHandler(service, realtime)
 	hub.RegisterHandler("SEARCH_QUERY", NewSearchWSHandler(service, clk))
-	catalogueHandler := NewCatalogueHandler(service, realtime)
+	catalogueHandler := NewCatalogueHandler(service, realtime, &fakeMetricsRecorder{})
 	wsHandler := wspkg.NewHandler(authService, hub)
 
 	router := chi.NewRouter()
@@ -273,7 +273,7 @@ func TestFoodReadEndpoints(t *testing.T) {
 	defer func() { _ = hub.Close() }()
 	clk := clockplatform.NewRealClock()
 	realtime := NewWSRealtimePublisher(hub, clk)
-	catalogueHandler := NewCatalogueHandler(service, realtime)
+	catalogueHandler := NewCatalogueHandler(service, realtime, &fakeMetricsRecorder{})
 
 	router := chi.NewRouter()
 	RegisterRoutes(router, authService, handler)

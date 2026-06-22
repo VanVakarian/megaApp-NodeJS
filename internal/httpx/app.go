@@ -58,18 +58,6 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 	authModule := buildAuthModule(db.SQL(), cfg)
 	settingsModule := buildSettingsModule(db.SQL())
 	moneyModule := buildMoneyModule(db.SQL())
-	quotesModule, err := buildQuotesModule(db.SQL(), cfg, logger, clk, jobRuntime)
-	if err != nil {
-		_ = jobRuntime.Close()
-		_ = db.Close()
-		return nil, err
-	}
-	backupModule, err := buildBackupModule(db.SQL(), cfg, logger, clk, jobRuntime)
-	if err != nil {
-		_ = jobRuntime.Close()
-		_ = db.Close()
-		return nil, err
-	}
 	wsModule := buildWSModule(cfg, authModule.service)
 	metricsModule, err := buildMetricsModule(db.SQL(), wsModule.hub, authModule.service, clk, jobRuntime)
 	if err != nil {
@@ -78,7 +66,21 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 		_ = db.Close()
 		return nil, err
 	}
-	foodModule, err := buildFoodModule(db.SQL(), cfg, wsModule.hub, clk, metricsModule.service)
+	quotesModule, err := buildQuotesModule(db.SQL(), cfg, logger, clk, jobRuntime)
+	if err != nil {
+		_ = wsModule.hub.Close()
+		_ = jobRuntime.Close()
+		_ = db.Close()
+		return nil, err
+	}
+	backupModule, err := buildBackupModule(db.SQL(), cfg, logger, clk, jobRuntime, metricsModule.service)
+	if err != nil {
+		_ = wsModule.hub.Close()
+		_ = jobRuntime.Close()
+		_ = db.Close()
+		return nil, err
+	}
+	foodModule, err := buildFoodModule(db.SQL(), cfg, logger, wsModule.hub, clk, metricsModule.service)
 	if err != nil {
 		_ = wsModule.hub.Close()
 		_ = jobRuntime.Close()
@@ -94,6 +96,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 			if result.FailedCount > 0 {
 				logger.Warn("coefficients job completed with user failures", "failedCount", result.FailedCount)
 			}
+			metricsModule.service.Increment(food.MetricCoefficientsJobRan)
 			return nil
 		}); err != nil {
 			for _, background := range foodModule.backgrounds {

@@ -10,6 +10,7 @@ import (
 	"image/draw"
 	_ "image/jpeg"
 	"image/png"
+	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
@@ -93,6 +94,7 @@ type ImagePipeline struct {
 	store        *ImageStore
 	generator    ImageGenerator
 	realtime     RealtimePublisher
+	logger       *slog.Logger
 	mu           sync.Mutex
 	queue        map[int64]*queueTask
 	queueOrder   []int64
@@ -104,16 +106,17 @@ type ImagePipeline struct {
 	rateLimit    time.Duration
 }
 
-func NewImagePipeline(store *ImageStore, generator ImageGenerator, realtime RealtimePublisher) *ImagePipeline {
+func NewImagePipeline(store *ImageStore, generator ImageGenerator, realtime RealtimePublisher, maxAttempts int, logger *slog.Logger) *ImagePipeline {
 	pipeline := &ImagePipeline{
 		store:        store,
 		generator:    generator,
 		realtime:     realtime,
+		logger:       logger,
 		queue:        map[int64]*queueTask{},
 		notify:       make(chan struct{}, 1),
 		stop:         make(chan struct{}),
 		maxQueueSize: 24,
-		maxAttempts:  1,
+		maxAttempts:  maxAttempts,
 		rateLimit:    time.Second,
 	}
 	go pipeline.run()
@@ -133,16 +136,29 @@ func (p *ImagePipeline) Close() error {
 }
 
 func (p *ImagePipeline) RequestProductImageGeneration(catalogueID int64, productName string, description string) {
-	if p == nil || p.generator == nil {
+	if p == nil {
+		return
+	}
+	if p.generator == nil {
+		p.logger.Warn("image generation skipped: generator not configured", "catalogueId", catalogueID)
 		return
 	}
 	if p.store.ImageVersion(catalogueID) != nil {
+		p.logger.Debug("image generation skipped: image already exists", "catalogueId", catalogueID)
 		return
 	}
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.closed || p.queue[catalogueID] != nil || len(p.queue) >= p.maxQueueSize {
+	if p.closed {
+		return
+	}
+	if p.queue[catalogueID] != nil {
+		p.logger.Debug("image generation skipped: already queued", "catalogueId", catalogueID)
+		return
+	}
+	if len(p.queue) >= p.maxQueueSize {
+		p.logger.Warn("image generation skipped: queue is full", "catalogueId", catalogueID, "queueSize", len(p.queue))
 		return
 	}
 	p.queue[catalogueID] = &queueTask{
@@ -152,6 +168,7 @@ func (p *ImagePipeline) RequestProductImageGeneration(catalogueID int64, product
 		availableAt: time.Now(),
 	}
 	p.queueOrder = append(p.queueOrder, catalogueID)
+	p.logger.Debug("image generation enqueued", "catalogueId", catalogueID, "queueSize", len(p.queue))
 	select {
 	case p.notify <- struct{}{}:
 	default:
@@ -220,10 +237,12 @@ func (p *ImagePipeline) nextTask() (*queueTask, time.Duration, bool) {
 }
 
 func (p *ImagePipeline) processTask(task *queueTask) {
+	p.logger.Debug("image generation task started", "catalogueId", task.catalogueID, "productName", task.productName, "attempt", task.attempts+1, "maxAttempts", p.maxAttempts)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	_, err := p.GenerateProductImage(ctx, task.catalogueID, task.productName, task.description)
 	if err == nil {
+		p.logger.Debug("image generation task succeeded", "catalogueId", task.catalogueID, "attempt", task.attempts+1)
 		p.removeTask(task.catalogueID)
 		return
 	}
@@ -236,10 +255,12 @@ func (p *ImagePipeline) processTask(task *queueTask) {
 	}
 	current.attempts++
 	if current.attempts >= p.maxAttempts {
+		p.logger.Error("image generation failed permanently", "catalogueId", task.catalogueID, "productName", task.productName, "attempts", current.attempts, "error", err)
 		delete(p.queue, task.catalogueID)
 		p.queueOrder = removeQueueID(p.queueOrder, task.catalogueID)
 		return
 	}
+	p.logger.Warn("image generation attempt failed, retrying", "catalogueId", task.catalogueID, "productName", task.productName, "attempt", current.attempts, "maxAttempts", p.maxAttempts, "error", err)
 	current.availableAt = time.Now().Add(time.Duration(1<<max(0, current.attempts-1)) * time.Second)
 }
 
@@ -265,6 +286,7 @@ func (p *ImagePipeline) GenerateProductImage(ctx context.Context, catalogueID in
 		return nil, legacy.NewError(legacy.ErrorKindValidation, "Image generation is disabled")
 	}
 	prompt := buildFoodImagePrompt(productName, description)
+	p.logger.Debug("image prompt built", "catalogueId", catalogueID, "promptLength", len(prompt))
 	generated, err := p.generator.GenerateFoodImage(ctx, prompt)
 	if err != nil {
 		return nil, legacy.WrapError(legacy.ErrorKindExternal, "Failed to generate image", err)
@@ -273,6 +295,7 @@ func (p *ImagePipeline) GenerateProductImage(ctx context.Context, catalogueID in
 	if current := p.store.ImageVersion(catalogueID); current != nil {
 		version = *current + 1
 	}
+	p.logger.Debug("image generated, persisting variants", "catalogueId", catalogueID, "version", version, "format", generated.Format, "bytes", len(generated.Data))
 	originalFilename, result, err := p.persistGeneratedImage(catalogueID, version, generated)
 	if err != nil {
 		return nil, err
@@ -280,6 +303,7 @@ func (p *ImagePipeline) GenerateProductImage(ctx context.Context, catalogueID in
 	result.OriginalFilename = originalFilename
 	p.store.SetImageVersion(catalogueID, version)
 	p.realtime.PublishCatalogueImageGenerated(catalogueID, version, "")
+	p.logger.Debug("image generation completed", "catalogueId", catalogueID, "version", version)
 	return result, nil
 }
 
@@ -334,6 +358,8 @@ func (p *ImagePipeline) persistGeneratedImage(catalogueID int64, version int64, 
 	if err != nil {
 		return "", nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to decode generated image", err)
 	}
+	bounds := decoded.Bounds()
+	p.logger.Debug("generated image decoded", "catalogueId", catalogueID, "width", bounds.Dx(), "height", bounds.Dy())
 	if err := p.store.DeleteOldVersions(catalogueID, version); err != nil {
 		return "", nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to clear old image versions", err)
 	}
@@ -345,6 +371,7 @@ func (p *ImagePipeline) persistGeneratedImage(catalogueID int64, version int64, 
 	if err != nil {
 		return "", nil, err
 	}
+	p.logger.Debug("image variants written", "catalogueId", catalogueID, "version", version)
 	return originalFilename, result, nil
 }
 

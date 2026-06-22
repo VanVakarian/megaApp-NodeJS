@@ -24,7 +24,6 @@ func TestOpsRoutes(t *testing.T) {
 		LogLevel:                           "debug",
 		DataDir:                            filepath.Join(tempDir, "data"),
 		DatabaseName:                       "megaapp",
-		DatabaseEnv:                        "test",
 		DatabasePath:                       filepath.Join(tempDir, "data", "megaapp-test.db"),
 		MigrationsDir:                      filepath.Join(tempDir, "migrations"),
 		PublicDir:                          filepath.Join(tempDir, "public"),
