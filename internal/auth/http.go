@@ -111,7 +111,18 @@ func (h *Handler) Verify(w http.ResponseWriter, r *http.Request) {
 		legacy.WriteDetail(w, http.StatusUnauthorized, "Invalid token")
 		return
 	}
-	legacy.WriteJSON(w, http.StatusOK, map[string]any{"authenticated": true, "userId": claims.UserID, "username": claims.Username})
+
+	user, err := h.service.GetUserByID(r.Context(), claims.UserID)
+	if err != nil {
+		legacy.WriteAppDetailError(w, err, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	isAdmin := claims.IsAdmin
+	if user != nil {
+		isAdmin = user.IsAdmin
+	}
+
+	legacy.WriteJSON(w, http.StatusOK, map[string]any{"authenticated": true, "userId": claims.UserID, "username": claims.Username, "isAdmin": isAdmin})
 }
 
 func Middleware(service *Service) func(http.Handler) http.Handler {

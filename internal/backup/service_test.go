@@ -51,19 +51,18 @@ func TestServiceRunCreatesUploadsAndCleansBackup(t *testing.T) {
 	backupsDir := filepath.Join(t.TempDir(), "backups")
 	uploader := &fakeUploader{}
 	service := NewService(db, Config{
-		DatabaseName:    "megaapp",
-		DatabaseEnv:     "test",
-		DatabaseVersion: "005",
-		BackupsDir:      backupsDir,
-		StorageEnabled:  true,
-		StorageClass:    "STANDARD_IA",
-	}, fixedClock{now: time.Date(2026, time.July, 20, 10, 30, 0, 0, time.UTC)}, uploader)
+		DatabaseName:   "megaapp",
+		DatabaseEnv:    "test",
+		BackupsDir:     backupsDir,
+		StorageEnabled: true,
+		StorageClass:   "STANDARD_IA",
+	}, fixedClock{now: time.Date(2026, time.July, 20, 10, 30, 0, 0, time.UTC)}, nil, uploader)
 
 	result, err := service.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if result.UploadedKey != "test-005/megaapp-test-005-2026-07-20T10-30-00Z.zip" {
+	if result.UploadedKey != "test/megaapp-test-2026-07-20T10-30-00Z.zip" {
 		t.Fatalf("UploadedKey = %q", result.UploadedKey)
 	}
 	if !result.CleanedUp {
@@ -104,12 +103,11 @@ func TestServiceRunCleansFilesAfterUploadFailure(t *testing.T) {
 	seedBackupTestDB(t, db)
 	backupsDir := filepath.Join(t.TempDir(), "backups")
 	service := NewService(db, Config{
-		DatabaseName:    "megaapp",
-		DatabaseEnv:     "test",
-		DatabaseVersion: "005",
-		BackupsDir:      backupsDir,
-		StorageEnabled:  true,
-	}, fixedClock{now: time.Date(2026, time.July, 20, 10, 30, 0, 0, time.UTC)}, &fakeUploader{err: errors.New("upload failed")})
+		DatabaseName:   "megaapp",
+		DatabaseEnv:    "test",
+		BackupsDir:     backupsDir,
+		StorageEnabled: true,
+	}, fixedClock{now: time.Date(2026, time.July, 20, 10, 30, 0, 0, time.UTC)}, nil, &fakeUploader{err: errors.New("upload failed")})
 
 	_, err := service.Run(context.Background())
 	if err == nil {
@@ -126,7 +124,7 @@ func TestServiceRunCleansFilesAfterUploadFailure(t *testing.T) {
 
 func TestServiceRejectsDisabledStorage(t *testing.T) {
 	db, _ := openBackupTestDB(t)
-	service := NewService(db, Config{StorageEnabled: false}, fixedClock{now: time.Now().UTC()}, &fakeUploader{})
+	service := NewService(db, Config{StorageEnabled: false}, fixedClock{now: time.Now().UTC()}, nil, &fakeUploader{})
 	if _, err := service.Run(context.Background()); err == nil {
 		t.Fatal("Run() error = nil, want error")
 	}

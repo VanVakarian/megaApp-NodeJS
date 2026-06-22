@@ -235,18 +235,17 @@ func legacyFixtureConfig(t *testing.T, tempDir string) config.Config {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 
-	databasePath := filepath.Join(dataDir, "megaapp-test-005.db")
+	databasePath := filepath.Join(dataDir, "megaapp-test.db")
 	copyLegacyFixtureDB(t, legacyFixtureDBPath(t), databasePath)
 
 	cfg := config.Config{
 		AppEnv:                             "test",
 		AppHost:                            "127.0.0.1",
-		AppPort:                            3000,
+		AppPort:                            3001,
 		LogLevel:                           "info",
 		DataDir:                            dataDir,
 		DatabaseName:                       "megaapp",
 		DatabaseEnv:                        "test",
-		DatabaseVersion:                    "005",
 		DatabasePath:                       databasePath,
 		MigrationsDir:                      filepath.Join("..", "..", "migrations"),
 		PublicDir:                          filepath.Join(tempDir, "public"),

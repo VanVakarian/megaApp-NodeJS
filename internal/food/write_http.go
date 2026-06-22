@@ -12,9 +12,22 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+const (
+	MetricDiaryEntryCreated = "food_diary_entry_created"
+	MetricDiaryEntryUpdated = "food_diary_entry_updated"
+	MetricDiaryEntryDeleted = "food_diary_entry_deleted"
+	MetricDiaryDayDeleted   = "food_diary_day_deleted"
+	MetricBodyWeightUpdated = "food_body_weight_updated"
+)
+
+type MetricsRecorder interface {
+	Increment(name string)
+}
+
 type WriteHandler struct {
 	service  *Service
 	realtime RealtimePublisher
+	metrics  MetricsRecorder
 }
 
 type createDiaryEntryRequest struct {
@@ -40,8 +53,12 @@ type bodyWeightRequest struct {
 	BodyWeight json.RawMessage `json:"bodyWeight"`
 }
 
-func NewWriteHandler(service *Service, realtime RealtimePublisher) *WriteHandler {
-	return &WriteHandler{service: service, realtime: realtime}
+func NewWriteHandler(service *Service, realtime RealtimePublisher, metricsRecorder MetricsRecorder) *WriteHandler {
+	return &WriteHandler{service: service, realtime: realtime, metrics: metricsRecorder}
+}
+
+func (h *WriteHandler) recordMetric(name string) {
+	h.metrics.Increment(name)
 }
 
 func RegisterWriteRoutes(router chi.Router, authService *auth.Service, handler *WriteHandler) {
@@ -74,6 +91,7 @@ func (h *WriteHandler) CreateDiaryEntry(w http.ResponseWriter, r *http.Request) 
 
 	h.realtime.MarkUserUpdated(claims.UserID)
 	h.realtime.PublishDiaryEntryCreated(claims.UserID, entry, extractClientID(r))
+	h.recordMetric(MetricDiaryEntryCreated)
 	legacy.WriteJSON(w, http.StatusCreated, map[string]any{"result": true, "diaryId": entry.ID})
 }
 
@@ -106,6 +124,7 @@ func (h *WriteHandler) EditDiaryEntry(w http.ResponseWriter, r *http.Request) {
 
 	h.realtime.MarkUserUpdated(claims.UserID)
 	h.realtime.PublishDiaryEntryUpdated(claims.UserID, *updatedEntry, request.History[0], extractClientID(r))
+	h.recordMetric(MetricDiaryEntryUpdated)
 	legacy.WriteJSON(w, http.StatusOK, map[string]any{"result": true, "diaryId": updatedEntry.ID})
 }
 
@@ -134,6 +153,7 @@ func (h *WriteHandler) DeleteDiaryEntry(w http.ResponseWriter, r *http.Request) 
 
 	h.realtime.MarkUserUpdated(claims.UserID)
 	h.realtime.PublishDiaryEntryDeleted(claims.UserID, diaryID, extractClientID(r))
+	h.recordMetric(MetricDiaryEntryDeleted)
 	legacy.WriteJSON(w, http.StatusOK, map[string]any{"result": true})
 }
 
@@ -153,6 +173,7 @@ func (h *WriteHandler) DeleteDiaryEntriesForDay(w http.ResponseWriter, r *http.R
 
 	h.realtime.MarkUserUpdated(claims.UserID)
 	h.realtime.PublishDiaryDayDeleted(claims.UserID, dateISO, extractClientID(r))
+	h.recordMetric(MetricDiaryDayDeleted)
 	legacy.WriteJSON(w, http.StatusOK, map[string]any{"result": true, "deletedEntriesCount": deletedCount})
 }
 
@@ -224,6 +245,7 @@ func (h *WriteHandler) ProcessWeight(w http.ResponseWriter, r *http.Request) {
 
 	h.realtime.MarkUserUpdated(claims.UserID)
 	h.realtime.PublishBodyWeightUpdated(claims.UserID, request.DateISO, bodyWeight, extractClientID(r))
+	h.recordMetric(MetricBodyWeightUpdated)
 	legacy.WriteJSON(w, http.StatusCreated, map[string]any{"result": true})
 }
 

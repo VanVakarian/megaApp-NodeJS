@@ -313,6 +313,10 @@ func (c *Client) SendJSON(payload any) error {
 	return c.writeJSON(payload)
 }
 
+func (c *Client) UserID() int64 {
+	return c.userID
+}
+
 func (c *Client) close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
