@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	logplatform "megaapp-back/internal/platform/log"
+
 	"github.com/robfig/cron/v3"
 )
 
@@ -36,10 +38,10 @@ func (r *Runtime) Register(name string, schedule string, run func(context.Contex
 			}
 		}()
 		if err := run(context.Background()); err != nil {
-			r.logger.Error("job failed", "job", name, "duration", time.Since(startedAt), "error", err)
+			r.logger.Error("job failed", "job", name, "duration", logplatform.FormatDuration(time.Since(startedAt)), "error", err)
 			return
 		}
-		r.logger.Info("job completed", "job", name, "duration", time.Since(startedAt))
+		r.logger.Info("job completed", "job", name, "duration", logplatform.FormatDuration(time.Since(startedAt)))
 	})
 	return err
 }

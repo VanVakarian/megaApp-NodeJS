@@ -56,7 +56,7 @@ func TestServiceRunCreatesUploadsAndCleansBackup(t *testing.T) {
 		BackupsDir:     backupsDir,
 		StorageEnabled: true,
 		StorageClass:   "STANDARD_IA",
-	}, fixedClock{now: time.Date(2026, time.July, 20, 10, 30, 0, 0, time.UTC)}, uploader)
+	}, fixedClock{now: time.Date(2026, time.July, 20, 10, 30, 0, 0, time.UTC)}, nil, uploader)
 
 	result, err := service.Run(context.Background())
 	if err != nil {
@@ -107,7 +107,7 @@ func TestServiceRunCleansFilesAfterUploadFailure(t *testing.T) {
 		DatabaseEnv:    "test",
 		BackupsDir:     backupsDir,
 		StorageEnabled: true,
-	}, fixedClock{now: time.Date(2026, time.July, 20, 10, 30, 0, 0, time.UTC)}, &fakeUploader{err: errors.New("upload failed")})
+	}, fixedClock{now: time.Date(2026, time.July, 20, 10, 30, 0, 0, time.UTC)}, nil, &fakeUploader{err: errors.New("upload failed")})
 
 	_, err := service.Run(context.Background())
 	if err == nil {
@@ -124,7 +124,7 @@ func TestServiceRunCleansFilesAfterUploadFailure(t *testing.T) {
 
 func TestServiceRejectsDisabledStorage(t *testing.T) {
 	db, _ := openBackupTestDB(t)
-	service := NewService(db, Config{StorageEnabled: false}, fixedClock{now: time.Now().UTC()}, &fakeUploader{})
+	service := NewService(db, Config{StorageEnabled: false}, fixedClock{now: time.Now().UTC()}, nil, &fakeUploader{})
 	if _, err := service.Run(context.Background()); err == nil {
 		t.Fatal("Run() error = nil, want error")
 	}

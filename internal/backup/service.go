@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"megaapp-back/internal/httpx/legacy"
 	platformclock "megaapp-back/internal/platform/clock"
+	logplatform "megaapp-back/internal/platform/log"
 )
 
 type Config struct {
@@ -38,17 +40,22 @@ type Service struct {
 	db       *sql.DB
 	cfg      Config
 	clock    platformclock.Clock
+	logger   *slog.Logger
 	uploader ArchiveUploader
 }
 
-func NewService(db *sql.DB, cfg Config, clk platformclock.Clock, uploader ArchiveUploader) *Service {
+func NewService(db *sql.DB, cfg Config, clk platformclock.Clock, logger *slog.Logger, uploader ArchiveUploader) *Service {
 	if clk == nil {
 		clk = platformclock.NewRealClock()
 	}
-	return &Service{db: db, cfg: cfg, clock: clk, uploader: uploader}
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+	return &Service{db: db, cfg: cfg, clock: clk, logger: logger, uploader: uploader}
 }
 
 func (s *Service) Run(ctx context.Context) (result RunResult, err error) {
+	runStartedAt := time.Now()
 	if !s.cfg.StorageEnabled {
 		return RunResult{}, legacy.NewError(legacy.ErrorKindValidation, "Backup storage is disabled")
 	}
@@ -77,17 +84,32 @@ func (s *Service) Run(ctx context.Context) (result RunResult, err error) {
 	if err := cleanupLocalFiles(cleanupPaths); err != nil {
 		return RunResult{}, err
 	}
+
+	dbStartedAt := time.Now()
 	if err := s.createSnapshot(ctx, snapshotPath); err != nil {
 		return RunResult{}, err
 	}
+	dbDuration := time.Since(dbStartedAt)
+
+	archiveStartedAt := time.Now()
 	if err := createZipArchive(snapshotPath, archivePath, s.clock.Now().UTC()); err != nil {
 		return RunResult{}, err
 	}
+	archiveDuration := time.Since(archiveStartedAt)
 
 	uploadedKey := fmt.Sprintf("%s/%s", s.cfg.DatabaseEnv, filepath.Base(archivePath))
+	uploadStartedAt := time.Now()
 	if err := s.uploader.UploadFile(ctx, uploadedKey, archivePath, "application/zip", s.cfg.StorageClass); err != nil {
 		return RunResult{}, legacy.WrapError(legacy.ErrorKindExternal, "Failed to upload backup archive", err)
 	}
+	uploadDuration := time.Since(uploadStartedAt)
+
+	s.logger.Info("backup_completed",
+		"db_phase", logplatform.FormatDuration(dbDuration),
+		"archive_phase", logplatform.FormatDuration(archiveDuration),
+		"upload_phase", logplatform.FormatDuration(uploadDuration),
+		"total", logplatform.FormatDuration(time.Since(runStartedAt)),
+	)
 
 	return RunResult{
 		UploadedKey:      uploadedKey,

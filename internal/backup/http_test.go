@@ -19,7 +19,7 @@ func TestDebugRouteRunsBackupJob(t *testing.T) {
 		DatabaseEnv:    "test",
 		BackupsDir:     filepath.Join(t.TempDir(), "backups"),
 		StorageEnabled: true,
-	}, fixedClock{now: time.Date(2026, time.July, 20, 10, 30, 0, 0, time.UTC)}, &fakeUploader{})
+	}, fixedClock{now: time.Date(2026, time.July, 20, 10, 30, 0, 0, time.UTC)}, nil, &fakeUploader{})
 
 	router := chi.NewRouter()
 	RegisterDebugRoutes(router, NewDebugHandler(service))

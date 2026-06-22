@@ -131,7 +131,7 @@ func buildBackupModule(db *sql.DB, cfg config.Config, logger *slog.Logger, clk c
 		BackupsDir:     cfg.BackupsDir,
 		StorageEnabled: cfg.BackupStorageEnabled,
 		StorageClass:   cfg.BackupStorageClass,
-	}, clk, uploader)
+	}, clk, logger, uploader)
 	if cfg.BackupJobEnabled {
 		if err := runtime.Register("backup", cfg.BackupJobSchedule, func(ctx context.Context) error {
 			backupCtx, cancel := context.WithTimeout(ctx, cfg.BackupOperationTimeout)
@@ -142,7 +142,6 @@ func buildBackupModule(db *sql.DB, cfg config.Config, logger *slog.Logger, clk c
 			return backupModule{}, err
 		}
 	}
-	_ = logger
 	return backupModule{service: service, debugHandler: backup.NewDebugHandler(service)}, nil
 }
 

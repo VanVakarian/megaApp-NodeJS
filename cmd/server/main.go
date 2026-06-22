@@ -26,22 +26,33 @@ func main() {
 		os.Exit(1)
 	}
 
+	sigCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	serveErrCh := make(chan error, 1)
 	go func() {
-		sigCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-		defer stop()
-		<-sigCtx.Done()
-
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
-		defer cancel()
-
-		if err := app.Shutdown(shutdownCtx); err != nil {
-			logger.Error("app_shutdown_failed", "error", err)
-		}
+		logger.Info("app_starting", "addr", cfg.HTTPAddress(), "env", cfg.AppEnv)
+		serveErrCh <- app.Start()
 	}()
 
-	logger.Info("app_starting", "addr", cfg.HTTPAddress(), "env", cfg.AppEnv)
-	if err := app.Start(); err != nil {
-		logger.Error("app_stopped_with_error", "error", err)
+	var serveErr error
+	select {
+	case <-sigCtx.Done():
+	case serveErr = <-serveErrCh:
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+	defer cancel()
+	if err := app.Shutdown(shutdownCtx); err != nil {
+		logger.Error("app_shutdown_failed", "error", err)
+	}
+
+	if serveErr == nil {
+		serveErr = <-serveErrCh
+	}
+
+	if serveErr != nil {
+		logger.Error("app_stopped_with_error", "error", serveErr)
 		os.Exit(1)
 	}
 	logger.Info("app_stopped")
