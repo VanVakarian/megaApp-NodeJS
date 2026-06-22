@@ -15,12 +15,11 @@ func TestDebugRouteRunsBackupJob(t *testing.T) {
 	db, _ := openBackupTestDB(t)
 	seedBackupTestDB(t, db)
 	service := NewService(db, Config{
-		DatabaseName:    "megaapp",
-		DatabaseEnv:     "test",
-		DatabaseVersion: "005",
-		BackupsDir:      filepath.Join(t.TempDir(), "backups"),
-		StorageEnabled:  true,
-	}, fixedClock{now: time.Date(2026, time.July, 20, 10, 30, 0, 0, time.UTC)}, &fakeUploader{})
+		DatabaseName:   "megaapp",
+		DatabaseEnv:    "test",
+		BackupsDir:     filepath.Join(t.TempDir(), "backups"),
+		StorageEnabled: true,
+	}, fixedClock{now: time.Date(2026, time.July, 20, 10, 30, 0, 0, time.UTC)}, nil, &fakeUploader{})
 
 	router := chi.NewRouter()
 	RegisterDebugRoutes(router, NewDebugHandler(service))

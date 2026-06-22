@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	logplatform "megaapp-back/internal/platform/log"
+
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 )
 
@@ -55,7 +57,7 @@ func LoggingMiddleware(logger *slog.Logger, observer Observer) func(http.Handler
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
 				slog.Int("status_code", wrapped.statusCode),
-				slog.Duration("duration", duration),
+				slog.String("duration", logplatform.FormatDuration(duration)),
 			)
 		})
 	}

@@ -13,7 +13,6 @@ func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("DATA_DIR", "")
 	t.Setenv("DB_NAME", "")
 	t.Setenv("DB_ENV", "")
-	t.Setenv("DB_VERSION", "")
 	t.Setenv("DATABASE_PATH", "")
 	t.Setenv("MIGRATIONS_DIR", "")
 	t.Setenv("PUBLIC_DIR", "")
@@ -68,8 +67,8 @@ func TestLoadUsesDefaults(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if cfg.AppPort != 3000 {
-		t.Fatalf("AppPort = %d, want 3000", cfg.AppPort)
+	if cfg.AppPort != 3001 {
+		t.Fatalf("AppPort = %d, want 3001", cfg.AppPort)
 	}
 	if cfg.AppHost != "127.0.0.1" {
 		t.Fatalf("AppHost = %q, want 127.0.0.1", cfg.AppHost)
@@ -86,11 +85,8 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.DatabaseEnv != "test" {
 		t.Fatalf("DatabaseEnv = %q, want test", cfg.DatabaseEnv)
 	}
-	if cfg.DatabaseVersion != "005" {
-		t.Fatalf("DatabaseVersion = %q, want 005", cfg.DatabaseVersion)
-	}
-	if cfg.DatabasePath != "./data/megaapp-test-005.db" && cfg.DatabasePath != "data/megaapp-test-005.db" {
-		t.Fatalf("DatabasePath = %q, want ./data/megaapp-test-005.db", cfg.DatabasePath)
+	if cfg.DatabasePath != "./data/megaapp-test.db" && cfg.DatabasePath != "data/megaapp-test.db" {
+		t.Fatalf("DatabasePath = %q, want ./data/megaapp-test.db", cfg.DatabasePath)
 	}
 	if cfg.MigrationsDir != "./migrations" {
 		t.Fatalf("MigrationsDir = %q, want ./migrations", cfg.MigrationsDir)
@@ -285,13 +281,12 @@ func validTestConfig() Config {
 	return Config{
 		AppEnv:                             "test",
 		AppHost:                            "127.0.0.1",
-		AppPort:                            3000,
+		AppPort:                            3001,
 		LogLevel:                           "info",
 		DataDir:                            "./data",
 		DatabaseName:                       "megaapp",
 		DatabaseEnv:                        "test",
-		DatabaseVersion:                    "005",
-		DatabasePath:                       "./data/megaapp-test-005.db",
+		DatabasePath:                       "./data/megaapp-test.db",
 		MigrationsDir:                      "./migrations",
 		PublicDir:                          "./public",
 		BackupsDir:                         "./backups",

@@ -12,6 +12,7 @@ import (
 	"megaapp-back/internal/config"
 	"megaapp-back/internal/food"
 	"megaapp-back/internal/jobs"
+	"megaapp-back/internal/metrics"
 	"megaapp-back/internal/money"
 	clockplatform "megaapp-back/internal/platform/clock"
 	s3platform "megaapp-back/internal/platform/s3"
@@ -48,6 +49,11 @@ type quotesModule struct {
 type backupModule struct {
 	service      *backup.Service
 	debugHandler *backup.DebugHandler
+}
+
+type metricsModule struct {
+	service  *metrics.Service
+	realtime *metrics.Realtime
 }
 
 type foodModule struct {
@@ -120,13 +126,12 @@ func buildBackupModule(db *sql.DB, cfg config.Config, logger *slog.Logger, clk c
 		})
 	}
 	service := backup.NewService(db, backup.Config{
-		DatabaseName:    cfg.DatabaseName,
-		DatabaseEnv:     cfg.DatabaseEnv,
-		DatabaseVersion: cfg.DatabaseVersion,
-		BackupsDir:      cfg.BackupsDir,
-		StorageEnabled:  cfg.BackupStorageEnabled,
-		StorageClass:    cfg.BackupStorageClass,
-	}, clk, uploader)
+		DatabaseName:   cfg.DatabaseName,
+		DatabaseEnv:    cfg.DatabaseEnv,
+		BackupsDir:     cfg.BackupsDir,
+		StorageEnabled: cfg.BackupStorageEnabled,
+		StorageClass:   cfg.BackupStorageClass,
+	}, clk, logger, uploader)
 	if cfg.BackupJobEnabled {
 		if err := runtime.Register("backup", cfg.BackupJobSchedule, func(ctx context.Context) error {
 			backupCtx, cancel := context.WithTimeout(ctx, cfg.BackupOperationTimeout)
@@ -137,11 +142,42 @@ func buildBackupModule(db *sql.DB, cfg config.Config, logger *slog.Logger, clk c
 			return backupModule{}, err
 		}
 	}
-	_ = logger
 	return backupModule{service: service, debugHandler: backup.NewDebugHandler(service)}, nil
 }
 
-func buildFoodModule(db *sql.DB, cfg config.Config, hub *ws.Hub, clk clockplatform.Clock) (foodModule, error) {
+func buildMetricsModule(db *sql.DB, hub *ws.Hub, authService *auth.Service, clk clockplatform.Clock, runtime *jobs.Runtime) (metricsModule, error) {
+	repo := metrics.NewRepository(db)
+	service := metrics.NewService(repo, clk, authService)
+	realtime := metrics.NewRealtime(hub)
+
+	hub.RegisterHandler("METRICS_SUBSCRIBE", metrics.NewSubscribeHandler(service, realtime))
+	hub.RegisterHandler("METRICS_UNSUBSCRIBE", metrics.NewUnsubscribeHandler(realtime))
+
+	if err := runtime.Register("metrics", "* * * * *", func(ctx context.Context) error {
+		points, err := service.Flush(ctx)
+		if err != nil {
+			return err
+		}
+		if len(points) > 0 {
+			realtime.BroadcastDetail(metrics.DetailUpdate{Points: points})
+		}
+
+		adminUserIDs, err := service.AdminUserIDs(ctx)
+		if err != nil {
+			return err
+		}
+		realtime.BroadcastHealth(adminUserIDs, metrics.HealthStatus{
+			Services: []metrics.ServiceHealth{{Service: metrics.MainServiceName, Severity: "ok"}},
+		})
+		return nil
+	}); err != nil {
+		return metricsModule{}, err
+	}
+
+	return metricsModule{service: service, realtime: realtime}, nil
+}
+
+func buildFoodModule(db *sql.DB, cfg config.Config, hub *ws.Hub, clk clockplatform.Clock, metricsRecorder food.MetricsRecorder) (foodModule, error) {
 	repo := food.NewRepository(db)
 	service := food.NewService(repo)
 	service.SetClock(clk)
@@ -200,7 +236,7 @@ func buildFoodModule(db *sql.DB, cfg config.Config, hub *ws.Hub, clk clockplatfo
 	return foodModule{
 		service:          service,
 		readHandler:      food.NewHandler(service, realtime),
-		writeHandler:     food.NewWriteHandler(service, realtime),
+		writeHandler:     food.NewWriteHandler(service, realtime, metricsRecorder),
 		catalogueHandler: food.NewCatalogueHandler(service, realtime),
 		imageHandler:     food.NewImageHandler(imageStore),
 		labHandler:       food.NewLabHandler(food.NewLabService(repo, service, imagePipeline)),

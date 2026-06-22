@@ -10,12 +10,14 @@ import (
 type TokenClaims struct {
 	UserID   int64  `json:"id"`
 	Username string `json:"username"`
+	IsAdmin  bool   `json:"isAdmin"`
 	jwt.RegisteredClaims
 }
 
 type TokenPair struct {
 	AccessToken  string `json:"accessToken"`
 	RefreshToken string `json:"refreshToken"`
+	IsAdmin      bool   `json:"isAdmin"`
 }
 
 type TokenManager struct {
@@ -43,7 +45,7 @@ func (m *TokenManager) Issue(claims TokenClaims) (TokenPair, error) {
 		return TokenPair{}, err
 	}
 
-	return TokenPair{AccessToken: accessToken, RefreshToken: refreshToken}, nil
+	return TokenPair{AccessToken: accessToken, RefreshToken: refreshToken, IsAdmin: claims.IsAdmin}, nil
 }
 
 func (m *TokenManager) Verify(token string) (TokenClaims, error) {
@@ -70,6 +72,7 @@ func (m *TokenManager) sign(baseClaims TokenClaims, ttl time.Duration) (string, 
 	claims := TokenClaims{
 		UserID:   baseClaims.UserID,
 		Username: baseClaims.Username,
+		IsAdmin:  baseClaims.IsAdmin,
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
