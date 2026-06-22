@@ -41,6 +41,11 @@ func (r *Repository) GetUserByUsername(ctx context.Context, username string) (*U
 	return scanUser(row)
 }
 
+func (r *Repository) GetUserByID(ctx context.Context, userID int64) (*User, error) {
+	row := r.db.QueryRowContext(ctx, `SELECT id, username, hashedPassword, isAdmin FROM users WHERE id = ?`, userID)
+	return scanUser(row)
+}
+
 func (r *Repository) ListAdminUserIDs(ctx context.Context) ([]int64, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT id FROM users WHERE isAdmin = 1`)
 	if err != nil {

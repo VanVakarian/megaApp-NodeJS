@@ -69,7 +69,7 @@ func (s *Service) Login(ctx context.Context, username string, password string) (
 	})
 }
 
-func (s *Service) Refresh(_ context.Context, refreshToken string) (TokenPair, error) {
+func (s *Service) Refresh(ctx context.Context, refreshToken string) (TokenPair, error) {
 	claims, err := s.tokenManager.Verify(refreshToken)
 	if err != nil {
 		return TokenPair{}, ErrInvalidToken
@@ -79,10 +79,18 @@ func (s *Service) Refresh(_ context.Context, refreshToken string) (TokenPair, er
 		return TokenPair{}, ErrInvalidToken
 	}
 
+	user, err := s.repo.GetUserByID(ctx, claims.UserID)
+	if err != nil {
+		return TokenPair{}, err
+	}
+	if user == nil {
+		return TokenPair{}, ErrInvalidToken
+	}
+
 	return s.tokenManager.Issue(TokenClaims{
-		UserID:   claims.UserID,
-		Username: claims.Username,
-		IsAdmin:  claims.IsAdmin,
+		UserID:   user.ID,
+		Username: user.Username,
+		IsAdmin:  user.IsAdmin,
 	})
 }
 
@@ -96,4 +104,8 @@ func (s *Service) Verify(token string) (TokenClaims, error) {
 
 func (s *Service) ListAdminUserIDs(ctx context.Context) ([]int64, error) {
 	return s.repo.ListAdminUserIDs(ctx)
+}
+
+func (s *Service) GetUserByID(ctx context.Context, userID int64) (*User, error) {
+	return s.repo.GetUserByID(ctx, userID)
 }

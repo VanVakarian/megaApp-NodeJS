@@ -44,7 +44,7 @@ func (r *Repository) ListSince(ctx context.Context, sinceBucket int64) ([]Metric
 	}
 	defer rows.Close()
 
-	var points []MetricPoint
+	points := make([]MetricPoint, 0)
 	for rows.Next() {
 		var point MetricPoint
 		if err := rows.Scan(&point.Name, &point.Bucket, &point.Value); err != nil {
