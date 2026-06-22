@@ -112,7 +112,7 @@ func buildQuotesModule(db *sql.DB, cfg config.Config, logger *slog.Logger, clk c
 	return quotesModule{service: service, debugHandler: quotes.NewDebugHandler(service)}, nil
 }
 
-func buildBackupModule(db *sql.DB, cfg config.Config, logger *slog.Logger, clk clockplatform.Clock, runtime *jobs.Runtime) (backupModule, error) {
+func buildBackupModule(db *sql.DB, cfg config.Config, logger *slog.Logger, clk clockplatform.Clock, runtime *jobs.Runtime, metricsRecorder *metrics.Service) (backupModule, error) {
 	var uploader *s3platform.Client
 	if cfg.BackupStorageEnabled {
 		uploader = s3platform.NewClient(s3platform.Config{
@@ -136,8 +136,11 @@ func buildBackupModule(db *sql.DB, cfg config.Config, logger *slog.Logger, clk c
 		if err := runtime.Register("backup", cfg.BackupJobSchedule, func(ctx context.Context) error {
 			backupCtx, cancel := context.WithTimeout(ctx, cfg.BackupOperationTimeout)
 			defer cancel()
-			_, err := service.Run(backupCtx)
-			return err
+			if _, err := service.Run(backupCtx); err != nil {
+				return err
+			}
+			metricsRecorder.Increment(backup.MetricJobRan)
+			return nil
 		}); err != nil {
 			return backupModule{}, err
 		}
@@ -237,7 +240,7 @@ func buildFoodModule(db *sql.DB, cfg config.Config, hub *ws.Hub, clk clockplatfo
 		service:          service,
 		readHandler:      food.NewHandler(service, realtime),
 		writeHandler:     food.NewWriteHandler(service, realtime, metricsRecorder),
-		catalogueHandler: food.NewCatalogueHandler(service, realtime),
+		catalogueHandler: food.NewCatalogueHandler(service, realtime, metricsRecorder),
 		imageHandler:     food.NewImageHandler(imageStore),
 		labHandler:       food.NewLabHandler(food.NewLabService(repo, service, imagePipeline)),
 		debugHandler:     food.NewDebugHandler(food.NewDebugService(repo, cfg.BackupsDir, mediaClient, service, realtime)),

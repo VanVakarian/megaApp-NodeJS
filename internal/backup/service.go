@@ -17,6 +17,8 @@ import (
 	logplatform "megaapp-back/internal/platform/log"
 )
 
+const MetricJobRan = "backup_job_ran"
+
 type Config struct {
 	DatabaseName   string
 	DatabaseEnv    string
