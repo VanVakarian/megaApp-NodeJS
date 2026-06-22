@@ -12,7 +12,6 @@ func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("LOG_LEVEL", "")
 	t.Setenv("DATA_DIR", "")
 	t.Setenv("DB_NAME", "")
-	t.Setenv("DB_ENV", "")
 	t.Setenv("DATABASE_PATH", "")
 	t.Setenv("MIGRATIONS_DIR", "")
 	t.Setenv("PUBLIC_DIR", "")
@@ -81,9 +80,6 @@ func TestLoadUsesDefaults(t *testing.T) {
 	}
 	if cfg.DatabaseName != "megaapp" {
 		t.Fatalf("DatabaseName = %q, want megaapp", cfg.DatabaseName)
-	}
-	if cfg.DatabaseEnv != "test" {
-		t.Fatalf("DatabaseEnv = %q, want test", cfg.DatabaseEnv)
 	}
 	if cfg.DatabasePath != "./data/megaapp-test.db" && cfg.DatabasePath != "data/megaapp-test.db" {
 		t.Fatalf("DatabasePath = %q, want ./data/megaapp-test.db", cfg.DatabasePath)
@@ -269,7 +265,6 @@ func TestValidateRejectsInvalidBackupConfig(t *testing.T) {
 func TestValidateAcceptsProdLikeConfig(t *testing.T) {
 	cfg := validTestConfig()
 	cfg.AppEnv = "prod"
-	cfg.DatabaseEnv = "prod"
 	cfg.JWTSecret = "prod-secret"
 
 	if err := cfg.Validate(); err != nil {
@@ -285,13 +280,13 @@ func validTestConfig() Config {
 		LogLevel:                           "info",
 		DataDir:                            "./data",
 		DatabaseName:                       "megaapp",
-		DatabaseEnv:                        "test",
 		DatabasePath:                       "./data/megaapp-test.db",
 		MigrationsDir:                      "./migrations",
 		PublicDir:                          "./public",
 		BackupsDir:                         "./backups",
 		JWTSecret:                          "secret",
 		OpenRouterTimeout:                  time.Second,
+		ImageGenerationMaxAttempts:         3,
 		OpenAIEmbeddingDims:                768,
 		OpenAITimeout:                      time.Second,
 		CoefficientsJobSchedule:            "0 1 * * *",

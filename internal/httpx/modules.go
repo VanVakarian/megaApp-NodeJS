@@ -127,7 +127,7 @@ func buildBackupModule(db *sql.DB, cfg config.Config, logger *slog.Logger, clk c
 	}
 	service := backup.NewService(db, backup.Config{
 		DatabaseName:   cfg.DatabaseName,
-		DatabaseEnv:    cfg.DatabaseEnv,
+		DatabaseEnv:    cfg.AppEnv,
 		BackupsDir:     cfg.BackupsDir,
 		StorageEnabled: cfg.BackupStorageEnabled,
 		StorageClass:   cfg.BackupStorageClass,
@@ -180,7 +180,7 @@ func buildMetricsModule(db *sql.DB, hub *ws.Hub, authService *auth.Service, clk 
 	return metricsModule{service: service, realtime: realtime}, nil
 }
 
-func buildFoodModule(db *sql.DB, cfg config.Config, hub *ws.Hub, clk clockplatform.Clock, metricsRecorder food.MetricsRecorder) (foodModule, error) {
+func buildFoodModule(db *sql.DB, cfg config.Config, logger *slog.Logger, hub *ws.Hub, clk clockplatform.Clock, metricsRecorder food.MetricsRecorder) (foodModule, error) {
 	repo := food.NewRepository(db)
 	service := food.NewService(repo)
 	service.SetClock(clk)
@@ -199,6 +199,7 @@ func buildFoodModule(db *sql.DB, cfg config.Config, hub *ws.Hub, clk clockplatfo
 			APIKey:  cfg.OpenRouterAPIKey,
 			Model:   cfg.OpenRouterModel,
 			Timeout: cfg.OpenRouterTimeout,
+			Logger:  logger,
 		})
 		if err != nil {
 			return foodModule{}, err
@@ -209,6 +210,7 @@ func buildFoodModule(db *sql.DB, cfg config.Config, hub *ws.Hub, clk clockplatfo
 			VisionModel: cfg.OpenRouterVisionModel,
 			ImageModel:  cfg.OpenRouterImageModel,
 			Timeout:     cfg.OpenRouterTimeout,
+			Logger:      logger,
 		})
 		if err != nil {
 			return foodModule{}, err
@@ -233,7 +235,7 @@ func buildFoodModule(db *sql.DB, cfg config.Config, hub *ws.Hub, clk clockplatfo
 	}
 	service.SetImageVersionProvider(imageStore)
 	realtime := food.NewWSRealtimePublisher(hub, clk)
-	imagePipeline := food.NewImagePipeline(imageStore, mediaClient, realtime)
+	imagePipeline := food.NewImagePipeline(imageStore, mediaClient, realtime, cfg.ImageGenerationMaxAttempts, logger)
 	service.SetImageGenerationRequester(imagePipeline)
 	hub.RegisterHandler("SEARCH_QUERY", food.NewSearchWSHandler(service, clk))
 	return foodModule{

@@ -80,7 +80,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 		_ = db.Close()
 		return nil, err
 	}
-	foodModule, err := buildFoodModule(db.SQL(), cfg, wsModule.hub, clk, metricsModule.service)
+	foodModule, err := buildFoodModule(db.SQL(), cfg, logger, wsModule.hub, clk, metricsModule.service)
 	if err != nil {
 		_ = wsModule.hub.Close()
 		_ = jobRuntime.Close()

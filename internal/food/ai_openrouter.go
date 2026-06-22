@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -25,11 +26,13 @@ type OpenRouterProductGeneratorConfig struct {
 	APIKey  string
 	Model   string
 	Timeout time.Duration
+	Logger  *slog.Logger
 }
 
 type OpenRouterProductGenerator struct {
 	client *openai.Client
 	model  string
+	logger *slog.Logger
 }
 
 type aiChatCompletionRequest struct {
@@ -89,7 +92,7 @@ func NewOpenRouterProductGenerator(cfg OpenRouterProductGeneratorConfig) (*OpenR
 		option.WithHeader("X-Title", "megaapp-back"),
 	)
 
-	return &OpenRouterProductGenerator{client: &client, model: cfg.Model}, nil
+	return &OpenRouterProductGenerator{client: &client, model: cfg.Model, logger: cfg.Logger}, nil
 }
 
 func (g *OpenRouterProductGenerator) GenerateProduct(ctx context.Context, description string) (ProductPreviewData, error) {
@@ -102,6 +105,7 @@ func (g *OpenRouterProductGenerator) AnalyzeVoice(ctx context.Context, transcrip
 
 func (g *OpenRouterProductGenerator) generate(ctx context.Context, systemPrompt string, userPrompt string) (ProductPreviewData, error) {
 	if strings.TrimSpace(userPrompt) == "" {
+		g.logger.Debug("openrouter product generation skipped: empty input")
 		return ProductPreviewData{}, errors.New("input is required")
 	}
 
@@ -112,19 +116,34 @@ func (g *OpenRouterProductGenerator) generate(ctx context.Context, systemPrompt 
 			{Role: "user", Content: []aiChatContentPart{{Type: "text", Text: userPrompt}}},
 		},
 	}
+	g.logger.Debug("openrouter product request built", "model", g.model, "promptLength", len(userPrompt))
 
+	start := time.Now()
 	var response aiChatCompletionResponse
-	if err := g.client.Post(ctx, "chat/completions", request, &response); err != nil {
+	err := g.client.Post(ctx, "chat/completions", request, &response)
+	duration := time.Since(start)
+	if err != nil {
+		g.logger.Error("openrouter product request failed", "model", g.model, "duration", duration, "error", err)
 		return ProductPreviewData{}, fmt.Errorf("openrouter request failed: %w", err)
 	}
+	g.logger.Debug("openrouter product response received", "model", g.model, "duration", duration, "choicesCount", len(response.Choices))
 	if len(response.Choices) == 0 {
+		g.logger.Error("openrouter returned no choices", "model", g.model, "duration", duration)
 		return ProductPreviewData{}, errors.New("openrouter returned no choices")
 	}
+	if duration > 10*time.Second {
+		g.logger.Warn("openrouter product request was slow", "model", g.model, "duration", duration)
+	}
 
-	parsed, err := parseAIProductResponse(response.Choices[0].Message.Content)
+	content := response.Choices[0].Message.Content
+	g.logger.Debug("openrouter product response content received", "model", g.model, "contentLength", len(content))
+
+	parsed, err := parseAIProductResponse(content)
 	if err != nil {
+		g.logger.Error("openrouter product response parse failed", "model", g.model, "content", content, "error", err)
 		return ProductPreviewData{}, err
 	}
+	g.logger.Debug("openrouter product response parsed", "model", g.model, "name", parsed.GeneralizedName, "kcals", parsed.Kcals)
 	return parsed, nil
 }
 
