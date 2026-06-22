@@ -8,6 +8,8 @@ import (
 	clockplatform "megaapp-back/internal/platform/clock"
 )
 
+const MainServiceName = "megaapp"
+
 type AdminLister interface {
 	ListAdminUserIDs(ctx context.Context) ([]int64, error)
 }
@@ -49,10 +51,10 @@ func (s *Service) Flush(ctx context.Context) ([]MetricPoint, error) {
 	bucket := previousMinuteBucket(s.clock.Now())
 	points := make([]MetricPoint, 0, len(pending))
 	for name, delta := range pending {
-		if err := s.repo.AddToCounter(ctx, name, bucket, float64(delta)); err != nil {
+		if err := s.repo.AddToCounter(ctx, MainServiceName, name, bucket, float64(delta)); err != nil {
 			return nil, err
 		}
-		points = append(points, MetricPoint{Name: name, Bucket: bucket, Value: float64(delta)})
+		points = append(points, MetricPoint{Service: MainServiceName, Name: name, Bucket: bucket, Value: float64(delta)})
 	}
 	return points, nil
 }

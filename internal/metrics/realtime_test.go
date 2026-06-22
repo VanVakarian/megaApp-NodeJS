@@ -137,7 +137,7 @@ func TestBroadcastHealthReachesOnlyAdmins(t *testing.T) {
 	defer func() { _ = plainConn.Close() }()
 	drainMetricsMessage(t, plainConn)
 
-	realtime.BroadcastHealth([]int64{adminUserID}, HealthStatus{Severity: "ok"})
+	realtime.BroadcastHealth([]int64{adminUserID}, HealthStatus{Services: []ServiceHealth{{Service: MainServiceName, Severity: "ok"}}})
 
 	_ = adminConn.SetReadDeadline(time.Now().Add(time.Second))
 	var health map[string]any

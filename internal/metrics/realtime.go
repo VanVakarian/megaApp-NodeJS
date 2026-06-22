@@ -6,8 +6,13 @@ import (
 	"megaapp-back/internal/ws"
 )
 
-type HealthStatus struct {
+type ServiceHealth struct {
+	Service  string `json:"service"`
 	Severity string `json:"severity"`
+}
+
+type HealthStatus struct {
+	Services []ServiceHealth `json:"services"`
 }
 
 type DetailUpdate struct {

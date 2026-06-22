@@ -8,7 +8,7 @@ Backend-часть единого плана [`METRICS._implementation-plan.md`]
 - `internal/ws/hub.go`: `Hub.clientsByUserID map[int64]map[*Client]struct{}`, `BroadcastToUser(userID, payload, excludeClientID)`, `BroadcastToAll(...)`, `RegisterHandler(messageType, handler)`. Никакой фильтрации по ролям/топикам внутри `Hub` нет — broadcast either "этому юзеру" либо "вообще всем подключённым".
 - Уже есть рабочий пример push-паттерна: `internal/food/realtime.go` (`WSRealtimePublisher`) — оборачивает `*ws.Hub`, шлёт `{"type": ..., "payload": ...}` через `BroadcastToUser`/`BroadcastToAll`. Метрики должны повторить этот же паттерн, не трогая сам `Hub`.
 - `internal/auth`: `TokenClaims{UserID, Username}`, `auth.User{ID, Username, HashedPassword}`. Таблица `users` (`migrations/000001_auth_and_settings.sql`) уже содержит колонку `isAdmin BOOLEAN`, но она **нигде не используется в Go-коде** — ни в `Repository.GetUserByUsername` (не селектится), ни в `User`, ни в `TokenClaims`, ни в `Service.Verify`. Концепция админа существует только в схеме БД.
-- Миграции: `internal/platform/sqlite/migrations.go` — пронумерованные `.sql`-файлы + таблица `schema_migrations`, которая помнит применённые версии и пропускает их повторное исполнение. Стандартная Go-схема (как `golang-migrate`/`goose`) — миграции неизменяемы после создания, новая правка всегда новый файл. (Зафиксировано как общее правило в `~/.claude/rules/database.md`.)
+- Миграции: `internal/platform/sqlite/migrations.go` — пронумерованные `.sql`-файлы + таблица `schema_migrations`, которая помнит применённые версии и пропускает их повторное исполнение. Стандартная Go-схема (как `golang-migrate`/`goose`) — миграции неизменяемы после **релиза**. Пока версия не зарелизена — миграции этой же фичи (`000003_metrics.sql`) свободно редактируются на месте, без новой миграции под каждую правку (см. политику в корневом плане, секция "Политика на время активной разработки"; общее правило с этим исключением — `~/.claude/rules/database.md`).
 - Модули собираются в `internal/httpx/modules.go` (repo → service → handler на каждый домен), маршруты регистрируются в `internal/httpx/app.go` через `<module>.RegisterRoutes(router, ...)`.
 
 ## Как должно быть
@@ -16,7 +16,7 @@ Backend-часть единого плана [`METRICS._implementation-plan.md`]
 - Новый изолированный пакет `internal/metrics`, без обратных зависимостей на другие домены.
 - Модель: Counter/Gauge — статическое свойство имени метрики на уровне кода. In-memory accumulator под `sync.Mutex`, фоновый тикер раз в минуту коммитит в SQLite и сбрасывает accumulator.
 - Единый write-path: всегда upsert по `(metric_name, minute_bucket)`, bucket = floor-to-minute начала интервала. Внешние пуши (Этап 3) этот accumulator не используют — сразу upsert при получении.
-- Таблица метрик — **новая миграция** `000003_metrics.sql` (не правка существующих файлов — см. обновлённое правило про Go-style versioned migrations).
+- Таблица метрик — миграция `000003_metrics.sql`, создана один раз. Дальше, пока версия не зарелизена, любые изменения схемы метрик — правка этой же миграции на месте, а не новый файл (см. политику в корневом плане).
 - Публичный интерфейс пакета — пара функций уровня пакета (инкремент/установка по имени метрики), вызываемых прямым импортом из `food`/`money`-хендлеров в местах нужных действий.
 - Решён открытый вопрос **админ-доступа**, без единой правки в `internal/ws`:
   - Прокинуть `isAdmin` через всю цепочку: `Repository.GetUserByUsername` селектит колонку → `auth.User.IsAdmin` → `TokenClaims.IsAdmin` → `Service.Verify` отдаёт его наружу.
@@ -67,6 +67,13 @@ Restore-day (`RestoreDiaryEntriesForDay`, отмена удаления) мет�
 - `Handler.Verify` (HTTP-ручка `/api/auth/verify`, вызывается один раз при старте SPA, не хот-путь) — также подтягивает свежего пользователя через `Service.GetUserByID` и возвращает актуальный `isAdmin` в JSON, а не декодированное значение из токена.
 - Итог: смена `isAdmin` в БД руками подхватывается без полного логаута — либо сразу при следующей загрузке SPA (через `/verify`), либо при следующем авто-рефреше токена. Полный логаут/логин для этого больше не обязателен.
 
+### Этап 3 (UI на фронте) — изменение формата health-payload
+
+Фронт попросил детализацию здоровья по сервисам (карточки "Services Health" на странице метрик, отдельно от общего индикатора в сайдбаре). Под это поменян формат:
+- `internal/metrics/realtime.go`: `HealthStatus{Severity string}` → `HealthStatus{Services []ServiceHealth}`, `ServiceHealth{Service, Severity}`.
+- Новая константа `metrics.MainServiceName = "megaapp"` — имя текущего (единственного на сейчас) сервиса, статически в коде, без таблицы регистрации сервисов (не нужна на одном сервисе).
+- `buildMetricsModule` (`internal/httpx/modules.go`) теперь шлёт `HealthStatus{Services: []ServiceHealth{{Service: MainServiceName, Severity: "ok"}}}` — массив из одного элемента уже сейчас, без breaking change протокола, когда сервисов станет больше.
+
 ### Этап 1: Сборщик + хранение — ✅ готово
 - ✅ `internal/metrics`: accumulator (mutex + map), `Service.Flush` (вызывается cron-джобой `"metrics"`), `Repository.AddToCounter` (upsert), `Repository.ListSince`.
 - ✅ Миграция `migrations/000003_metrics.sql`.
@@ -87,3 +94,20 @@ Restore-day (`RestoreDiaryEntriesForDay`, отмена удаления) мет�
 ### Этап 3: Внешний приём (задел на будущее) — не начато
 - ⭕ HTTP-ручка приёма `(name, window-start timestamp, value)` в `internal/metrics`, авторизация по ключу источника.
 - ⭕ Подключение конкретных внешних скриптов — отдельные задачи позже.
+
+### Ревизия под политику "не бояться breaking changes" — правка 000003, колонка `service`
+
+По итогам ревизии всех решений этой фичи под новой политикой (см. корневой план) — таблица `metrics` дополнена колонкой `service` (правкой той же `000003_metrics.sql`, не новой миграцией):
+
+```
+UNIQUE(service, metricName, minuteBucket)
+```
+
+Причина: `HealthStatus` уже получил `services[]` на Этапе 3 (детализация по сервисам для карточек на фронте) — но сама таблица метрик и `MetricPoint`/`DetailUpdate` оставались без понятия "сервис", хотя Этап 4 (внешний приём) рано или поздно принесёт метрики от других источников. Поправили сейчас, пока это бесплатно (только своя миграция, ничего не зарелизено), а не когда придётся резать поверх уже выпущенной схемы.
+
+- `Repository.AddToCounter(ctx, service, name, bucket, delta)` — `service` теперь явный параметр, не подразумевается.
+- `MetricPoint` получил поле `Service string` — отдаётся и в detail-канал, и в HTTP (если такой появится).
+- `Service.Flush` передаёt `MainServiceName` (= `"megaapp"`) — единственный источник метрик внутри текущего бинарника; внешние источники (Этап 4) будут передавать свой `service` явно.
+- Заодно убрали nil-guard в `food.WriteHandler.recordMetric` (`MetricsRecorder` — обязательная зависимость, не опциональная) — тест (`http_test.go`) теперь передаёт настоящий fake-recorder вместо `nil`. Это тоже было излишней защитной осторожностью без реального кейса.
+
+**Важно для реальной dev-БД**: таблица `metrics` была создана раньше со старой схемой (без `service`). `CREATE TABLE IF NOT EXISTS` в правленой миграции — no-op, если таблица уже существует. Чтобы подтянуть новую схему на уже существующей БД: удалить таблицу `metrics` и строку `000003_metrics` из `schema_migrations`, перезапустить сервер — миграция накатится заново с нуля. Сделано один раз в рамках этой правки; для последующих правок той же миграции до релиза — повторять то же самое.

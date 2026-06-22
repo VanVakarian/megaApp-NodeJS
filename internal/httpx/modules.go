@@ -168,7 +168,9 @@ func buildMetricsModule(db *sql.DB, hub *ws.Hub, authService *auth.Service, clk 
 		if err != nil {
 			return err
 		}
-		realtime.BroadcastHealth(adminUserIDs, metrics.HealthStatus{Severity: "ok"})
+		realtime.BroadcastHealth(adminUserIDs, metrics.HealthStatus{
+			Services: []metrics.ServiceHealth{{Service: metrics.MainServiceName, Severity: "ok"}},
+		})
 		return nil
 	}); err != nil {
 		return metricsModule{}, err

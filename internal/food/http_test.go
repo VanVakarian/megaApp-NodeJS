@@ -21,6 +21,17 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+type fakeMetricsRecorder struct {
+	counts map[string]int
+}
+
+func (f *fakeMetricsRecorder) Increment(name string) {
+	if f.counts == nil {
+		f.counts = make(map[string]int)
+	}
+	f.counts[name]++
+}
+
 func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 	db := openFoodTestDB(t)
 	authRepo := auth.NewRepository(db)
@@ -44,7 +55,7 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 	realtime := NewWSRealtimePublisher(hub, clk)
 	readHandler := NewHandler(service, realtime)
 	hub.RegisterHandler("SEARCH_QUERY", NewSearchWSHandler(service, clk))
-	writeHandler := NewWriteHandler(service, realtime, nil)
+	writeHandler := NewWriteHandler(service, realtime, &fakeMetricsRecorder{})
 	catalogueHandler := NewCatalogueHandler(service, realtime)
 	wsHandler := wspkg.NewHandler(authService, hub)
 

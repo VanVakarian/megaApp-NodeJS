@@ -58,9 +58,6 @@ func NewWriteHandler(service *Service, realtime RealtimePublisher, metricsRecord
 }
 
 func (h *WriteHandler) recordMetric(name string) {
-	if h.metrics == nil {
-		return
-	}
 	h.metrics.Increment(name)
 }
 

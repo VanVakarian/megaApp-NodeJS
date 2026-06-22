@@ -51,6 +51,9 @@ func TestServiceFlushUpsertsAccumulatedCounters(t *testing.T) {
 		if point.Bucket != wantBucket {
 			t.Fatalf("point.Bucket = %d, want %d", point.Bucket, wantBucket)
 		}
+		if point.Service != MainServiceName {
+			t.Fatalf("point.Service = %q, want %q", point.Service, MainServiceName)
+		}
 		got[point.Name] = point.Value
 	}
 
@@ -205,10 +208,11 @@ func openMetricsTestDB(t *testing.T) *sql.DB {
 	if _, err := db.Exec(`
 		CREATE TABLE metrics (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			service TEXT NOT NULL,
 			metricName TEXT NOT NULL,
 			minuteBucket INTEGER NOT NULL,
 			value REAL NOT NULL,
-			UNIQUE(metricName, minuteBucket)
+			UNIQUE(service, metricName, minuteBucket)
 		);
 	`); err != nil {
 		_ = db.Close()
