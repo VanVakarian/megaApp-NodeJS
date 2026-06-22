@@ -17,7 +17,6 @@ type Config struct {
 	LogLevel                           string
 	DataDir                            string
 	DatabaseName                       string
-	DatabaseEnv                        string
 	DatabasePath                       string
 	MigrationsDir                      string
 	PublicDir                          string
@@ -28,6 +27,7 @@ type Config struct {
 	OpenRouterVisionModel              string
 	OpenRouterImageModel               string
 	OpenRouterTimeout                  time.Duration
+	ImageGenerationMaxAttempts         int
 	OpenAIAPIKey                       string
 	OpenAIEmbeddingModel               string
 	OpenAIEmbeddingDims                int
@@ -77,10 +77,9 @@ func Load() (Config, error) {
 	}
 
 	appEnv := getString("APP_ENV", "test")
-	databaseEnv := getString("DB_ENV", appEnv)
 	databaseName := getString("DB_NAME", "megaapp")
 	dataDir := getString("DATA_DIR", "./data")
-	databasePath := getString("DATABASE_PATH", filepath.Join(dataDir, buildDatabaseFileName(databaseName, databaseEnv)))
+	databasePath := getString("DATABASE_PATH", filepath.Join(dataDir, buildDatabaseFileName(databaseName, appEnv)))
 	buildCommit, buildTime := loadBuildInfo("build-info.json")
 
 	cfg := Config{
@@ -89,7 +88,6 @@ func Load() (Config, error) {
 		LogLevel:                      strings.ToLower(getString("LOG_LEVEL", "info")),
 		DataDir:                       dataDir,
 		DatabaseName:                  databaseName,
-		DatabaseEnv:                   databaseEnv,
 		DatabasePath:                  databasePath,
 		MigrationsDir:                 getString("MIGRATIONS_DIR", "./migrations"),
 		PublicDir:                     getString("PUBLIC_DIR", "./public"),
@@ -180,6 +178,12 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("load config: %w", err)
 	}
 	cfg.OpenRouterTimeout = time.Duration(openRouterTimeoutSeconds) * time.Second
+
+	imageGenerationMaxAttempts, err := getInt("IMAGE_GENERATION_MAX_ATTEMPTS", 3)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.ImageGenerationMaxAttempts = imageGenerationMaxAttempts
 
 	openAIEmbeddingDims, err := getInt("OPENAI_EMBEDDING_DIMENSIONS", 768)
 	if err != nil {
@@ -279,9 +283,6 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.DatabaseName) == "" {
 		return fmt.Errorf("validate config: DB_NAME is required")
 	}
-	if strings.TrimSpace(c.DatabaseEnv) == "" {
-		return fmt.Errorf("validate config: DB_ENV is required")
-	}
 	if strings.TrimSpace(c.DatabasePath) == "" {
 		return fmt.Errorf("validate config: DATABASE_PATH is required")
 	}
@@ -302,6 +303,9 @@ func (c Config) Validate() error {
 	}
 	if c.OpenAIEmbeddingDims <= 0 {
 		return fmt.Errorf("validate config: OPENAI_EMBEDDING_DIMENSIONS must be greater than 0")
+	}
+	if c.ImageGenerationMaxAttempts <= 0 {
+		return fmt.Errorf("validate config: IMAGE_GENERATION_MAX_ATTEMPTS must be greater than 0")
 	}
 	if c.OpenAITimeout <= 0 {
 		return fmt.Errorf("validate config: OPENAI_TIMEOUT_SECONDS must be greater than 0")

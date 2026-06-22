@@ -14,6 +14,7 @@ import (
 type CatalogueHandler struct {
 	service  *Service
 	realtime RealtimePublisher
+	metrics  MetricsRecorder
 }
 
 type generateProductPreviewRequest struct {
@@ -35,8 +36,8 @@ type analyzeVoiceRequest struct {
 	Transcript string `json:"transcript"`
 }
 
-func NewCatalogueHandler(service *Service, realtime RealtimePublisher) *CatalogueHandler {
-	return &CatalogueHandler{service: service, realtime: realtime}
+func NewCatalogueHandler(service *Service, realtime RealtimePublisher, metricsRecorder MetricsRecorder) *CatalogueHandler {
+	return &CatalogueHandler{service: service, realtime: realtime, metrics: metricsRecorder}
 }
 
 func RegisterCatalogueRoutes(router chi.Router, authService *auth.Service, handler *CatalogueHandler) {
@@ -114,6 +115,11 @@ func (h *CatalogueHandler) SaveProduct(w http.ResponseWriter, r *http.Request) {
 	if entry != nil {
 		h.realtime.MarkUserUpdated(claims.UserID)
 		h.realtime.PublishCatalogueEntrySaved(claims.UserID, *entry, extractClientID(r))
+		if request.ID != nil {
+			h.metrics.Increment(MetricCatalogueEntryUpdated)
+		} else {
+			h.metrics.Increment(MetricCatalogueEntryCreated)
+		}
 	}
 	legacy.WriteJSON(w, statusCode, map[string]any{"result": true, "data": map[string]any{"catalogueEntry": entry}})
 }
@@ -151,5 +157,6 @@ func (h *CatalogueHandler) DeleteCatalogueEntry(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	h.metrics.Increment(MetricCatalogueEntryDeleted)
 	legacy.WriteJSON(w, http.StatusOK, map[string]any{"result": true, "data": map[string]any{"catalogueId": catalogueID}})
 }
