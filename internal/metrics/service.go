@@ -2,6 +2,8 @@ package metrics
 
 import (
 	"context"
+	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -9,6 +11,7 @@ import (
 )
 
 const MainServiceName = "megaapp"
+const SpreadCaptureBotServiceName = "spread-capture-bot-v3"
 
 type AdminLister interface {
 	ListAdminUserIDs(ctx context.Context) ([]int64, error)
@@ -21,6 +24,16 @@ type Service struct {
 
 	mu     sync.Mutex
 	counts map[string]int64
+}
+
+type SnapshotInput struct {
+	MinuteBucket int64              `json:"minuteBucket"`
+	Metrics      map[string]float64 `json:"metrics"`
+}
+
+type IngestRequest struct {
+	Service   string          `json:"service"`
+	Snapshots []SnapshotInput `json:"snapshots"`
 }
 
 func NewService(repo *Repository, clock clockplatform.Clock, adminLister AdminLister) *Service {
@@ -63,6 +76,41 @@ func (s *Service) ListSince(ctx context.Context, sinceBucket int64) ([]MetricPoi
 	return s.repo.ListSince(ctx, sinceBucket)
 }
 
+func (s *Service) IngestSnapshots(ctx context.Context, request IngestRequest) ([]MetricPoint, error) {
+	service := strings.TrimSpace(request.Service)
+	if service == "" {
+		return nil, ErrInvalidIngestPayload
+	}
+	if len(request.Snapshots) == 0 {
+		return nil, ErrInvalidIngestPayload
+	}
+
+	seenBuckets := make(map[int64]struct{}, len(request.Snapshots))
+	for _, snapshot := range request.Snapshots {
+		if snapshot.MinuteBucket <= 0 {
+			return nil, ErrInvalidIngestPayload
+		}
+		if len(snapshot.Metrics) == 0 {
+			return nil, ErrInvalidIngestPayload
+		}
+		if _, exists := seenBuckets[snapshot.MinuteBucket]; exists {
+			return nil, ErrInvalidIngestPayload
+		}
+		seenBuckets[snapshot.MinuteBucket] = struct{}{}
+
+		for name, value := range snapshot.Metrics {
+			if strings.TrimSpace(name) == "" {
+				return nil, ErrInvalidIngestPayload
+			}
+			if math.IsNaN(value) || math.IsInf(value, 0) {
+				return nil, ErrInvalidIngestPayload
+			}
+		}
+	}
+
+	return s.repo.ReplaceSnapshots(ctx, service, request.Snapshots)
+}
+
 func (s *Service) IsAdmin(ctx context.Context, userID int64) (bool, error) {
 	adminUserIDs, err := s.adminLister.ListAdminUserIDs(ctx)
 	if err != nil {
@@ -80,6 +128,65 @@ func (s *Service) AdminUserIDs(ctx context.Context) ([]int64, error) {
 	return s.adminLister.ListAdminUserIDs(ctx)
 }
 
+func (s *Service) CurrentHealth(ctx context.Context) (HealthStatus, error) {
+	latestPoints, err := s.repo.ListLatestPointsByService(ctx)
+	if err != nil {
+		return HealthStatus{}, err
+	}
+
+	pointsByService := make(map[string][]MetricPoint)
+	for _, point := range latestPoints {
+		pointsByService[point.Service] = append(pointsByService[point.Service], point)
+	}
+
+	status := HealthStatus{
+		Services: []ServiceHealth{
+			{Service: MainServiceName, Severity: "ok"},
+			{Service: SpreadCaptureBotServiceName, Severity: botHealthSeverity(s.clock.Now(), pointsByService[SpreadCaptureBotServiceName])},
+		},
+	}
+
+	for service := range pointsByService {
+		if service == MainServiceName || service == SpreadCaptureBotServiceName {
+			continue
+		}
+		status.Services = append(status.Services, ServiceHealth{Service: service, Severity: "ok"})
+	}
+
+	return status, nil
+}
+
 func previousMinuteBucket(now time.Time) int64 {
 	return now.Truncate(time.Minute).Add(-time.Minute).Unix()
+}
+
+func botHealthSeverity(now time.Time, points []MetricPoint) string {
+	if len(points) == 0 {
+		return "error"
+	}
+
+	latestBucket := points[0].Bucket
+	values := make(map[string]float64, len(points))
+	for _, point := range points {
+		values[point.Name] = point.Value
+	}
+
+	expectedBucket := previousMinuteBucket(now)
+	lagSeconds := expectedBucket - latestBucket
+	if lagSeconds >= 180 {
+		return "error"
+	}
+
+	severity := "ok"
+	if lagSeconds >= 120 {
+		severity = "warn"
+	}
+	if values["cycle_errors"] > 0 || values["reconcile_failures"] > 0 {
+		severity = "warn"
+	}
+	if values["books_missing"] >= 25 || values["cycle_duration_ms"] >= 45000 {
+		severity = "warn"
+	}
+
+	return severity
 }

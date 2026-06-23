@@ -54,6 +54,7 @@ type backupModule struct {
 type metricsModule struct {
 	service  *metrics.Service
 	realtime *metrics.Realtime
+	handler  *metrics.Handler
 }
 
 type foodModule struct {
@@ -152,6 +153,7 @@ func buildMetricsModule(db *sql.DB, hub *ws.Hub, authService *auth.Service, clk 
 	repo := metrics.NewRepository(db)
 	service := metrics.NewService(repo, clk, authService)
 	realtime := metrics.NewRealtime(hub)
+	handler := metrics.NewHandler(service, realtime)
 
 	hub.RegisterHandler("METRICS_SUBSCRIBE", metrics.NewSubscribeHandler(service, realtime))
 	hub.RegisterHandler("METRICS_UNSUBSCRIBE", metrics.NewUnsubscribeHandler(realtime))
@@ -169,15 +171,17 @@ func buildMetricsModule(db *sql.DB, hub *ws.Hub, authService *auth.Service, clk 
 		if err != nil {
 			return err
 		}
-		realtime.BroadcastHealth(adminUserIDs, metrics.HealthStatus{
-			Services: []metrics.ServiceHealth{{Service: metrics.MainServiceName, Severity: "ok"}},
-		})
+		health, err := service.CurrentHealth(ctx)
+		if err != nil {
+			return err
+		}
+		realtime.BroadcastHealth(adminUserIDs, health)
 		return nil
 	}); err != nil {
 		return metricsModule{}, err
 	}
 
-	return metricsModule{service: service, realtime: realtime}, nil
+	return metricsModule{service: service, realtime: realtime, handler: handler}, nil
 }
 
 func buildFoodModule(db *sql.DB, cfg config.Config, logger *slog.Logger, hub *ws.Hub, clk clockplatform.Clock, metricsRecorder food.MetricsRecorder) (foodModule, error) {

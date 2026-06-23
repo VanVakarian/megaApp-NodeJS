@@ -14,6 +14,7 @@ import (
 	"megaapp-back/internal/config"
 	"megaapp-back/internal/food"
 	"megaapp-back/internal/jobs"
+	"megaapp-back/internal/metrics"
 	"megaapp-back/internal/money"
 	clockplatform "megaapp-back/internal/platform/clock"
 	sqliteplatform "megaapp-back/internal/platform/sqlite"
@@ -127,6 +128,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 	food.RegisterDebugRoutes(router, foodModule.debugHandler)
 	quotes.RegisterDebugRoutes(router, quotesModule.debugHandler)
 	backup.RegisterDebugRoutes(router, backupModule.debugHandler)
+	metrics.RegisterRoutes(router, metricsModule.handler)
 	ws.RegisterRoutes(router, wsModule.handler)
 
 	server := &http.Server{
