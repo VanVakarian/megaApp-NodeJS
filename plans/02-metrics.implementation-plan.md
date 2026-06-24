@@ -15,7 +15,7 @@ Backend-часть единого плана [`METRICS._implementation-plan.md`]
 
 - Новый изолированный пакет `internal/metrics`, без обратных зависимостей на другие домены.
 - Модель: Counter/Gauge — статическое свойство имени метрики на уровне кода. In-memory accumulator под `sync.Mutex`, фоновый тикер раз в минуту коммитит в SQLite и сбрасывает accumulator.
-- Единый write-path: всегда upsert по `(metric_name, minute_bucket)`, bucket = floor-to-minute начала интервала. Внешние пуши (Этап 3) этот accumulator не используют — сразу upsert при получении.
+- Единый write-path: всегда upsert по `(metric_name, minute_bucket)`, bucket = floor-to-minute начала интервала. Внешние пуши (Этап 4A/4B) этот accumulator не используют — сразу upsert при получении.
 - Таблица метрик — миграция `000003_metrics.sql`, создана один раз. Дальше, пока версия не зарелизена, любые изменения схемы метрик — правка этой же миграции на месте, а не новый файл (см. политику в корневом плане).
 - Публичный интерфейс пакета — пара функций уровня пакета (инкремент/установка по имени метрики), вызываемых прямым импортом из `food`/`money`-хендлеров в местах нужных действий.
 - Решён открытый вопрос **админ-доступа**, без единой правки в `internal/ws`:
@@ -29,7 +29,7 @@ Backend-часть единого плана [`METRICS._implementation-plan.md`]
   1. **Health** — лёгкий payload (агрегированная серьёзность по статичным порогам), шлётся `hub.BroadcastToUser(adminID, ...)` по всем известным админам всегда, без подписки. По образцу `food.WSRealtimePublisher`, `Hub.BroadcastToAll` не используется.
   2. **Detail** — полные данные метрик, шлются только тем admin-соединениям, которые явно подписались. Подписка — свой маленький реестр внутри `internal/metrics` (`map[*ws.Client]struct{}` + мьютекс), не трогает `Hub`/`Client`. Заполняется/чистится хендлерами `METRICS_SUBSCRIBE`/`METRICS_UNSUBSCRIBE`, зарегистрированными через `hub.RegisterHandler` (по образцу `hub.RegisterHandler("SEARCH_QUERY", ...)` в food). Рассылка по реестру — `client.SendJSON(...)` (уже публичный метод `ws.Client`); при ошибке записи — просто удалить клиента из своего реестра (тот же self-healing паттерн, что уже есть в `Hub.BroadcastToUser`/`BroadcastToAll`).
   - `METRICS_SUBSCRIBE` принимается только если userID отправителя в кэше админов — иначе no-op. Никакого отдельного heartbeat "подтверди подписку" не нужно: `Hub` уже убирает мёртвые соединения через ping/pong (30с) и через `RemoveClient` при обрыве в `readLoop()` — реестр подписчиков чистится сам собой через тот же self-healing на ошибке записи.
-- HTTP-ручка внешнего приёма (Этап 3) — отдельный файл в том же пакете `internal/metrics`, отдельная авторизация по ключу источника (не общий JWT). Пуши уходят сразу в detail-канал текущим подписчикам.
+- HTTP-ручка внешнего приёма (Этап 4A/4B) — отдельный файл в том же пакете `internal/metrics`, отдельная авторизация по ключу источника (не общий JWT). Пуши уходят сразу в detail-канал текущим подписчикам.
 
 ## Метрики первой итерации (зафиксировано)
 
@@ -51,7 +51,7 @@ Backend-часть единого плана [`METRICS._implementation-plan.md`]
 
 ## Открытые вопросы (не закрыты этим планом)
 
-- ⭕ Способ авторизации внешних источников для Этапа 3 (отдельный API-ключ на источник) — решается при подходе к Этапу 3.
+- ⭕ Способ авторизации внешних источников для Этапа 4B (отдельный API-ключ на источник) — решается при подходе к Этапу 4B.
 
 ## Реализовано (Этап 1 + Этап 2)
 
@@ -99,8 +99,8 @@ Backend-часть единого плана [`METRICS._implementation-plan.md`]
 - ✅ Курсор: `METRICS_SUBSCRIBE` несёт `cursor`, ответ — `service.ListSince(ctx, cursor)`; `cursor=0` = вся история.
 - ✅ Тесты: `internal/metrics/service_test.go` (accumulator/flush/bucket/admin-check), `internal/metrics/realtime_test.go` (subscribe/unsubscribe/health поверх настоящего `ws.Hub`), правки тестов `internal/auth`, `internal/food`. `go build ./...`, `go vet ./...`, `go test ./...` — чисто.
 
-### Этап 3: Внешний приём (задел на будущее) — не начато
-- ⭕ HTTP-ручка приёма `(name, window-start timestamp, value)` в `internal/metrics`, авторизация по ключу источника.
+### Этап 4+: Внешний приём (первичный задел) — не начато
+- ⭕ HTTP-ручка batch-приёма `service + snapshots[]` в `internal/metrics`, авторизация по ключу источника.
 - ⭕ Подключение конкретных внешних скриптов — отдельные задачи позже.
 
 ### Ревизия под политику "не бояться breaking changes" — правка 000003, колонка `service`
@@ -111,11 +111,11 @@ Backend-часть единого плана [`METRICS._implementation-plan.md`]
 UNIQUE(service, metricName, minuteBucket)
 ```
 
-Причина: `HealthStatus` уже получил `services[]` на Этапе 3 (детализация по сервисам для карточек на фронте) — но сама таблица метрик и `MetricPoint`/`DetailUpdate` оставались без понятия "сервис", хотя Этап 4 (внешний приём) рано или поздно принесёт метрики от других источников. Поправили сейчас, пока это бесплатно (только своя миграция, ничего не зарелизено), а не когда придётся резать поверх уже выпущенной схемы.
+Причина: `HealthStatus` уже получил `services[]` на Этапе 3 (детализация по сервисам для карточек на фронте) — но сама таблица метрик и `MetricPoint`/`DetailUpdate` оставались без понятия "сервис", хотя Этап 4A/4B (внешний приём) рано или поздно принесёт метрики от других источников. Поправили сейчас, пока это бесплатно (только своя миграция, ничего не зарелизено), а не когда придётся резать поверх уже выпущенной схемы.
 
 - `Repository.AddToCounter(ctx, service, name, bucket, delta)` — `service` теперь явный параметр, не подразумевается.
 - `MetricPoint` получил поле `Service string` — отдаётся и в detail-канал, и в HTTP (если такой появится).
-- `Service.Flush` передаёt `MainServiceName` (= `"megaapp"`) — единственный источник метрик внутри текущего бинарника; внешние источники (Этап 4) будут передавать свой `service` явно.
+- `Service.Flush` передаёt `MainServiceName` (= `"megaapp"`) — единственный источник метрик внутри текущего бинарника; внешние источники (Этап 4A/4B) будут передавать свой `service` явно.
 - Заодно убрали nil-guard в `food.WriteHandler.recordMetric` (`MetricsRecorder` — обязательная зависимость, не опциональная) — тест (`http_test.go`) теперь передаёт настоящий fake-recorder вместо `nil`. Это тоже было излишней защитной осторожностью без реального кейса.
 
 **Важно для реальной dev-БД**: таблица `metrics` была создана раньше со старой схемой (без `service`). `CREATE TABLE IF NOT EXISTS` в правленой миграции — no-op, если таблица уже существует. Чтобы подтянуть новую схему на уже существующей БД: удалить таблицу `metrics` и строку `000003_metrics` из `schema_migrations`, перезапустить сервер — миграция накатится заново с нуля. Сделано один раз в рамках этой правки; для последующих правок той же миграции до релиза — повторять то же самое.
@@ -131,3 +131,84 @@ UNIQUE(service, metricName, minuteBucket)
 Архитектурное следствие: `buildBackupModule` теперь принимает `metricsRecorder *metrics.Service` — для этого порядок сборки модулей в `internal/httpx/app.go` поменян: `wsModule` + `metricsModule` собираются раньше `quotesModule`/`backupModule` (а не после), чтобы recorder был готов к моменту регистрации backup-джобы. `quotesModule` (домен `money`) метрику не получил — пользователь явно сузил задачу до food-домена, money — отдельная, не начатая тема.
 
 Обновлены тесты: `internal/food/http_test.go` — все три вызова `NewCatalogueHandler` теперь передают `&fakeMetricsRecorder{}` вместо отсутствовавшего параметра. `go build ./...`, `go vet ./...`, `go test ./...` — чисто.
+
+## План расширения: `spread-capture-bot/v3`
+
+Новая задача не требует второго metrics-сервиса. Расширяется тот же `internal/metrics`.
+
+### Этап 4A: локальный MVP
+
+- Новый inbound HTTP handler сразу принимает batch:
+  - `service`;
+  - `snapshots[]`;
+  - у каждого snapshot: `minuteBucket`, `metrics` map.
+- Даже одна минута идёт через `snapshots[]` длиной 1.
+- Этот путь не проходит через in-memory accumulator `Increment()`/`Flush()`.
+- Для внешнего snapshot нужен отдельный repository write-path:
+  - не `value + delta`;
+  - а прямой overwrite конкретного окна по `(service, metricName, minuteBucket)`.
+- Весь batch пишется в одной DB transaction:
+  - если один snapshot невалиден или один write упал, commit не происходит;
+  - бот не получает success ack и не чистит свою очередь.
+- После успешной записи handler сразу:
+  - публикует detail update текущим подписчикам;
+  - обновляет health данного сервиса для всех админов.
+- Для `spread-capture-bot/v3` MVP авторизация не усложняется:
+  - сценарий только same-host / private-host;
+  - endpoint считается внутренним эксплуатационным контрактом, не публичным пользовательским API.
+
+### Этап 4B: remote-ready
+
+- Тот же handler принимает batch массив minute snapshots.
+- На входе появляется source config:
+  - `service`;
+  - allowlist IP / CIDR;
+  - лимит размера batch;
+  - stale/backfill лимиты.
+- Ошибки должны быть разнесены по классам:
+  - invalid payload;
+  - forbidden source;
+  - stale / oversized batch;
+  - transient storage failure.
+
+### Health для внешнего сервиса
+
+Для `spread-capture-bot/v3` health нельзя оставлять вечным `ok`, как сейчас у `megaapp`.
+
+Нужна простая server-side формула:
+
+- `error`, если source stale дольше заданного окна или пришёл snapshot с явным критическим сигналом;
+- `warn`, если freshness близка к порогу или часть quality-метрик вышла за пределы;
+- `ok` иначе.
+
+Базовый набор для первой версии:
+
+- freshness last snapshot;
+- `cycle_errors`;
+- `books_missing`;
+- `reconcile_cycle_duration_ms`.
+
+Все пороги статичны в коде или конфиге источника. Фронт только показывает уже готовую severity.
+
+### Почему snapshot map, а не одна метрика на запрос
+
+- Один minute push от бота содержит десятки тесно связанных значений.
+- Один запрос на всю минуту проще для бота и проще для валидации.
+- Бэк всё равно хранит данные построчно, так что map раскладывается только внутри handler-а.
+
+### Почему batch нужен уже в локальном MVP
+
+- Даже на одном сервере `megaapp` может быть недоступен во время deploy/restart.
+- Бот в это время продолжает жить.
+- Значит первый же внешний ingest должен уметь принять накопившийся хвост минут, а не только одну текущую минуту.
+
+### Checklist
+
+- ✅ Добавить inbound snapshot handler в `internal/metrics`.
+- ✅ Добавить repository write-path с overwrite-semantics для внешних окон.
+- ✅ Добавить валидацию `service`, `minuteBucket`, metric map.
+- ✅ Писать весь входящий batch в одной транзакции и отвечать success только после commit.
+- ✅ После write сразу слать detail update подписчикам.
+- ✅ Ввести health state для внешних сервисов, не только для `megaapp`.
+- ✅ Для этапа 4A подключить `spread-capture-bot-v3` как первый внешний source.
+- ⭕ Для этапа 4B добавить IP allowlist, batch mode и ingest limits.
