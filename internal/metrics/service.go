@@ -184,7 +184,7 @@ func botHealthSeverity(now time.Time, points []MetricPoint) string {
 	if values["cycle_errors"] > 0 || values["reconcile_failures"] > 0 {
 		severity = "warn"
 	}
-	if values["books_missing"] >= 25 || values["cycle_duration_ms"] >= 45000 {
+	if values["cycle_duration_ms"] >= 45000 {
 		severity = "warn"
 	}
 
