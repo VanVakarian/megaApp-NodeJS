@@ -128,6 +128,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 	food.RegisterDebugRoutes(router, foodModule.debugHandler)
 	quotes.RegisterDebugRoutes(router, quotesModule.debugHandler)
 	backup.RegisterDebugRoutes(router, backupModule.debugHandler)
+	metrics.RegisterDebugRoutes(router, metricsModule.debugHandler)
 	metrics.RegisterRoutes(router, metricsModule.handler)
 	ws.RegisterRoutes(router, wsModule.handler)
 
