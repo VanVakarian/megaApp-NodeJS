@@ -1,7 +1,11 @@
 package metrics
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"math"
 	"strings"
 	"sync"
@@ -109,6 +113,72 @@ func (s *Service) IngestSnapshots(ctx context.Context, request IngestRequest) ([
 	}
 
 	return s.repo.ReplaceSnapshots(ctx, service, request.Snapshots)
+}
+
+type ndjsonSnapshot struct {
+	Service      string             `json:"service"`
+	MinuteBucket int64              `json:"minuteBucket"`
+	Metrics      map[string]float64 `json:"metrics"`
+}
+
+func (s *Service) ImportNDJSON(ctx context.Context, body io.Reader) (int, error) {
+	grouped := make(map[string]map[int64]map[string]float64)
+
+	scanner := bufio.NewScanner(body)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var snapshot ndjsonSnapshot
+		if err := json.Unmarshal([]byte(line), &snapshot); err != nil {
+			return 0, fmt.Errorf("parse ndjson line: %w", err)
+		}
+		service := strings.TrimSpace(snapshot.Service)
+		if service == "" || snapshot.MinuteBucket <= 0 || len(snapshot.Metrics) == 0 {
+			continue
+		}
+
+		buckets, ok := grouped[service]
+		if !ok {
+			buckets = make(map[int64]map[string]float64)
+			grouped[service] = buckets
+		}
+		metrics, ok := buckets[snapshot.MinuteBucket]
+		if !ok {
+			metrics = make(map[string]float64)
+			buckets[snapshot.MinuteBucket] = metrics
+		}
+		for name, value := range snapshot.Metrics {
+			if strings.TrimSpace(name) == "" || math.IsNaN(value) || math.IsInf(value, 0) {
+				continue
+			}
+			metrics[name] = value
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, fmt.Errorf("scan ndjson: %w", err)
+	}
+
+	imported := 0
+	for service, buckets := range grouped {
+		snapshots := make([]SnapshotInput, 0, len(buckets))
+		for bucket, metrics := range buckets {
+			if len(metrics) == 0 {
+				continue
+			}
+			snapshots = append(snapshots, SnapshotInput{MinuteBucket: bucket, Metrics: metrics})
+		}
+		if len(snapshots) == 0 {
+			continue
+		}
+		points, err := s.IngestSnapshots(ctx, IngestRequest{Service: service, Snapshots: snapshots})
+		if err != nil {
+			return imported, fmt.Errorf("ingest snapshots for service %q: %w", service, err)
+		}
+		imported += len(points)
+	}
+	return imported, nil
 }
 
 func (s *Service) IsAdmin(ctx context.Context, userID int64) (bool, error) {

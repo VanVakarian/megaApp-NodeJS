@@ -3,6 +3,8 @@ package metrics
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -211,6 +213,69 @@ func TestServiceIngestSnapshotsReplacesExistingBucket(t *testing.T) {
 
 	if values["cycle_errors"] != 0 {
 		t.Fatalf("cycle_errors = %v, want 0", values["cycle_errors"])
+	}
+}
+
+func TestServiceImportNDJSONMergesDuplicateBucketsAndUpserts(t *testing.T) {
+	db := openMetricsTestDB(t)
+	repo := NewRepository(db)
+	service := NewService(repo, fixedMetricsClock{now: time.Now()}, fakeAdminLister{})
+
+	bucketB := time.Date(2026, 6, 23, 12, 34, 0, 0, time.UTC).Unix()
+	bucketB2 := time.Date(2026, 6, 23, 12, 35, 0, 0, time.UTC).Unix()
+	bucketB3 := time.Date(2026, 6, 23, 12, 36, 0, 0, time.UTC).Unix()
+
+	ndjson := strings.Join([]string{
+		`{"service":"bot-a","minuteBucket":` + fmt.Sprint(bucketB) + `,"metrics":{"a":1,"b":2}}`,
+		`{"service":"bot-a","minuteBucket":` + fmt.Sprint(bucketB) + `,"metrics":{"b":3,"c":4}}`,
+		`{"service":"bot-a","minuteBucket":` + fmt.Sprint(bucketB2) + `,"metrics":{"x":5}}`,
+		``,
+		`{"service":"","minuteBucket":` + fmt.Sprint(bucketB) + `,"metrics":{"x":5}}`,
+		`{"service":"bot-b","minuteBucket":` + fmt.Sprint(bucketB3) + `,"metrics":{"y":6}}`,
+	}, "\n")
+
+	imported, err := service.ImportNDJSON(context.Background(), strings.NewReader(ndjson))
+	if err != nil {
+		t.Fatalf("ImportNDJSON() error = %v", err)
+	}
+	if imported != 5 {
+		t.Fatalf("imported = %d, want 5", imported)
+	}
+
+	points, err := service.ListSince(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("ListSince() error = %v", err)
+	}
+
+	values := make(map[string]float64)
+	for _, point := range points {
+		values[point.Service+"/"+point.Name] = point.Value
+	}
+
+	if values["bot-a/a"] != 1 {
+		t.Fatalf("bot-a/a = %v, want 1", values["bot-a/a"])
+	}
+	if values["bot-a/b"] != 3 {
+		t.Fatalf("bot-a/b = %v, want 3", values["bot-a/b"])
+	}
+	if values["bot-a/c"] != 4 {
+		t.Fatalf("bot-a/c = %v, want 4", values["bot-a/c"])
+	}
+	if values["bot-a/x"] != 5 {
+		t.Fatalf("bot-a/x = %v, want 5", values["bot-a/x"])
+	}
+	if values["bot-b/y"] != 6 {
+		t.Fatalf("bot-b/y = %v, want 6", values["bot-b/y"])
+	}
+}
+
+func TestServiceImportNDJSONRejectsMalformedLine(t *testing.T) {
+	db := openMetricsTestDB(t)
+	repo := NewRepository(db)
+	service := NewService(repo, fixedMetricsClock{now: time.Now()}, fakeAdminLister{})
+
+	if _, err := service.ImportNDJSON(context.Background(), strings.NewReader("not-json")); err == nil {
+		t.Fatal("ImportNDJSON() error = nil, want error")
 	}
 }
 

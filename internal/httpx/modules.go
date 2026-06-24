@@ -52,9 +52,10 @@ type backupModule struct {
 }
 
 type metricsModule struct {
-	service  *metrics.Service
-	realtime *metrics.Realtime
-	handler  *metrics.Handler
+	service      *metrics.Service
+	realtime     *metrics.Realtime
+	handler      *metrics.Handler
+	debugHandler *metrics.DebugHandler
 }
 
 type foodModule struct {
@@ -181,7 +182,7 @@ func buildMetricsModule(db *sql.DB, hub *ws.Hub, authService *auth.Service, clk 
 		return metricsModule{}, err
 	}
 
-	return metricsModule{service: service, realtime: realtime, handler: handler}, nil
+	return metricsModule{service: service, realtime: realtime, handler: handler, debugHandler: metrics.NewDebugHandler(service)}, nil
 }
 
 func buildFoodModule(db *sql.DB, cfg config.Config, logger *slog.Logger, hub *ws.Hub, clk clockplatform.Clock, metricsRecorder food.MetricsRecorder) (foodModule, error) {
