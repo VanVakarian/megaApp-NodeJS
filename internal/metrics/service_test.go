@@ -170,6 +170,87 @@ func TestServiceIsAdmin(t *testing.T) {
 	}
 }
 
+func TestServiceIngestSnapshotsReplacesExistingBucket(t *testing.T) {
+	db := openMetricsTestDB(t)
+	repo := NewRepository(db)
+	service := NewService(repo, fixedMetricsClock{now: time.Date(2026, 6, 23, 12, 35, 0, 0, time.UTC)}, fakeAdminLister{})
+
+	request := IngestRequest{
+		Service: SpreadCaptureBotServiceName,
+		Snapshots: []SnapshotInput{
+			{
+				MinuteBucket: time.Date(2026, 6, 23, 12, 34, 0, 0, time.UTC).Unix(),
+				Metrics: map[string]float64{
+					"heartbeat":    1,
+					"cycle_errors": 1,
+				},
+			},
+		},
+	}
+
+	if _, err := service.IngestSnapshots(context.Background(), request); err != nil {
+		t.Fatalf("IngestSnapshots() error = %v", err)
+	}
+
+	request.Snapshots[0].Metrics["cycle_errors"] = 0
+	if _, err := service.IngestSnapshots(context.Background(), request); err != nil {
+		t.Fatalf("IngestSnapshots() second error = %v", err)
+	}
+
+	points, err := service.ListSince(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("ListSince() error = %v", err)
+	}
+
+	values := make(map[string]float64)
+	for _, point := range points {
+		if point.Service == SpreadCaptureBotServiceName {
+			values[point.Name] = point.Value
+		}
+	}
+
+	if values["cycle_errors"] != 0 {
+		t.Fatalf("cycle_errors = %v, want 0", values["cycle_errors"])
+	}
+}
+
+func TestServiceCurrentHealthMarksBotStale(t *testing.T) {
+	db := openMetricsTestDB(t)
+	repo := NewRepository(db)
+	service := NewService(repo, fixedMetricsClock{now: time.Date(2026, 6, 23, 12, 40, 0, 0, time.UTC)}, fakeAdminLister{})
+
+	if _, err := service.IngestSnapshots(context.Background(), IngestRequest{
+		Service: SpreadCaptureBotServiceName,
+		Snapshots: []SnapshotInput{
+			{
+				MinuteBucket: time.Date(2026, 6, 23, 12, 34, 0, 0, time.UTC).Unix(),
+				Metrics: map[string]float64{
+					"heartbeat": 1,
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("IngestSnapshots() error = %v", err)
+	}
+
+	health, err := service.CurrentHealth(context.Background())
+	if err != nil {
+		t.Fatalf("CurrentHealth() error = %v", err)
+	}
+
+	got := map[string]string{}
+	for _, serviceHealth := range health.Services {
+		got[serviceHealth.Service] = serviceHealth.Severity
+	}
+
+	if got[MainServiceName] != "ok" {
+		t.Fatalf("megaapp severity = %q, want ok", got[MainServiceName])
+	}
+	if got[SpreadCaptureBotServiceName] != "error" {
+		t.Fatalf("bot severity = %q, want error", got[SpreadCaptureBotServiceName])
+	}
+}
+
 func TestPreviousMinuteBucket(t *testing.T) {
 	tests := []struct {
 		name string
