@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -52,10 +53,9 @@ type backupModule struct {
 }
 
 type metricsModule struct {
-	service      *metrics.Service
-	realtime     *metrics.Realtime
-	handler      *metrics.Handler
-	debugHandler *metrics.DebugHandler
+	service  *metrics.Service
+	realtime *metrics.Realtime
+	poller   *metrics.Poller
 }
 
 type foodModule struct {
@@ -150,39 +150,39 @@ func buildBackupModule(db *sql.DB, cfg config.Config, logger *slog.Logger, clk c
 	return backupModule{service: service, debugHandler: backup.NewDebugHandler(service)}, nil
 }
 
-func buildMetricsModule(db *sql.DB, hub *ws.Hub, authService *auth.Service, clk clockplatform.Clock, runtime *jobs.Runtime) (metricsModule, error) {
-	repo := metrics.NewRepository(db)
-	service := metrics.NewService(repo, clk, authService)
+func buildMetricsModule(cfg config.Config, logger *slog.Logger, hub *ws.Hub, authService *auth.Service, clk clockplatform.Clock, runtime *jobs.Runtime) (metricsModule, error) {
+	service := metrics.NewService(cfg.MetricsServiceKey, clk, authService)
 	realtime := metrics.NewRealtime(hub)
-	handler := metrics.NewHandler(service, realtime)
+	flatlineClient := metrics.NewFlatlineClient(cfg.FlatlineBaseURL, cfg.FlatlinePushTimeout)
 
-	hub.RegisterHandler("METRICS_SUBSCRIBE", metrics.NewSubscribeHandler(service, realtime))
+	exporter, err := metrics.NewExporter(metrics.ExporterConfig{
+		Service:    cfg.MetricsServiceKey,
+		NDJSONPath: filepath.Join(cfg.DataDir, "metrics-outbox.ndjson"),
+		AckPath:    filepath.Join(cfg.DataDir, "metrics-outbox.ack.json"),
+	}, flatlineClient, logger)
+	if err != nil {
+		return metricsModule{}, err
+	}
+
+	poller := metrics.NewPoller(flatlineClient, realtime, authService, cfg.FlatlinePollInterval, cfg.FlatlinePollInitialLookback, clk, logger)
+
+	hub.RegisterHandler("METRICS_SUBSCRIBE", metrics.NewSubscribeHandler(service, realtime, flatlineClient))
 	hub.RegisterHandler("METRICS_UNSUBSCRIBE", metrics.NewUnsubscribeHandler(realtime))
 
 	if err := runtime.Register("metrics", "* * * * *", func(ctx context.Context) error {
-		points, err := service.Flush(ctx)
-		if err != nil {
-			return err
+		points := service.Flush()
+		if len(points) == 0 {
+			return nil
 		}
-		if len(points) > 0 {
-			realtime.BroadcastDetail(metrics.DetailUpdate{Points: points})
-		}
-
-		adminUserIDs, err := service.AdminUserIDs(ctx)
-		if err != nil {
-			return err
-		}
-		health, err := service.CurrentHealth(ctx)
-		if err != nil {
-			return err
-		}
-		realtime.BroadcastHealth(adminUserIDs, health)
+		exporter.FlushAndPush(ctx, points[0].Bucket, points)
 		return nil
 	}); err != nil {
 		return metricsModule{}, err
 	}
 
-	return metricsModule{service: service, realtime: realtime, handler: handler, debugHandler: metrics.NewDebugHandler(service)}, nil
+	poller.Start()
+
+	return metricsModule{service: service, realtime: realtime, poller: poller}, nil
 }
 
 func buildFoodModule(db *sql.DB, cfg config.Config, logger *slog.Logger, hub *ws.Hub, clk clockplatform.Clock, metricsRecorder food.MetricsRecorder) (foodModule, error) {

@@ -6,13 +6,14 @@ import (
 	"megaapp-back/internal/ws"
 )
 
-type ServiceHealth struct {
-	Service  string `json:"service"`
-	Severity string `json:"severity"`
+type ServiceLatest struct {
+	Service    string             `json:"service"`
+	LastBucket int64              `json:"lastBucket"`
+	Metrics    map[string]float64 `json:"metrics"`
 }
 
-type HealthStatus struct {
-	Services []ServiceHealth `json:"services"`
+type LatestSnapshot struct {
+	Services []ServiceLatest `json:"services"`
 }
 
 type DetailUpdate struct {
@@ -30,8 +31,8 @@ func NewRealtime(hub *ws.Hub) *Realtime {
 	return &Realtime{hub: hub, subscribers: make(map[*ws.Client]struct{})}
 }
 
-func (r *Realtime) BroadcastHealth(adminUserIDs []int64, status HealthStatus) {
-	message := map[string]any{"type": "METRICS_HEALTH", "payload": status}
+func (r *Realtime) BroadcastLatest(adminUserIDs []int64, snapshot LatestSnapshot) {
+	message := map[string]any{"type": "METRICS_LATEST", "payload": snapshot}
 	for _, userID := range adminUserIDs {
 		r.hub.BroadcastToUser(userID, message, "")
 	}

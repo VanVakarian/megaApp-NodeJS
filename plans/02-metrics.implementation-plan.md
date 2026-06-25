@@ -2,6 +2,8 @@
 
 Backend-часть единого плана [`METRICS._implementation-plan.md`](../../METRICS._implementation-plan.md) в корне проекта — туда читать общую архитектуру и контракты. Здесь — конкретно по коду `megaapp-back`.
 
+> Раздел «План расширения: `spread-capture-bot/v3`» (Этапы 4A/4B) ниже — историческое описание уже сделанного (приём пушей напрямую в `megaapp`). Эта схема заменяется отдельным сервисом Flatline — см. [`03-flatline-migration.implementation-plan.md`](./03-flatline-migration.implementation-plan.md).
+
 ## Как сейчас
 
 - Модуля метрик нет вообще.
