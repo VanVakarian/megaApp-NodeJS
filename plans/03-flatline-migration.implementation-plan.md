@@ -258,14 +258,12 @@ Severity (`ok`/`warn`/`error`) теперь считает фронт из `metr
 - ✅ Добавлены проверки на producer split: `megaapp` по default, `megaapp-test` из `.env.test`, сохранение service key в `MetricPoint`; frontend type/build checks прошли для второго service key.
 
 ### Деплой и живая проверка
-- ✅ `megaapp-back` и `megaapp-front` задеплоены и проверены живьём **только на test-стенде** (CI деплоит test автоматически с `develop`, нужный коммит там уже есть). На дашборде test видны отдельные потоки `megaapp-test` и бота.
-- ⭕ Прод ещё на старом коде: коммит `c8b8db0` (переключение на Flatline) есть только в `develop`, в ветке `release` (с неё едет прод-деплой по CI) его нет. Чтобы обновить прод — смержить `develop` → `release` в `megaapp-back` и `megaapp-front`, дальше CI задеплоит сам.
-- ⭕ Старая локальная таблица `metrics` на проде продолжает писаться и читаться старым кодом до выполнения пункта выше.
+- ✅ `megaapp-back` и `megaapp-front` задеплоены на прод и test, живая проверка прошла на обоих.
+- ✅ Шаг 4: снэпшот БД megaapp снят через `POST /api/debug/run-backup-job`.
+- ✅ Шаг 5: снэпшот выгружен в NDJSON (`megaapp-prod-2026-06-25T15-54-15Z.metrics-export.ndjson`, разбит на 4 части по ~900КБ под лимит debug-ручки), сверка построчно/поэлементно совпала с исходной таблицей (126419 точек).
+- ✅ Шаг 6: все 4 части импортированы в Flatline через `POST /api/debug/import-metrics-ndjson`.
+- ✅ Шаг 7: сверка importedPoints по частям (32349+32511+32223+29336=126419) совпала с числом строк исходной таблицы.
+- ✅ Шаг 8: миграция `migrations/000004_remove_metrics_table.sql` создана (`DROP TABLE IF EXISTS metrics;`). Накатится автоматически при следующем перезапуске `megaback`/`megatest`.
 
-### Следующий шаг (раздел 5 архитектурного документа)
-- ⭕ Шаг 3: merge `develop` → `release` в `megaapp-back` и `megaapp-front`, CI задеплоит прод.
-- ⭕ Шаг 4: снэпшот старой таблицы `metrics` в БД megaapp через `VACUUM INTO` (только после шага 3).
-- ⭕ Шаг 5: разовый read-only инструмент экспорта снэпшота в NDJSON.
-- ⭕ Шаг 6: импорт NDJSON в Flatline через существующую debug-ручку.
-- ⭕ Шаг 7: сверка сумм точек снэпшот vs Flatline.
-- ⭕ Шаг 8: миграция `000004_remove_metrics_table.sql`, удаляющая старую таблицу.
+### Осталось
+- ⭕ Задеплоить файл миграции на сервер и перезапустить `megaback`/`megatest`, чтобы она применилась.
