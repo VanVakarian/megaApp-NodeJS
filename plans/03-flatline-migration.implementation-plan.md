@@ -255,16 +255,15 @@ Severity (`ok`/`warn`/`error`) теперь считает фронт из `metr
 ### Фронт (отдельная задача, координация по контракту)
 - ✅ `megaapp-front`: переход с `METRICS_HEALTH` на `METRICS_LATEST`, расчёт severity на клиенте.
 - ✅ `megaapp-front`: зарегистрирован `megaapp-test` как второй service key с теми же metric groups/labels/descriptions, что и у `megaapp`, но с отдельным display label.
-
-### Сборка модуля
-- ⭕ `buildMetricsModule` в `internal/httpx/modules.go` пересобран под `flatlineClient`/`exporter`/`poller`, без `repo`.
-- ⭕ `poller` добавлен в `App.Backgrounds` для graceful shutdown.
-
-### Тесты
-- ⭕ Новые тесты на outbox/exporter/poller/flatline_client (см. «Тесты»).
-- ⭕ Старые тесты на `repo`/`CurrentHealth`/`IngestSnapshots`/`ImportNDJSON` удалены или переписаны.
-- ⭕ `go build ./...`, `go vet ./...`, `go test ./...` — чисто.
 - ✅ Добавлены проверки на producer split: `megaapp` по default, `megaapp-test` из `.env.test`, сохранение service key в `MetricPoint`; frontend type/build checks прошли для второго service key.
 
-### Фронт (отдельная задача, координация по контракту)
-- ✅ `megaapp-front`: переход с `METRICS_HEALTH` на `METRICS_LATEST`, расчёт severity на клиенте.
+### Деплой и живая проверка
+- ✅ `megaapp-back` и `megaapp-front` задеплоены на прод и test, живая проверка прошла на обоих.
+- ✅ Шаг 4: снэпшот БД megaapp снят через `POST /api/debug/run-backup-job`.
+- ✅ Шаг 5: снэпшот выгружен в NDJSON (`megaapp-prod-2026-06-25T15-54-15Z.metrics-export.ndjson`, разбит на 4 части по ~900КБ под лимит debug-ручки), сверка построчно/поэлементно совпала с исходной таблицей (126419 точек).
+- ✅ Шаг 6: все 4 части импортированы в Flatline через `POST /api/debug/import-metrics-ndjson`.
+- ✅ Шаг 7: сверка importedPoints по частям (32349+32511+32223+29336=126419) совпала с числом строк исходной таблицы.
+- ✅ Шаг 8: миграция `migrations/000004_remove_metrics_table.sql` создана (`DROP TABLE IF EXISTS metrics;`). Накатится автоматически при следующем перезапуске `megaback`/`megatest`.
+
+### Осталось
+- ⭕ Задеплоить файл миграции на сервер и перезапустить `megaback`/`megatest`, чтобы она применилась.
