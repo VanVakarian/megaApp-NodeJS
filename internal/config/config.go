@@ -58,6 +58,11 @@ type Config struct {
 	BackupStorageAccessKeyID           string
 	BackupStorageSecretAccessKey       string
 	BackupOperationTimeout             time.Duration
+	MetricsServiceKey                  string
+	FlatlineBaseURL                    string
+	FlatlinePushTimeout                time.Duration
+	FlatlinePollInterval               time.Duration
+	FlatlinePollInitialLookback        time.Duration
 	HTTPReadTimeout                    time.Duration
 	HTTPWriteTimeout                   time.Duration
 	HTTPIdleTimeout                    time.Duration
@@ -114,6 +119,8 @@ func Load() (Config, error) {
 		BackupStorageClass:            getString("BACKUP_STORAGE_STORAGE_CLASS", ""),
 		BackupStorageAccessKeyID:      getString("BACKUP_STORAGE_ACCESS_KEY_ID", ""),
 		BackupStorageSecretAccessKey:  getString("BACKUP_STORAGE_SECRET_ACCESS_KEY", ""),
+		MetricsServiceKey:             getString("METRICS_SERVICE_KEY", "megaapp"),
+		FlatlineBaseURL:               getString("FLATLINE_BASE_URL", ""),
 		BuildCommit:                   buildCommit,
 		BuildTime:                     buildTime,
 		GoVersion:                     runtime.Version(),
@@ -263,6 +270,24 @@ func Load() (Config, error) {
 	}
 	cfg.BackupOperationTimeout = time.Duration(backupOperationTimeoutSeconds) * time.Second
 
+	flatlinePushTimeoutSeconds, err := getInt("FLATLINE_PUSH_TIMEOUT_SECONDS", 5)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.FlatlinePushTimeout = time.Duration(flatlinePushTimeoutSeconds) * time.Second
+
+	flatlinePollIntervalSeconds, err := getInt("FLATLINE_POLL_INTERVAL_SECONDS", 10)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.FlatlinePollInterval = time.Duration(flatlinePollIntervalSeconds) * time.Second
+
+	flatlinePollInitialLookbackSeconds, err := getInt("FLATLINE_POLL_INITIAL_LOOKBACK_SECONDS", 120)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.FlatlinePollInitialLookback = time.Duration(flatlinePollInitialLookbackSeconds) * time.Second
+
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
@@ -354,6 +379,21 @@ func (c Config) Validate() error {
 	}
 	if c.BackupOperationTimeout <= 0 {
 		return fmt.Errorf("validate config: BACKUP_OPERATION_TIMEOUT_SECONDS must be greater than 0")
+	}
+	if strings.TrimSpace(c.MetricsServiceKey) == "" {
+		return fmt.Errorf("validate config: METRICS_SERVICE_KEY is required")
+	}
+	if strings.TrimSpace(c.FlatlineBaseURL) == "" {
+		return fmt.Errorf("validate config: FLATLINE_BASE_URL is required")
+	}
+	if c.FlatlinePushTimeout <= 0 {
+		return fmt.Errorf("validate config: FLATLINE_PUSH_TIMEOUT_SECONDS must be greater than 0")
+	}
+	if c.FlatlinePollInterval <= 0 {
+		return fmt.Errorf("validate config: FLATLINE_POLL_INTERVAL_SECONDS must be greater than 0")
+	}
+	if c.FlatlinePollInitialLookback <= 0 {
+		return fmt.Errorf("validate config: FLATLINE_POLL_INITIAL_LOOKBACK_SECONDS must be greater than 0")
 	}
 	if c.BackupJobEnabled && !c.BackupStorageEnabled {
 		return fmt.Errorf("validate config: BACKUP_STORAGE_ENABLED must be true when BACKUP_JOB_ENABLED is true")

@@ -52,6 +52,11 @@ func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("BACKUP_STORAGE_ACCESS_KEY_ID", "")
 	t.Setenv("BACKUP_STORAGE_SECRET_ACCESS_KEY", "")
 	t.Setenv("BACKUP_OPERATION_TIMEOUT_SECONDS", "")
+	t.Setenv("METRICS_SERVICE_KEY", "")
+	t.Setenv("FLATLINE_BASE_URL", "http://127.0.0.1:4000")
+	t.Setenv("FLATLINE_PUSH_TIMEOUT_SECONDS", "")
+	t.Setenv("FLATLINE_POLL_INTERVAL_SECONDS", "")
+	t.Setenv("FLATLINE_POLL_INITIAL_LOOKBACK_SECONDS", "")
 	t.Setenv("HTTP_READ_TIMEOUT_SECONDS", "")
 	t.Setenv("HTTP_WRITE_TIMEOUT_SECONDS", "")
 	t.Setenv("HTTP_IDLE_TIMEOUT_SECONDS", "")
@@ -179,6 +184,21 @@ func TestLoadUsesDefaults(t *testing.T) {
 	}
 	if cfg.BackupOperationTimeout != 300*time.Second {
 		t.Fatalf("BackupOperationTimeout = %v, want 300s", cfg.BackupOperationTimeout)
+	}
+	if cfg.MetricsServiceKey != "megaapp" {
+		t.Fatalf("MetricsServiceKey = %q, want megaapp", cfg.MetricsServiceKey)
+	}
+	if cfg.FlatlineBaseURL != "http://127.0.0.1:4000" {
+		t.Fatalf("FlatlineBaseURL = %q, want http://127.0.0.1:4000", cfg.FlatlineBaseURL)
+	}
+	if cfg.FlatlinePushTimeout != 5*time.Second {
+		t.Fatalf("FlatlinePushTimeout = %v, want 5s", cfg.FlatlinePushTimeout)
+	}
+	if cfg.FlatlinePollInterval != 10*time.Second {
+		t.Fatalf("FlatlinePollInterval = %v, want 10s", cfg.FlatlinePollInterval)
+	}
+	if cfg.FlatlinePollInitialLookback != 120*time.Second {
+		t.Fatalf("FlatlinePollInitialLookback = %v, want 120s", cfg.FlatlinePollInitialLookback)
 	}
 	if cfg.HTTPReadTimeout != 15*time.Second {
 		t.Fatalf("HTTPReadTimeout = %v, want 15s", cfg.HTTPReadTimeout)
@@ -308,6 +328,11 @@ func validTestConfig() Config {
 		BackupStorageAccessKeyID:           "key",
 		BackupStorageSecretAccessKey:       "secret",
 		BackupOperationTimeout:             300 * time.Second,
+		MetricsServiceKey:                  "megaapp",
+		FlatlineBaseURL:                    "http://127.0.0.1:4000",
+		FlatlinePushTimeout:                time.Second,
+		FlatlinePollInterval:               10 * time.Second,
+		FlatlinePollInitialLookback:        120 * time.Second,
 		HTTPReadTimeout:                    time.Second,
 		HTTPWriteTimeout:                   time.Second,
 		HTTPIdleTimeout:                    time.Second,

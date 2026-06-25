@@ -3,6 +3,8 @@ package metrics
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -113,7 +115,7 @@ func TestUnsubscribeStopsDetailBroadcast(t *testing.T) {
 	}
 }
 
-func TestBroadcastHealthReachesOnlyAdmins(t *testing.T) {
+func TestBroadcastLatestReachesOnlyAdmins(t *testing.T) {
 	authService, tokenManager, realtime, server, authDB := newMetricsTestEnv(t)
 	defer server.Close()
 
@@ -137,21 +139,21 @@ func TestBroadcastHealthReachesOnlyAdmins(t *testing.T) {
 	defer func() { _ = plainConn.Close() }()
 	drainMetricsMessage(t, plainConn)
 
-	realtime.BroadcastHealth([]int64{adminUserID}, HealthStatus{Services: []ServiceHealth{{Service: MainServiceName, Severity: "ok"}}})
+	realtime.BroadcastLatest([]int64{adminUserID}, LatestSnapshot{Services: []ServiceLatest{{Service: MainServiceName, LastBucket: 60, Metrics: map[string]float64{"food_diary_entry_created": 1}}}})
 
 	_ = adminConn.SetReadDeadline(time.Now().Add(time.Second))
-	var health map[string]any
-	if err := adminConn.ReadJSON(&health); err != nil {
+	var latest map[string]any
+	if err := adminConn.ReadJSON(&latest); err != nil {
 		t.Fatalf("ReadJSON() error = %v", err)
 	}
-	if health["type"] != "METRICS_HEALTH" {
-		t.Fatalf("type = %v, want METRICS_HEALTH", health["type"])
+	if latest["type"] != "METRICS_LATEST" {
+		t.Fatalf("type = %v, want METRICS_LATEST", latest["type"])
 	}
 
 	_ = plainConn.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
-	var plainHealth map[string]any
-	if err := plainConn.ReadJSON(&plainHealth); err == nil {
-		t.Fatalf("plain user unexpectedly received health: %+v", plainHealth)
+	var plainLatest map[string]any
+	if err := plainConn.ReadJSON(&plainLatest); err == nil {
+		t.Fatalf("plain user unexpectedly received latest: %+v", plainLatest)
 	}
 }
 
@@ -178,15 +180,19 @@ func newMetricsTestEnv(t *testing.T) (*auth.Service, *auth.TokenManager, *Realti
 	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
 	authService := auth.NewService(auth.NewRepository(authDB), tokenManager)
 
-	metricsDB := openMetricsTestDB(t)
-	repo := NewRepository(metricsDB)
-	service := NewService(repo, fixedMetricsClock{now: time.Now()}, authService)
+	service := NewService(MainServiceName, fixedMetricsClock{now: time.Now()}, authService)
+
+	flatlineServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(sinceResponse{Points: nil})
+	}))
+	t.Cleanup(flatlineServer.Close)
+	flatlineClient := NewFlatlineClient(flatlineServer.URL, time.Second)
 
 	hub := ws.NewHub(time.Second, ws.NewSyncState())
 	t.Cleanup(func() { _ = hub.Close() })
 	realtime := NewRealtime(hub)
 
-	hub.RegisterHandler("METRICS_SUBSCRIBE", NewSubscribeHandler(service, realtime))
+	hub.RegisterHandler("METRICS_SUBSCRIBE", NewSubscribeHandler(service, realtime, flatlineClient))
 	hub.RegisterHandler("METRICS_UNSUBSCRIBE", NewUnsubscribeHandler(realtime))
 
 	wsHandler := ws.NewHandler(authService, hub)

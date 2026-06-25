@@ -14,7 +14,6 @@ import (
 	"megaapp-back/internal/config"
 	"megaapp-back/internal/food"
 	"megaapp-back/internal/jobs"
-	"megaapp-back/internal/metrics"
 	"megaapp-back/internal/money"
 	clockplatform "megaapp-back/internal/platform/clock"
 	sqliteplatform "megaapp-back/internal/platform/sqlite"
@@ -60,7 +59,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 	settingsModule := buildSettingsModule(db.SQL())
 	moneyModule := buildMoneyModule(db.SQL())
 	wsModule := buildWSModule(cfg, authModule.service)
-	metricsModule, err := buildMetricsModule(db.SQL(), wsModule.hub, authModule.service, clk, jobRuntime)
+	metricsModule, err := buildMetricsModule(cfg, logger, wsModule.hub, authModule.service, clk, jobRuntime)
 	if err != nil {
 		_ = wsModule.hub.Close()
 		_ = jobRuntime.Close()
@@ -69,6 +68,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 	}
 	quotesModule, err := buildQuotesModule(db.SQL(), cfg, logger, clk, jobRuntime)
 	if err != nil {
+		_ = metricsModule.poller.Close()
 		_ = wsModule.hub.Close()
 		_ = jobRuntime.Close()
 		_ = db.Close()
@@ -76,6 +76,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 	}
 	backupModule, err := buildBackupModule(db.SQL(), cfg, logger, clk, jobRuntime, metricsModule.service)
 	if err != nil {
+		_ = metricsModule.poller.Close()
 		_ = wsModule.hub.Close()
 		_ = jobRuntime.Close()
 		_ = db.Close()
@@ -83,6 +84,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 	}
 	foodModule, err := buildFoodModule(db.SQL(), cfg, logger, wsModule.hub, clk, metricsModule.service)
 	if err != nil {
+		_ = metricsModule.poller.Close()
 		_ = wsModule.hub.Close()
 		_ = jobRuntime.Close()
 		_ = db.Close()
@@ -103,6 +105,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 			for _, background := range foodModule.backgrounds {
 				_ = background.Close()
 			}
+			_ = metricsModule.poller.Close()
 			_ = wsModule.hub.Close()
 			_ = jobRuntime.Close()
 			_ = db.Close()
@@ -128,8 +131,6 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 	food.RegisterDebugRoutes(router, foodModule.debugHandler)
 	quotes.RegisterDebugRoutes(router, quotesModule.debugHandler)
 	backup.RegisterDebugRoutes(router, backupModule.debugHandler)
-	metrics.RegisterDebugRoutes(router, metricsModule.debugHandler)
-	metrics.RegisterRoutes(router, metricsModule.handler)
 	ws.RegisterRoutes(router, wsModule.handler)
 
 	server := &http.Server{
@@ -147,7 +148,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 		Observer:    observer,
 		DB:          db,
 		WSHub:       wsModule.hub,
-		Backgrounds: append(foodModule.backgrounds, jobRuntime),
+		Backgrounds: append(foodModule.backgrounds, jobRuntime, metricsModule.poller),
 		Handler:     router,
 		Server:      server,
 	}, nil

@@ -6,7 +6,7 @@ import (
 	"megaapp-back/internal/ws"
 )
 
-func NewSubscribeHandler(service *Service, realtime *Realtime) ws.MessageHandler {
+func NewSubscribeHandler(service *Service, realtime *Realtime, flatlineClient *FlatlineClient) ws.MessageHandler {
 	return func(client *ws.Client, message map[string]any) error {
 		ctx := context.Background()
 
@@ -25,7 +25,7 @@ func NewSubscribeHandler(service *Service, realtime *Realtime) ws.MessageHandler
 			cursor = int64(rawCursor)
 		}
 
-		points, err := service.ListSince(ctx, cursor)
+		points, err := flatlineClient.Since(ctx, cursor)
 		if err != nil {
 			return err
 		}
