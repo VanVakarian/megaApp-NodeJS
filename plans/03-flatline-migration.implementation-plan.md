@@ -255,16 +255,17 @@ Severity (`ok`/`warn`/`error`) теперь считает фронт из `metr
 ### Фронт (отдельная задача, координация по контракту)
 - ✅ `megaapp-front`: переход с `METRICS_HEALTH` на `METRICS_LATEST`, расчёт severity на клиенте.
 - ✅ `megaapp-front`: зарегистрирован `megaapp-test` как второй service key с теми же metric groups/labels/descriptions, что и у `megaapp`, но с отдельным display label.
-
-### Сборка модуля
-- ⭕ `buildMetricsModule` в `internal/httpx/modules.go` пересобран под `flatlineClient`/`exporter`/`poller`, без `repo`.
-- ⭕ `poller` добавлен в `App.Backgrounds` для graceful shutdown.
-
-### Тесты
-- ⭕ Новые тесты на outbox/exporter/poller/flatline_client (см. «Тесты»).
-- ⭕ Старые тесты на `repo`/`CurrentHealth`/`IngestSnapshots`/`ImportNDJSON` удалены или переписаны.
-- ⭕ `go build ./...`, `go vet ./...`, `go test ./...` — чисто.
 - ✅ Добавлены проверки на producer split: `megaapp` по default, `megaapp-test` из `.env.test`, сохранение service key в `MetricPoint`; frontend type/build checks прошли для второго service key.
 
-### Фронт (отдельная задача, координация по контракту)
-- ✅ `megaapp-front`: переход с `METRICS_HEALTH` на `METRICS_LATEST`, расчёт severity на клиенте.
+### Деплой и живая проверка
+- ✅ `megaapp-back` и `megaapp-front` задеплоены и проверены живьём **только на test-стенде** (CI деплоит test автоматически с `develop`, нужный коммит там уже есть). На дашборде test видны отдельные потоки `megaapp-test` и бота.
+- ⭕ Прод ещё на старом коде: коммит `c8b8db0` (переключение на Flatline) есть только в `develop`, в ветке `release` (с неё едет прод-деплой по CI) его нет. Чтобы обновить прод — смержить `develop` → `release` в `megaapp-back` и `megaapp-front`, дальше CI задеплоит сам.
+- ⭕ Старая локальная таблица `metrics` на проде продолжает писаться и читаться старым кодом до выполнения пункта выше.
+
+### Следующий шаг (раздел 5 архитектурного документа)
+- ⭕ Шаг 3: merge `develop` → `release` в `megaapp-back` и `megaapp-front`, CI задеплоит прод.
+- ⭕ Шаг 4: снэпшот старой таблицы `metrics` в БД megaapp через `VACUUM INTO` (только после шага 3).
+- ⭕ Шаг 5: разовый read-only инструмент экспорта снэпшота в NDJSON.
+- ⭕ Шаг 6: импорт NDJSON в Flatline через существующую debug-ручку.
+- ⭕ Шаг 7: сверка сумм точек снэпшот vs Flatline.
+- ⭕ Шаг 8: миграция `000004_remove_metrics_table.sql`, удаляющая старую таблицу.
