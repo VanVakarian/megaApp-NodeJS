@@ -49,7 +49,9 @@ func RegisterDebugRoutes(router chi.Router, handler *DebugHandler) {
 		r.Get("/rate-limits", handler.CheckRateLimits)
 		r.Get("/export-catalogue", handler.ExportCatalogue)
 		r.Post("/import-catalogue", handler.ImportCatalogue)
-		r.Get("/run-coefficients-job", handler.RunCoefficientsJob)
+		r.Get("/run-personal-kcal-job", handler.RunPersonalKcalJob)
+		r.Post("/reset-personal-kcal/{userId}", handler.ResetPersonalKcal)
+		r.Post("/reset-personal-kcal-all", handler.ResetPersonalKcalAll)
 	})
 }
 
@@ -185,14 +187,14 @@ func (h *DebugHandler) ImportCatalogue(w http.ResponseWriter, r *http.Request) {
 	legacy.WriteJSON(w, http.StatusOK, payload)
 }
 
-func (h *DebugHandler) RunCoefficientsJob(w http.ResponseWriter, r *http.Request) {
-	payload, err := h.service.RunCoefficientsJob(r.Context())
+func (h *DebugHandler) RunPersonalKcalJob(w http.ResponseWriter, r *http.Request) {
+	payload, err := h.service.RunPersonalKcalJob(r.Context())
 	if err != nil {
 		statusCode := http.StatusInternalServerError
-		if errors.Is(err, ErrCoefficientsRecalculationAlreadyRunning) {
+		if errors.Is(err, ErrPersonalKcalJobAlreadyRunning) {
 			statusCode = http.StatusConflict
 		}
-		legacy.WriteAppResultError(w, err, statusCode, "Failed to run coefficients job")
+		legacy.WriteAppResultError(w, err, statusCode, "Failed to run personal kcal job")
 		return
 	}
 	legacy.WriteJSON(w, http.StatusOK, map[string]any{
@@ -202,6 +204,27 @@ func (h *DebugHandler) RunCoefficientsJob(w http.ResponseWriter, r *http.Request
 		"failedCount":    payload.FailedCount,
 		"users":          payload.Users,
 	})
+}
+
+func (h *DebugHandler) ResetPersonalKcal(w http.ResponseWriter, r *http.Request) {
+	userID, err := strconv.ParseInt(chi.URLParam(r, "userId"), 10, 64)
+	if err != nil {
+		legacy.WriteResultError(w, http.StatusBadRequest, "Invalid userId")
+		return
+	}
+	if err := h.service.ResetPersonalKcal(r.Context(), userID); err != nil {
+		legacy.WriteAppResultError(w, err, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	legacy.WriteJSON(w, http.StatusOK, map[string]any{"result": true})
+}
+
+func (h *DebugHandler) ResetPersonalKcalAll(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.ResetPersonalKcalAll(r.Context()); err != nil {
+		legacy.WriteAppResultError(w, err, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	legacy.WriteJSON(w, http.StatusOK, map[string]any{"result": true})
 }
 
 func optionalQueryInt64(r *http.Request, key string) (int64, error) {

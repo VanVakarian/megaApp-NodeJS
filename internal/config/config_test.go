@@ -128,32 +128,47 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.OpenAITimeout != 60*time.Second {
 		t.Fatalf("OpenAITimeout = %v, want 60s", cfg.OpenAITimeout)
 	}
-	if cfg.CoefficientsJobEnabled {
-		t.Fatal("CoefficientsJobEnabled = true, want false")
+	if cfg.PersonalKcalJobEnabled {
+		t.Fatal("PersonalKcalJobEnabled = true, want false")
 	}
-	if cfg.CoefficientsJobSchedule != "0 1 * * *" {
-		t.Fatalf("CoefficientsJobSchedule = %q, want 0 1 * * *", cfg.CoefficientsJobSchedule)
+	if cfg.PersonalKcalJobSchedule != "0 2 1 * *" {
+		t.Fatalf("PersonalKcalJobSchedule = %q, want 0 2 1 * *", cfg.PersonalKcalJobSchedule)
 	}
-	if cfg.CoefficientsStartWithDefaults {
-		t.Fatal("CoefficientsStartWithDefaults = true, want false")
+	if cfg.PersonalKcalLookbackMonths != 3 {
+		t.Fatalf("PersonalKcalLookbackMonths = %d, want 3", cfg.PersonalKcalLookbackMonths)
 	}
-	if cfg.CoefficientsDifferentTriesPerRound != 100 {
-		t.Fatalf("CoefficientsDifferentTriesPerRound = %d, want 100", cfg.CoefficientsDifferentTriesPerRound)
+	if cfg.PersonalKcalDecayRate != 0.6 {
+		t.Fatalf("PersonalKcalDecayRate = %v, want 0.6", cfg.PersonalKcalDecayRate)
 	}
-	if cfg.CoefficientsChildrenAmt != 10 {
-		t.Fatalf("CoefficientsChildrenAmt = %d, want 10", cfg.CoefficientsChildrenAmt)
+	if cfg.PersonalKcalCoverageThreshold != 0.5 {
+		t.Fatalf("PersonalKcalCoverageThreshold = %v, want 0.5", cfg.PersonalKcalCoverageThreshold)
 	}
-	if cfg.CoefficientsBestAmt != 10 {
-		t.Fatalf("CoefficientsBestAmt = %d, want 10", cfg.CoefficientsBestAmt)
+	if cfg.PersonalKcalMaxMonthlyChangePercent != 10 {
+		t.Fatalf("PersonalKcalMaxMonthlyChangePercent = %v, want 10", cfg.PersonalKcalMaxMonthlyChangePercent)
 	}
-	if cfg.CoefficientsDays7 != 7 {
-		t.Fatalf("CoefficientsDays7 = %d, want 7", cfg.CoefficientsDays7)
+	if cfg.PersonalKcalAnchorLambda != 3 {
+		t.Fatalf("PersonalKcalAnchorLambda = %v, want 3", cfg.PersonalKcalAnchorLambda)
 	}
-	if cfg.CoefficientsDays60 != 60 {
-		t.Fatalf("CoefficientsDays60 = %d, want 60", cfg.CoefficientsDays60)
+	if cfg.PersonalKcalEvidenceHalfKcal != 333 {
+		t.Fatalf("PersonalKcalEvidenceHalfKcal = %v, want 333", cfg.PersonalKcalEvidenceHalfKcal)
 	}
-	if cfg.CoefficientsMaxTriesIfUnchanged != 20 {
-		t.Fatalf("CoefficientsMaxTriesIfUnchanged = %d, want 20", cfg.CoefficientsMaxTriesIfUnchanged)
+	if cfg.PersonalKcalCoefLogStep != 0.03 {
+		t.Fatalf("PersonalKcalCoefLogStep = %v, want 0.03", cfg.PersonalKcalCoefLogStep)
+	}
+	if cfg.PersonalKcalNormStep != 33 {
+		t.Fatalf("PersonalKcalNormStep = %v, want 33", cfg.PersonalKcalNormStep)
+	}
+	if cfg.PersonalKcalXStep != 33 {
+		t.Fatalf("PersonalKcalXStep = %v, want 33", cfg.PersonalKcalXStep)
+	}
+	if cfg.PersonalKcalPopulation != 33 {
+		t.Fatalf("PersonalKcalPopulation = %d, want 33", cfg.PersonalKcalPopulation)
+	}
+	if cfg.PersonalKcalMaxGenerations != 333 {
+		t.Fatalf("PersonalKcalMaxGenerations = %d, want 333", cfg.PersonalKcalMaxGenerations)
+	}
+	if cfg.PersonalKcalMaxStale != 33 {
+		t.Fatalf("PersonalKcalMaxStale = %d, want 33", cfg.PersonalKcalMaxStale)
 	}
 	if cfg.QuotesJobEnabled {
 		t.Fatal("QuotesJobEnabled = true, want false")
@@ -254,9 +269,9 @@ func TestValidateRejectsInsecureJWTSecretOutsideTestLikeEnv(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsInvalidCoefficientsConfig(t *testing.T) {
+func TestValidateRejectsInvalidPersonalKcalConfig(t *testing.T) {
 	cfg := validTestConfig()
-	cfg.CoefficientsBestAmt = cfg.CoefficientsDifferentTriesPerRound + 1
+	cfg.PersonalKcalDecayRate = 1.5
 
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("Validate() error = nil, want error")
@@ -294,52 +309,58 @@ func TestValidateAcceptsProdLikeConfig(t *testing.T) {
 
 func validTestConfig() Config {
 	return Config{
-		AppEnv:                             "test",
-		AppHost:                            "127.0.0.1",
-		AppPort:                            3001,
-		LogLevel:                           "info",
-		DataDir:                            "./data",
-		DatabaseName:                       "megaapp",
-		DatabasePath:                       "./data/megaapp-test.db",
-		MigrationsDir:                      "./migrations",
-		PublicDir:                          "./public",
-		BackupsDir:                         "./backups",
-		JWTSecret:                          "secret",
-		OpenRouterTimeout:                  time.Second,
-		ImageGenerationMaxAttempts:         3,
-		OpenAIEmbeddingDims:                768,
-		OpenAITimeout:                      time.Second,
-		CoefficientsJobSchedule:            "0 1 * * *",
-		CoefficientsDifferentTriesPerRound: 100,
-		CoefficientsChildrenAmt:            10,
-		CoefficientsBestAmt:                10,
-		CoefficientsDays7:                  7,
-		CoefficientsDays60:                 60,
-		CoefficientsMaxTriesIfUnchanged:    20,
-		QuotesJobSchedule:                  "0 3 * * *",
-		QuotesFetchDays:                    7,
-		QuotesRetryAttempts:                3,
-		QuotesRetryDelay:                   30 * time.Second,
-		QuotesRequestTimeout:               20 * time.Second,
-		BackupJobSchedule:                  "0 2 * * *",
-		BackupStorageEnabled:               true,
-		BackupStorageRegion:                "eu-north-1",
-		BackupStorageBucket:                "bucket",
-		BackupStorageAccessKeyID:           "key",
-		BackupStorageSecretAccessKey:       "secret",
-		BackupOperationTimeout:             300 * time.Second,
-		MetricsServiceKey:                  "megaapp",
-		FlatlineBaseURL:                    "http://127.0.0.1:4000",
-		FlatlinePushTimeout:                time.Second,
-		FlatlinePollInterval:               10 * time.Second,
-		FlatlinePollInitialLookback:        120 * time.Second,
-		HTTPReadTimeout:                    time.Second,
-		HTTPWriteTimeout:                   time.Second,
-		HTTPIdleTimeout:                    time.Second,
-		ShutdownTimeout:                    time.Second,
-		MaxRequestBodyBytes:                1024,
-		MaxMultipartBodyBytes:              8 * 1024,
-		WSReadLimitBytes:                   1024,
-		WSWriteTimeout:                     time.Second,
+		AppEnv:                              "test",
+		AppHost:                             "127.0.0.1",
+		AppPort:                             3001,
+		LogLevel:                            "info",
+		DataDir:                             "./data",
+		DatabaseName:                        "megaapp",
+		DatabasePath:                        "./data/megaapp-test.db",
+		MigrationsDir:                       "./migrations",
+		PublicDir:                           "./public",
+		BackupsDir:                          "./backups",
+		JWTSecret:                           "secret",
+		OpenRouterTimeout:                   time.Second,
+		ImageGenerationMaxAttempts:          3,
+		OpenAIEmbeddingDims:                 768,
+		OpenAITimeout:                       time.Second,
+		PersonalKcalJobSchedule:             "0 2 1 * *",
+		PersonalKcalLookbackMonths:          3,
+		PersonalKcalDecayRate:               0.6,
+		PersonalKcalCoverageThreshold:       0.5,
+		PersonalKcalMaxMonthlyChangePercent: 10,
+		PersonalKcalAnchorLambda:            3,
+		PersonalKcalEvidenceHalfKcal:        333,
+		PersonalKcalCoefLogStep:             0.03,
+		PersonalKcalNormStep:                33,
+		PersonalKcalXStep:                   33,
+		PersonalKcalPopulation:              33,
+		PersonalKcalMaxGenerations:          333,
+		PersonalKcalMaxStale:                33,
+		QuotesJobSchedule:                   "0 3 * * *",
+		QuotesFetchDays:                     7,
+		QuotesRetryAttempts:                 3,
+		QuotesRetryDelay:                    30 * time.Second,
+		QuotesRequestTimeout:                20 * time.Second,
+		BackupJobSchedule:                   "0 2 * * *",
+		BackupStorageEnabled:                true,
+		BackupStorageRegion:                 "eu-north-1",
+		BackupStorageBucket:                 "bucket",
+		BackupStorageAccessKeyID:            "key",
+		BackupStorageSecretAccessKey:        "secret",
+		BackupOperationTimeout:              300 * time.Second,
+		MetricsServiceKey:                   "megaapp",
+		FlatlineBaseURL:                     "http://127.0.0.1:4000",
+		FlatlinePushTimeout:                 time.Second,
+		FlatlinePollInterval:                10 * time.Second,
+		FlatlinePollInitialLookback:         120 * time.Second,
+		HTTPReadTimeout:                     time.Second,
+		HTTPWriteTimeout:                    time.Second,
+		HTTPIdleTimeout:                     time.Second,
+		ShutdownTimeout:                     time.Second,
+		MaxRequestBodyBytes:                 1024,
+		MaxMultipartBodyBytes:               8 * 1024,
+		WSReadLimitBytes:                    1024,
+		WSWriteTimeout:                      time.Second,
 	}
 }

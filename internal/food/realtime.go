@@ -34,7 +34,7 @@ func (p *WSRealtimePublisher) PublishDiaryEntryCreated(userID int64, entry Diary
 }
 
 func (p *WSRealtimePublisher) PublishDiaryEntryUpdated(userID int64, entry DiaryEntry, historyEntry HistoryEntry, excludeClientID string) {
-	p.hub.BroadcastToUser(userID, map[string]any{"type": "DIARY_ENTRY_UPDATED", "payload": map[string]any{"id": entry.ID, "newFoodWeight": entry.FoodWeight, "newHistoryEntry": historyEntry}}, excludeClientID)
+	p.hub.BroadcastToUser(userID, map[string]any{"type": "DIARY_ENTRY_UPDATED", "payload": map[string]any{"id": entry.ID, "newFoodWeight": entry.FoodWeight, "newKcals": entry.Kcals, "newHistoryEntry": historyEntry}}, excludeClientID)
 }
 
 func (p *WSRealtimePublisher) PublishDiaryEntryDeleted(userID int64, diaryID int64, excludeClientID string) {

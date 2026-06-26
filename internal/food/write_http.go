@@ -22,7 +22,7 @@ const (
 	MetricCatalogueEntryCreated = "food_catalogue_entry_created"
 	MetricCatalogueEntryUpdated = "food_catalogue_entry_updated"
 	MetricCatalogueEntryDeleted = "food_catalogue_entry_deleted"
-	MetricCoefficientsJobRan    = "food_coefficients_job_ran"
+	MetricPersonalKcalJobRan    = "food_personal_kcal_job_ran"
 )
 
 type MetricsRecorder interface {
@@ -97,7 +97,7 @@ func (h *WriteHandler) CreateDiaryEntry(w http.ResponseWriter, r *http.Request) 
 	h.realtime.MarkUserUpdated(claims.UserID)
 	h.realtime.PublishDiaryEntryCreated(claims.UserID, entry, extractClientID(r))
 	h.recordMetric(MetricDiaryEntryCreated)
-	legacy.WriteJSON(w, http.StatusCreated, map[string]any{"result": true, "diaryId": entry.ID})
+	legacy.WriteJSON(w, http.StatusCreated, map[string]any{"result": true, "diaryId": entry.ID, "kcals": entry.Kcals})
 }
 
 func (h *WriteHandler) EditDiaryEntry(w http.ResponseWriter, r *http.Request) {
@@ -130,7 +130,7 @@ func (h *WriteHandler) EditDiaryEntry(w http.ResponseWriter, r *http.Request) {
 	h.realtime.MarkUserUpdated(claims.UserID)
 	h.realtime.PublishDiaryEntryUpdated(claims.UserID, *updatedEntry, request.History[0], extractClientID(r))
 	h.recordMetric(MetricDiaryEntryUpdated)
-	legacy.WriteJSON(w, http.StatusOK, map[string]any{"result": true, "diaryId": updatedEntry.ID})
+	legacy.WriteJSON(w, http.StatusOK, map[string]any{"result": true, "diaryId": updatedEntry.ID, "kcals": updatedEntry.Kcals})
 }
 
 func (h *WriteHandler) DeleteDiaryEntry(w http.ResponseWriter, r *http.Request) {

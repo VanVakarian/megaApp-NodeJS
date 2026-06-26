@@ -32,15 +32,10 @@ type CatalogueRow struct {
 	Description sql.NullString
 }
 
-type CoefficientsRow struct {
-	Coefficients sql.NullString
-}
-
 type StatsDiaryRow struct {
 	DateISO         string
 	FoodWeight      float64
 	FoodCatalogueID int64
-	Kcals           float64
 }
 
 type Repository struct {
@@ -167,41 +162,6 @@ func (r *Repository) CountDiaryEntriesByCatalogueID(ctx context.Context, catalog
 	return count, nil
 }
 
-func (r *Repository) GetUserCoefficients(ctx context.Context, userID int64) (*CoefficientsRow, error) {
-	row := r.db.QueryRowContext(ctx, `SELECT coefficients FROM foodSettings WHERE usersId = ?`, userID)
-
-	var result CoefficientsRow
-	if err := row.Scan(&result.Coefficients); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("get user coefficients: %w", err)
-	}
-
-	return &result, nil
-}
-
-func (r *Repository) UpsertUserCoefficients(ctx context.Context, userID int64, coefficients string) error {
-	result, err := r.db.ExecContext(ctx, `UPDATE foodSettings SET coefficients = ? WHERE usersId = ?`, coefficients, userID)
-	if err != nil {
-		return fmt.Errorf("update user coefficients: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("user coefficients rows affected: %w", err)
-	}
-	if rowsAffected > 0 {
-		return nil
-	}
-
-	if _, err := r.db.ExecContext(ctx, `INSERT INTO foodSettings (usersId, coefficients) VALUES (?, ?)`, userID, coefficients); err != nil {
-		return fmt.Errorf("insert user coefficients: %w", err)
-	}
-
-	return nil
-}
-
 func (r *Repository) GetUserGoal(ctx context.Context, userID int64) (string, error) {
 	row := r.db.QueryRowContext(ctx, `SELECT goal FROM settings WHERE usersId = ?`, userID)
 
@@ -287,10 +247,10 @@ func scanWeightRows(rows *sql.Rows) ([]WeightRow, error) {
 
 func (r *Repository) GetStatsDiaryHistory(ctx context.Context, userID int64, startDate string, endDate string) ([]StatsDiaryRow, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT d.dateISO, d.foodWeight, d.foodCatalogueId, c.kcals
-		FROM foodDiary d JOIN foodCatalogue c ON d.foodCatalogueId = c.id
-		WHERE d.usersId = ? AND d.dateISO BETWEEN ? AND ?
-		ORDER BY d.dateISO ASC
+		SELECT dateISO, foodWeight, foodCatalogueId
+		FROM foodDiary
+		WHERE usersId = ? AND dateISO BETWEEN ? AND ?
+		ORDER BY dateISO ASC
 	`, userID, startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("get stats diary history: %w", err)
@@ -300,7 +260,7 @@ func (r *Repository) GetStatsDiaryHistory(ctx context.Context, userID int64, sta
 	var result []StatsDiaryRow
 	for rows.Next() {
 		var row StatsDiaryRow
-		if err := rows.Scan(&row.DateISO, &row.FoodWeight, &row.FoodCatalogueID, &row.Kcals); err != nil {
+		if err := rows.Scan(&row.DateISO, &row.FoodWeight, &row.FoodCatalogueID); err != nil {
 			return nil, fmt.Errorf("scan stats diary row: %w", err)
 		}
 		result = append(result, row)

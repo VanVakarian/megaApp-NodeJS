@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -26,19 +27,24 @@ func ApplyMigrations(ctx context.Context, db *sql.DB, migrationsDir string) erro
 		return err
 	}
 
+	appliedCount := 0
 	for _, migration := range migrations {
 		applied, err := isApplied(ctx, db, migration.Version)
 		if err != nil {
 			return err
 		}
 		if applied {
+			log.Printf("migration %s already applied, skipping", migration.Name)
 			continue
 		}
 		if err := applyMigration(ctx, db, migration); err != nil {
 			return err
 		}
+		log.Printf("migration %s applied", migration.Name)
+		appliedCount++
 	}
 
+	log.Printf("migrations check complete: %d total, %d newly applied", len(migrations), appliedCount)
 	return nil
 }
 
