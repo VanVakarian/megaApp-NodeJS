@@ -66,18 +66,23 @@ func (r *Repository) CreateDiaryEntriesBatch(ctx context.Context, userID int64, 
 	return result, nil
 }
 
-func (r *Repository) GetDiaryEntryHistory(ctx context.Context, diaryID int64, userID int64) (string, error) {
-	row := r.db.QueryRowContext(ctx, `SELECT history FROM foodDiary WHERE id = ? AND usersId = ?`, diaryID, userID)
+type DiaryEntryForEditRow struct {
+	FoodCatalogueID int64
+	History         string
+}
 
-	var history string
-	if err := row.Scan(&history); err != nil {
+func (r *Repository) GetDiaryEntryForEdit(ctx context.Context, diaryID int64, userID int64) (*DiaryEntryForEditRow, error) {
+	row := r.db.QueryRowContext(ctx, `SELECT foodCatalogueId, history FROM foodDiary WHERE id = ? AND usersId = ?`, diaryID, userID)
+
+	var result DiaryEntryForEditRow
+	if err := row.Scan(&result.FoodCatalogueID, &result.History); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", nil
+			return nil, nil
 		}
-		return "", fmt.Errorf("get diary entry history: %w", err)
+		return nil, fmt.Errorf("get diary entry for edit: %w", err)
 	}
 
-	return history, nil
+	return &result, nil
 }
 
 func (r *Repository) UpdateDiaryEntry(ctx context.Context, diaryID int64, userID int64, foodWeight int64, history string) (bool, error) {

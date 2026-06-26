@@ -90,16 +90,16 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 		_ = db.Close()
 		return nil, err
 	}
-	if cfg.CoefficientsJobEnabled {
-		if err := jobRuntime.Register("coefficients", cfg.CoefficientsJobSchedule, func(ctx context.Context) error {
-			result, err := foodModule.service.RunCoefficientsJob(ctx)
+	if cfg.PersonalKcalJobEnabled {
+		if err := jobRuntime.Register("personalKcal", cfg.PersonalKcalJobSchedule, func(ctx context.Context) error {
+			result, err := foodModule.service.RunPersonalKcalJob(ctx)
 			if err != nil {
 				return err
 			}
 			if result.FailedCount > 0 {
-				logger.Warn("coefficients job completed with user failures", "failedCount", result.FailedCount)
+				logger.Warn("personal kcal job completed with user failures", "failedCount", result.FailedCount)
 			}
-			metricsModule.service.Increment(food.MetricCoefficientsJobRan)
+			metricsModule.service.Increment(food.MetricPersonalKcalJobRan)
 			return nil
 		}); err != nil {
 			for _, background := range foodModule.backgrounds {

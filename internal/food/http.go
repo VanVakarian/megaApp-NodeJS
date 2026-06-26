@@ -2,7 +2,6 @@ package food
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -27,8 +26,7 @@ func RegisterRoutes(router chi.Router, authService *auth.Service, handler *Handl
 		r.Get("/diary-full-update", handler.GetDiaryFullUpdate)
 		r.Get("/catalogue", handler.GetCatalogue)
 		r.Get("/catalogue/{catalogueId}", handler.GetCatalogueEntry)
-		r.Get("/coefficients", handler.GetCoefficients)
-		r.Get("/coefficients-gen", handler.GenerateCoefficients)
+		r.Get("/personal-kcals", handler.GetPersonalKcals)
 		r.Get("/stats", handler.GetStats)
 	})
 }
@@ -90,43 +88,20 @@ func (h *Handler) GetCatalogueEntry(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"result": true, "data": response})
 }
 
-func (h *Handler) GetCoefficients(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) GetPersonalKcals(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.UserClaimsFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "Unauthorized"})
 		return
 	}
 
-	response, err := h.service.GetCoefficients(r.Context(), claims.UserID)
+	response, err := h.service.GetPersonalKcalsNow(r.Context(), claims.UserID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"result": false, "error": err.Error()})
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"result": true, "data": response})
-}
-
-func (h *Handler) GenerateCoefficients(w http.ResponseWriter, r *http.Request) {
-	claims, ok := auth.UserClaimsFromContext(r.Context())
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "Unauthorized"})
-		return
-	}
-
-	response, err := h.service.RecalculateCoefficients(r.Context(), claims.UserID)
-	if err != nil {
-		statusCode := http.StatusInternalServerError
-		if errors.Is(err, ErrCoefficientsRecalculationAlreadyRunning) {
-			statusCode = http.StatusConflict
-		}
-		writeJSON(w, statusCode, map[string]any{"result": false, "error": err.Error()})
-		return
-	}
-	if h.realtime != nil {
-		h.realtime.MarkUserUpdated(claims.UserID)
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{"result": true, "message": "Coefficients calculated and saved.", "data": response.Coefficients})
 }
 
 func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {

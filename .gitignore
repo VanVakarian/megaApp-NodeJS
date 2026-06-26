@@ -8,3 +8,6 @@ public/images/
 .env.prod
 .env.local
 .env.*.local
+research
+metrics-outbox.*.ndjson
+metrics-outbox.ack.json

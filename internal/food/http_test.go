@@ -40,15 +40,7 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 	service := NewService(NewRepository(db))
 	service.SetProductGenerator(fakeProductGenerator{})
 	service.SetClock(fixedFoodClock{now: time.Date(2026, time.June, 20, 12, 0, 0, 0, time.UTC)})
-	service.SetCoefficientsConfig(CoefficientsConfig{
-		DifferentTriesPerRound: 4,
-		ChildrenAmt:            2,
-		BestAmt:                2,
-		Days7:                  2,
-		Days60:                 3,
-		MaxTriesIfUnchanged:    1,
-	})
-	seedFoodCoefficientHistory(t, db, 1)
+	seedFoodDiaryAndWeightHistory(t, db, 1)
 	hub := wspkg.NewHub(time.Second, wspkg.NewSyncState())
 	defer func() { _ = hub.Close() }()
 	clk := clockplatform.NewRealClock()
@@ -122,7 +114,7 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 			"history":         []map[string]any{{"action": "init", "value": 120}},
 		}},
 	}, http.StatusCreated)
-	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/coefficients-gen", tokens.AccessToken, "tab-a", nil, http.StatusOK)
+	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/personal-kcals", tokens.AccessToken, "tab-a", nil, http.StatusOK)
 }
 
 func TestFoodSearchAndCatalogueMutationEndpoints(t *testing.T) {
@@ -231,19 +223,12 @@ func TestFoodImageStaticRoutes(t *testing.T) {
 	}
 }
 
-func TestFoodDebugRunCoefficientsJobRoute(t *testing.T) {
+func TestFoodDebugRunPersonalKcalJobRoute(t *testing.T) {
 	db := openFoodTestDB(t)
-	seedFoodCoefficientHistory(t, db, 1)
+	seedFoodDiaryAndWeightHistory(t, db, 1)
 	service := NewService(NewRepository(db))
-	service.SetClock(fixedFoodClock{now: time.Date(2026, time.June, 20, 12, 0, 0, 0, time.UTC)})
-	service.SetCoefficientsConfig(CoefficientsConfig{
-		DifferentTriesPerRound: 4,
-		ChildrenAmt:            2,
-		BestAmt:                2,
-		Days7:                  2,
-		Days60:                 3,
-		MaxTriesIfUnchanged:    1,
-	})
+	service.SetClock(fixedFoodClock{now: time.Date(2026, time.July, 5, 12, 0, 0, 0, time.UTC)})
+	service.SetPersonalKcalConfig(testPersonalKcalConfig())
 	debugHandler := NewDebugHandler(NewDebugService(NewRepository(db), t.TempDir(), nil, service, nil))
 
 	router := chi.NewRouter()
@@ -251,13 +236,31 @@ func TestFoodDebugRunCoefficientsJobRoute(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	response, err := http.Get(server.URL + "/api/debug/run-coefficients-job")
+	response, err := http.Get(server.URL + "/api/debug/run-personal-kcal-job")
 	if err != nil {
 		t.Fatalf("http.Get() error = %v", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", response.StatusCode)
+	}
+
+	resetResponse, err := http.Post(server.URL+"/api/debug/reset-personal-kcal/1", "application/json", nil)
+	if err != nil {
+		t.Fatalf("http.Post() error = %v", err)
+	}
+	defer resetResponse.Body.Close()
+	if resetResponse.StatusCode != http.StatusOK {
+		t.Fatalf("reset status = %d, want 200", resetResponse.StatusCode)
+	}
+
+	resetAllResponse, err := http.Post(server.URL+"/api/debug/reset-personal-kcal-all", "application/json", nil)
+	if err != nil {
+		t.Fatalf("http.Post() error = %v", err)
+	}
+	defer resetAllResponse.Body.Close()
+	if resetAllResponse.StatusCode != http.StatusOK {
+		t.Fatalf("reset-all status = %d, want 200", resetAllResponse.StatusCode)
 	}
 }
 
@@ -287,7 +290,7 @@ func TestFoodReadEndpoints(t *testing.T) {
 	}
 
 	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/catalogue", tokens.AccessToken, "tab-a", nil, http.StatusOK)
-	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/coefficients", tokens.AccessToken, "tab-a", nil, http.StatusOK)
+	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/personal-kcals", tokens.AccessToken, "tab-a", nil, http.StatusOK)
 	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/stats", tokens.AccessToken, "tab-a", nil, http.StatusOK)
 	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/search?query=apple-semantic", tokens.AccessToken, "tab-a", nil, http.StatusOK)
 	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/diary-full-update?date=2026-06-17&offset=1", tokens.AccessToken, "tab-a", nil, http.StatusOK)

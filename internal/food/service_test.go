@@ -3,7 +3,6 @@ package food
 import (
 	"context"
 	"database/sql"
-	"reflect"
 	"testing"
 	"time"
 
@@ -61,7 +60,7 @@ func (fakeEmbeddingGenerator) GenerateEmbedding(ctx context.Context, text string
 	}
 }
 
-func TestGetCatalogueAndCoefficientsAndStats(t *testing.T) {
+func TestGetCatalogueAndPersonalKcalsAndStats(t *testing.T) {
 	db := openFoodTestDB(t)
 	repo := NewRepository(db)
 	service := NewService(repo)
@@ -82,12 +81,12 @@ func TestGetCatalogueAndCoefficientsAndStats(t *testing.T) {
 		t.Fatalf("entry.CanDelete = %v, want false", entry)
 	}
 
-	coefficients, err := service.GetCoefficients(context.Background(), 1)
+	personalKcals, err := service.GetPersonalKcalsNow(context.Background(), 1)
 	if err != nil {
-		t.Fatalf("GetCoefficients() error = %v", err)
+		t.Fatalf("GetPersonalKcalsNow() error = %v", err)
 	}
-	if len(coefficients) != 2 || coefficients[1] != 1 || coefficients[2] != 1 {
-		t.Fatalf("coefficients = %+v", coefficients)
+	if len(personalKcals) != 2 || personalKcals[1] != 50 || personalKcals[2] != 250 {
+		t.Fatalf("personalKcals = %+v, want catalogue bootstrap {1:50, 2:250}", personalKcals)
 	}
 
 	stats, err := service.GetStats(context.Background(), 1)
@@ -156,104 +155,97 @@ func TestWriteOperationsPersistData(t *testing.T) {
 	}
 }
 
-func TestGetCoefficientsRepairsInvalidValues(t *testing.T) {
-	db := openFoodTestDB(t)
-	if _, err := db.Exec(`INSERT INTO foodSettings(usersId, coefficients) VALUES (1, '{"1":0,"2":-3,"999":2}')`); err != nil {
-		t.Fatalf("Exec() error = %v", err)
-	}
-
-	service := NewService(NewRepository(db))
-	coefficients, err := service.GetCoefficients(context.Background(), 1)
-	if err != nil {
-		t.Fatalf("GetCoefficients() error = %v", err)
-	}
-	if len(coefficients) != 2 {
-		t.Fatalf("len(coefficients) = %d, want 2", len(coefficients))
-	}
-	if coefficients[1] != 1 || coefficients[2] != 1 {
-		t.Fatalf("coefficients = %+v, want defaults repaired", coefficients)
+func testPersonalKcalConfig() PersonalKcalConfig {
+	return PersonalKcalConfig{
+		LookbackMonths:          3,
+		DecayRate:               0.6,
+		CoverageThreshold:       0,
+		MaxMonthlyChangePercent: 50,
+		AnchorLambda:            1,
+		EvidenceHalfKcal:        100,
+		CoefLogStep:             0.05,
+		NormStep:                50,
+		XStep:                   50,
+		Population:              8,
+		MaxGenerations:          10,
+		MaxStale:                5,
 	}
 }
 
-func TestRecalculateCoefficientsStoresResultAndInvalidatesStats(t *testing.T) {
+func TestRunPersonalKcalJobStoresHistoryAndInvalidatesStats(t *testing.T) {
 	db := openFoodTestDB(t)
-	seedFoodCoefficientHistory(t, db, 1)
-	if _, err := db.Exec(`INSERT INTO foodSettings(usersId, coefficients) VALUES (1, '{"1":1.20,"2":0.85}')`); err != nil {
-		t.Fatalf("Exec() error = %v", err)
-	}
+	seedFoodDiaryAndWeightHistory(t, db, 1)
 	service := NewService(NewRepository(db))
-	service.SetClock(fixedFoodClock{now: time.Date(2026, time.June, 20, 12, 0, 0, 0, time.UTC)})
-	service.SetCoefficientsConfig(CoefficientsConfig{
-		DifferentTriesPerRound: 4,
-		ChildrenAmt:            2,
-		BestAmt:                2,
-		Days7:                  2,
-		Days60:                 3,
-		MaxTriesIfUnchanged:    1,
-	})
+	service.SetClock(fixedFoodClock{now: time.Date(2026, time.July, 5, 12, 0, 0, 0, time.UTC)})
+	service.SetPersonalKcalConfig(testPersonalKcalConfig())
 
 	if _, err := service.GetStats(context.Background(), 1); err != nil {
 		t.Fatalf("GetStats() error = %v", err)
 	}
 	if _, ok := service.statsCache.Get(1); !ok {
-		t.Fatal("stats cache missing before recalculation")
+		t.Fatal("stats cache missing before job run")
 	}
 
-	result, err := service.RecalculateCoefficients(context.Background(), 1)
+	result, err := service.RunPersonalKcalJob(context.Background())
 	if err != nil {
-		t.Fatalf("RecalculateCoefficients() error = %v", err)
+		t.Fatalf("RunPersonalKcalJob() error = %v", err)
 	}
-	if result.Laps <= 0 {
-		t.Fatalf("Laps = %d, want > 0", result.Laps)
+	if result.SuccessCount != 1 || result.FailedCount != 0 {
+		t.Fatalf("result = %+v", result)
 	}
-	if len(result.Coefficients) != 2 {
-		t.Fatalf("len(Coefficients) = %d, want 2", len(result.Coefficients))
+	if result.Users[0].MonthsComputed != 1 {
+		t.Fatalf("MonthsComputed = %d, want 1", result.Users[0].MonthsComputed)
 	}
 	if _, ok := service.statsCache.Get(1); ok {
-		t.Fatal("stats cache still present after recalculation")
+		t.Fatal("stats cache still present after job run")
 	}
 
-	stored, err := service.GetCoefficients(context.Background(), 1)
+	kcalHistory, err := NewRepository(db).GetPersonalKcalHistory(context.Background(), 1)
 	if err != nil {
-		t.Fatalf("GetCoefficients() error = %v", err)
+		t.Fatalf("GetPersonalKcalHistory() error = %v", err)
 	}
-	if !reflect.DeepEqual(stored, result.Coefficients) {
-		t.Fatalf("stored coefficients = %+v, want %+v", stored, result.Coefficients)
+	if len(kcalHistory) != 2 {
+		t.Fatalf("len(kcalHistory) = %d, want 2 (one row per touched product)", len(kcalHistory))
+	}
+	normHistory, err := NewRepository(db).GetPersonalNormHistory(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("GetPersonalNormHistory() error = %v", err)
+	}
+	if len(normHistory) != 1 || normHistory[0].YearMonth != "2026-06" {
+		t.Fatalf("normHistory = %+v, want one 2026-06 row", normHistory)
+	}
+
+	rerun, err := service.RunPersonalKcalJob(context.Background())
+	if err != nil {
+		t.Fatalf("RunPersonalKcalJob() second run error = %v", err)
+	}
+	if rerun.Users[0].MonthsComputed != 0 {
+		t.Fatalf("second run MonthsComputed = %d, want 0 (idempotent)", rerun.Users[0].MonthsComputed)
 	}
 }
 
-func TestRunCoefficientsJobProcessesAllUsersAndCollectsFailures(t *testing.T) {
+func TestRunPersonalKcalJobProcessesAllUsers(t *testing.T) {
 	db := openFoodTestDB(t)
-	seedFoodCoefficientHistory(t, db, 1)
+	seedFoodDiaryAndWeightHistory(t, db, 1)
 	if _, err := db.Exec(`INSERT INTO users(id, username, isAdmin) VALUES (2, 'bob', 0)`); err != nil {
 		t.Fatalf("Exec() error = %v", err)
 	}
 	service := NewService(NewRepository(db))
-	service.SetClock(fixedFoodClock{now: time.Date(2026, time.June, 20, 12, 0, 0, 0, time.UTC)})
-	service.SetCoefficientsConfig(CoefficientsConfig{
-		DifferentTriesPerRound: 4,
-		ChildrenAmt:            2,
-		BestAmt:                2,
-		Days7:                  2,
-		Days60:                 3,
-		MaxTriesIfUnchanged:    1,
-	})
+	service.SetClock(fixedFoodClock{now: time.Date(2026, time.July, 5, 12, 0, 0, 0, time.UTC)})
+	service.SetPersonalKcalConfig(testPersonalKcalConfig())
 
-	result, err := service.RunCoefficientsJob(context.Background())
+	result, err := service.RunPersonalKcalJob(context.Background())
 	if err != nil {
-		t.Fatalf("RunCoefficientsJob() error = %v", err)
+		t.Fatalf("RunPersonalKcalJob() error = %v", err)
 	}
-	if result.ProcessedCount != 2 || result.SuccessCount != 1 || result.FailedCount != 1 {
+	if result.ProcessedCount != 2 || result.SuccessCount != 2 || result.FailedCount != 0 {
 		t.Fatalf("result = %+v", result)
 	}
-	if len(result.Users) != 2 {
-		t.Fatalf("len(Users) = %d, want 2", len(result.Users))
+	if result.Users[0].MonthsComputed != 1 {
+		t.Fatalf("first user MonthsComputed = %d, want 1", result.Users[0].MonthsComputed)
 	}
-	if !result.Users[0].Success || result.Users[0].UserID != 1 {
-		t.Fatalf("first user result = %+v", result.Users[0])
-	}
-	if result.Users[1].Success || result.Users[1].UserID != 2 || result.Users[1].Error == "" {
-		t.Fatalf("second user result = %+v", result.Users[1])
+	if result.Users[1].MonthsComputed != 0 {
+		t.Fatalf("second user (no diary) MonthsComputed = %d, want 0", result.Users[1].MonthsComputed)
 	}
 }
 
@@ -397,7 +389,7 @@ func TestGetDiaryFullUpdateIgnoresRowsOutsideRequestedRange(t *testing.T) {
 	}
 }
 
-func seedFoodCoefficientHistory(t *testing.T, db *sql.DB, userID int64) {
+func seedFoodDiaryAndWeightHistory(t *testing.T, db *sql.DB, userID int64) {
 	t.Helper()
 	if _, err := db.Exec(`
 		INSERT INTO foodDiary(id, dateISO, foodCatalogueId, foodWeight, history, usersId, ver, del) VALUES
@@ -437,6 +429,8 @@ func openFoodTestDB(t *testing.T) *sql.DB {
 		CREATE TABLE foodDiary (id INTEGER PRIMARY KEY AUTOINCREMENT, dateISO TEXT, foodCatalogueId INTEGER, foodWeight INTEGER, history TEXT, usersId INTEGER, ver INTEGER, del BOOLEAN);
 		CREATE TABLE foodBodyWeight (id INTEGER PRIMARY KEY AUTOINCREMENT, dateISO TEXT, weight NUMERIC, usersId INTEGER);
 		CREATE TABLE foodSearchQueryEmbeddings (query TEXT PRIMARY KEY, embedding BLOB, hitCount INTEGER, lastUsedAt INTEGER, createdAt INTEGER);
+		CREATE TABLE foodPersonalKcalHistory (id INTEGER PRIMARY KEY AUTOINCREMENT, usersId INTEGER NOT NULL, foodCatalogueId INTEGER NOT NULL, yearMonth TEXT NOT NULL, kcalsPer100g REAL NOT NULL, createdAt TEXT NOT NULL, UNIQUE(usersId, foodCatalogueId, yearMonth));
+		CREATE TABLE foodPersonalNormHistory (id INTEGER PRIMARY KEY AUTOINCREMENT, usersId INTEGER NOT NULL, yearMonth TEXT NOT NULL, normKcals REAL NOT NULL, kcalPerKg REAL NOT NULL, createdAt TEXT NOT NULL, UNIQUE(usersId, yearMonth));
 
 		INSERT INTO users(id, username, isAdmin) VALUES (1, 'alice', 0);
 		INSERT INTO settings(usersId, goal, darkTheme, selectedChapterFood, selectedChapterMoney, liteVersion, height) VALUES (1, 'lose', 0, 1, 0, 0, 180);

@@ -75,22 +75,37 @@ func NewDebugService(repo *Repository, backupsDir string, rateLimitChecker Image
 	return &DebugService{repo: repo, backupsDir: backupsDir, rateLimitChecker: rateLimitChecker, food: food, realtime: realtime}
 }
 
-func (s *DebugService) RunCoefficientsJob(ctx context.Context) (*CoefficientsJobResult, error) {
+func (s *DebugService) RunPersonalKcalJob(ctx context.Context) (*PersonalKcalJobResult, error) {
 	if s.food == nil {
-		return nil, legacy.NewError(legacy.ErrorKindValidation, "Coefficients job is not configured")
+		return nil, legacy.NewError(legacy.ErrorKindValidation, "Personal kcal job is not configured")
 	}
-	result, err := s.food.RunCoefficientsJob(ctx)
+	result, err := s.food.RunPersonalKcalJob(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if s.realtime != nil {
 		for _, user := range result.Users {
-			if user.Success {
+			if user.Success && user.MonthsComputed > 0 {
 				s.realtime.MarkUserUpdated(user.UserID)
 			}
 		}
 	}
 	return result, nil
+}
+
+func (s *DebugService) ResetPersonalKcal(ctx context.Context, userID int64) error {
+	if err := s.repo.DeletePersonalHistoryForUser(ctx, userID); err != nil {
+		return err
+	}
+	s.food.InvalidateStats(userID)
+	if s.realtime != nil {
+		s.realtime.MarkUserUpdated(userID)
+	}
+	return nil
+}
+
+func (s *DebugService) ResetPersonalKcalAll(ctx context.Context) error {
+	return s.repo.DeletePersonalHistoryForAllUsers(ctx)
 }
 
 func (s *LabService) GenerateProduct(ctx context.Context, description string, catalogueID int64, nextN int, useKcals bool, saveToDB bool) (*LabGenerateProductResult, error) {

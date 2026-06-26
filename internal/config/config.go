@@ -11,69 +11,74 @@ import (
 )
 
 type Config struct {
-	AppEnv                             string
-	AppHost                            string
-	AppPort                            int
-	LogLevel                           string
-	DataDir                            string
-	DatabaseName                       string
-	DatabasePath                       string
-	MigrationsDir                      string
-	PublicDir                          string
-	BackupsDir                         string
-	JWTSecret                          string
-	OpenRouterAPIKey                   string
-	OpenRouterModel                    string
-	OpenRouterVisionModel              string
-	OpenRouterImageModel               string
-	OpenRouterTimeout                  time.Duration
-	ImageGenerationMaxAttempts         int
-	OpenAIAPIKey                       string
-	OpenAIEmbeddingModel               string
-	OpenAIEmbeddingDims                int
-	OpenAITimeout                      time.Duration
-	CoefficientsJobEnabled             bool
-	CoefficientsJobSchedule            string
-	CoefficientsStartWithDefaults      bool
-	CoefficientsDifferentTriesPerRound int
-	CoefficientsChildrenAmt            int
-	CoefficientsBestAmt                int
-	CoefficientsDays7                  int
-	CoefficientsDays60                 int
-	CoefficientsMaxTriesIfUnchanged    int
-	QuotesJobEnabled                   bool
-	QuotesJobSchedule                  string
-	QuotesFetchDays                    int
-	QuotesRetryAttempts                int
-	QuotesRetryDelay                   time.Duration
-	QuotesRequestTimeout               time.Duration
-	BackupJobEnabled                   bool
-	BackupJobSchedule                  string
-	BackupStorageEnabled               bool
-	BackupStorageRegion                string
-	BackupStorageBucket                string
-	BackupStorageEndpoint              string
-	BackupStorageForcePathStyle        bool
-	BackupStorageClass                 string
-	BackupStorageAccessKeyID           string
-	BackupStorageSecretAccessKey       string
-	BackupOperationTimeout             time.Duration
-	MetricsServiceKey                  string
-	FlatlineBaseURL                    string
-	FlatlinePushTimeout                time.Duration
-	FlatlinePollInterval               time.Duration
-	FlatlinePollInitialLookback        time.Duration
-	HTTPReadTimeout                    time.Duration
-	HTTPWriteTimeout                   time.Duration
-	HTTPIdleTimeout                    time.Duration
-	ShutdownTimeout                    time.Duration
-	MaxRequestBodyBytes                int64
-	MaxMultipartBodyBytes              int64
-	WSReadLimitBytes                   int64
-	WSWriteTimeout                     time.Duration
-	BuildCommit                        string
-	BuildTime                          string
-	GoVersion                          string
+	AppEnv                              string
+	AppHost                             string
+	AppPort                             int
+	LogLevel                            string
+	DataDir                             string
+	DatabaseName                        string
+	DatabasePath                        string
+	MigrationsDir                       string
+	PublicDir                           string
+	BackupsDir                          string
+	JWTSecret                           string
+	OpenRouterAPIKey                    string
+	OpenRouterModel                     string
+	OpenRouterVisionModel               string
+	OpenRouterImageModel                string
+	OpenRouterTimeout                   time.Duration
+	ImageGenerationMaxAttempts          int
+	OpenAIAPIKey                        string
+	OpenAIEmbeddingModel                string
+	OpenAIEmbeddingDims                 int
+	OpenAITimeout                       time.Duration
+	PersonalKcalJobEnabled              bool
+	PersonalKcalJobSchedule             string
+	PersonalKcalLookbackMonths          int
+	PersonalKcalDecayRate               float64
+	PersonalKcalCoverageThreshold       float64
+	PersonalKcalMaxMonthlyChangePercent float64
+	PersonalKcalAnchorLambda            float64
+	PersonalKcalEvidenceHalfKcal        float64
+	PersonalKcalCoefLogStep             float64
+	PersonalKcalNormStep                float64
+	PersonalKcalXStep                   float64
+	PersonalKcalPopulation              int
+	PersonalKcalMaxGenerations          int
+	PersonalKcalMaxStale                int
+	QuotesJobEnabled                    bool
+	QuotesJobSchedule                   string
+	QuotesFetchDays                     int
+	QuotesRetryAttempts                 int
+	QuotesRetryDelay                    time.Duration
+	QuotesRequestTimeout                time.Duration
+	BackupJobEnabled                    bool
+	BackupJobSchedule                   string
+	BackupStorageEnabled                bool
+	BackupStorageRegion                 string
+	BackupStorageBucket                 string
+	BackupStorageEndpoint               string
+	BackupStorageForcePathStyle         bool
+	BackupStorageClass                  string
+	BackupStorageAccessKeyID            string
+	BackupStorageSecretAccessKey        string
+	BackupOperationTimeout              time.Duration
+	MetricsServiceKey                   string
+	FlatlineBaseURL                     string
+	FlatlinePushTimeout                 time.Duration
+	FlatlinePollInterval                time.Duration
+	FlatlinePollInitialLookback         time.Duration
+	HTTPReadTimeout                     time.Duration
+	HTTPWriteTimeout                    time.Duration
+	HTTPIdleTimeout                     time.Duration
+	ShutdownTimeout                     time.Duration
+	MaxRequestBodyBytes                 int64
+	MaxMultipartBodyBytes               int64
+	WSReadLimitBytes                    int64
+	WSWriteTimeout                      time.Duration
+	BuildCommit                         string
+	BuildTime                           string
+	GoVersion                           string
 }
 
 func Load() (Config, error) {
@@ -88,42 +93,41 @@ func Load() (Config, error) {
 	buildCommit, buildTime := loadBuildInfo("build-info.json")
 
 	cfg := Config{
-		AppEnv:                        appEnv,
-		AppHost:                       getString("APP_HOST", "127.0.0.1"),
-		LogLevel:                      strings.ToLower(getString("LOG_LEVEL", "info")),
-		DataDir:                       dataDir,
-		DatabaseName:                  databaseName,
-		DatabasePath:                  databasePath,
-		MigrationsDir:                 getString("MIGRATIONS_DIR", "./migrations"),
-		PublicDir:                     getString("PUBLIC_DIR", "./public"),
-		BackupsDir:                    getString("BACKUPS_DIR", "./backups"),
-		JWTSecret:                     getString("JWT_SECRET", "test-insecure-jwt-secret"),
-		OpenRouterAPIKey:              getString("OPENROUTER_API_KEY", ""),
-		OpenRouterModel:               getString("OPENROUTER_MODEL", "google/gemini-2.5-pro"),
-		OpenRouterVisionModel:         getString("OPENROUTER_VISION_MODEL", "google/gemini-2.5-flash"),
-		OpenRouterImageModel:          getString("OPENROUTER_IMAGE_MODEL", "google/gemini-2.5-flash-image"),
-		OpenAIAPIKey:                  getString("OPENAI_API_KEY", ""),
-		OpenAIEmbeddingModel:          getString("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
-		CoefficientsJobEnabled:        getBool("COEFFICIENTS_JOB_ENABLED", false),
-		CoefficientsJobSchedule:       getString("COEFFICIENTS_JOB_SCHEDULE", "0 1 * * *"),
-		CoefficientsStartWithDefaults: getBool("COEFFICIENTS_START_WITH_ZEROS", false),
-		QuotesJobEnabled:              getBool("QUOTES_JOB_ENABLED", false),
-		QuotesJobSchedule:             getString("QUOTES_JOB_SCHEDULE", "0 3 * * *"),
-		BackupJobEnabled:              getBool("BACKUP_JOB_ENABLED", false),
-		BackupJobSchedule:             getString("BACKUP_JOB_SCHEDULE", "0 2 * * *"),
-		BackupStorageEnabled:          getBool("BACKUP_STORAGE_ENABLED", false),
-		BackupStorageRegion:           getString("BACKUP_STORAGE_REGION", ""),
-		BackupStorageBucket:           getString("BACKUP_STORAGE_BUCKET", ""),
-		BackupStorageEndpoint:         getString("BACKUP_STORAGE_ENDPOINT", ""),
-		BackupStorageForcePathStyle:   getBool("BACKUP_STORAGE_FORCE_PATH_STYLE", false),
-		BackupStorageClass:            getString("BACKUP_STORAGE_STORAGE_CLASS", ""),
-		BackupStorageAccessKeyID:      getString("BACKUP_STORAGE_ACCESS_KEY_ID", ""),
-		BackupStorageSecretAccessKey:  getString("BACKUP_STORAGE_SECRET_ACCESS_KEY", ""),
-		MetricsServiceKey:             getString("METRICS_SERVICE_KEY", "megaapp"),
-		FlatlineBaseURL:               getString("FLATLINE_BASE_URL", ""),
-		BuildCommit:                   buildCommit,
-		BuildTime:                     buildTime,
-		GoVersion:                     runtime.Version(),
+		AppEnv:                       appEnv,
+		AppHost:                      getString("APP_HOST", "127.0.0.1"),
+		LogLevel:                     strings.ToLower(getString("LOG_LEVEL", "info")),
+		DataDir:                      dataDir,
+		DatabaseName:                 databaseName,
+		DatabasePath:                 databasePath,
+		MigrationsDir:                getString("MIGRATIONS_DIR", "./migrations"),
+		PublicDir:                    getString("PUBLIC_DIR", "./public"),
+		BackupsDir:                   getString("BACKUPS_DIR", "./backups"),
+		JWTSecret:                    getString("JWT_SECRET", "test-insecure-jwt-secret"),
+		OpenRouterAPIKey:             getString("OPENROUTER_API_KEY", ""),
+		OpenRouterModel:              getString("OPENROUTER_MODEL", "google/gemini-2.5-pro"),
+		OpenRouterVisionModel:        getString("OPENROUTER_VISION_MODEL", "google/gemini-2.5-flash"),
+		OpenRouterImageModel:         getString("OPENROUTER_IMAGE_MODEL", "google/gemini-2.5-flash-image"),
+		OpenAIAPIKey:                 getString("OPENAI_API_KEY", ""),
+		OpenAIEmbeddingModel:         getString("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
+		PersonalKcalJobEnabled:       getBool("PERSONAL_KCAL_JOB_ENABLED", false),
+		PersonalKcalJobSchedule:      getString("PERSONAL_KCAL_JOB_SCHEDULE", "0 2 1 * *"),
+		QuotesJobEnabled:             getBool("QUOTES_JOB_ENABLED", false),
+		QuotesJobSchedule:            getString("QUOTES_JOB_SCHEDULE", "0 3 * * *"),
+		BackupJobEnabled:             getBool("BACKUP_JOB_ENABLED", false),
+		BackupJobSchedule:            getString("BACKUP_JOB_SCHEDULE", "0 2 * * *"),
+		BackupStorageEnabled:         getBool("BACKUP_STORAGE_ENABLED", false),
+		BackupStorageRegion:          getString("BACKUP_STORAGE_REGION", ""),
+		BackupStorageBucket:          getString("BACKUP_STORAGE_BUCKET", ""),
+		BackupStorageEndpoint:        getString("BACKUP_STORAGE_ENDPOINT", ""),
+		BackupStorageForcePathStyle:  getBool("BACKUP_STORAGE_FORCE_PATH_STYLE", false),
+		BackupStorageClass:           getString("BACKUP_STORAGE_STORAGE_CLASS", ""),
+		BackupStorageAccessKeyID:     getString("BACKUP_STORAGE_ACCESS_KEY_ID", ""),
+		BackupStorageSecretAccessKey: getString("BACKUP_STORAGE_SECRET_ACCESS_KEY", ""),
+		MetricsServiceKey:            getString("METRICS_SERVICE_KEY", "megaapp"),
+		FlatlineBaseURL:              getString("FLATLINE_BASE_URL", ""),
+		BuildCommit:                  buildCommit,
+		BuildTime:                    buildTime,
+		GoVersion:                    runtime.Version(),
 	}
 
 	port, err := getInt("APP_PORT", 3001)
@@ -204,41 +208,69 @@ func Load() (Config, error) {
 	}
 	cfg.OpenAITimeout = time.Duration(openAITimeoutSeconds) * time.Second
 
-	coefficientsDifferentTriesPerRound, err := getInt("COEFFICIENTS_DIFFERENT_TRIES_PER_ROUND", 100)
+	personalKcalLookbackMonths, err := getInt("PERSONAL_KCAL_LOOKBACK_MONTHS", 3)
 	if err != nil {
 		return Config{}, fmt.Errorf("load config: %w", err)
 	}
-	cfg.CoefficientsDifferentTriesPerRound = coefficientsDifferentTriesPerRound
+	cfg.PersonalKcalLookbackMonths = personalKcalLookbackMonths
 
-	coefficientsChildrenAmt, err := getInt("COEFFICIENTS_CHILDREN_AMT", 10)
+	cfg.PersonalKcalDecayRate, err = getFloat("PERSONAL_KCAL_DECAY_RATE", 0.6)
 	if err != nil {
 		return Config{}, fmt.Errorf("load config: %w", err)
 	}
-	cfg.CoefficientsChildrenAmt = coefficientsChildrenAmt
 
-	coefficientsBestAmt, err := getInt("COEFFICIENTS_BEST_AMT", 10)
+	cfg.PersonalKcalCoverageThreshold, err = getFloat("PERSONAL_KCAL_COVERAGE_THRESHOLD", 0.5)
 	if err != nil {
 		return Config{}, fmt.Errorf("load config: %w", err)
 	}
-	cfg.CoefficientsBestAmt = coefficientsBestAmt
 
-	coefficientsDays7, err := getInt("COEFFICIENTS_DAYS_7", 7)
+	cfg.PersonalKcalMaxMonthlyChangePercent, err = getFloat("PERSONAL_KCAL_MAX_MONTHLY_CHANGE_PERCENT", 10)
 	if err != nil {
 		return Config{}, fmt.Errorf("load config: %w", err)
 	}
-	cfg.CoefficientsDays7 = coefficientsDays7
 
-	coefficientsDays60, err := getInt("COEFFICIENTS_DAYS_60", 60)
+	cfg.PersonalKcalAnchorLambda, err = getFloat("PERSONAL_KCAL_ANCHOR_LAMBDA", 3)
 	if err != nil {
 		return Config{}, fmt.Errorf("load config: %w", err)
 	}
-	cfg.CoefficientsDays60 = coefficientsDays60
 
-	coefficientsMaxTriesIfUnchanged, err := getInt("COEFFICIENTS_MAX_TRIES_IF_UNCHANGED", 20)
+	cfg.PersonalKcalEvidenceHalfKcal, err = getFloat("PERSONAL_KCAL_EVIDENCE_HALF_KCAL", 333)
 	if err != nil {
 		return Config{}, fmt.Errorf("load config: %w", err)
 	}
-	cfg.CoefficientsMaxTriesIfUnchanged = coefficientsMaxTriesIfUnchanged
+
+	cfg.PersonalKcalCoefLogStep, err = getFloat("PERSONAL_KCAL_COEF_LOG_STEP", 0.03)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+
+	cfg.PersonalKcalNormStep, err = getFloat("PERSONAL_KCAL_NORM_STEP", 33)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+
+	cfg.PersonalKcalXStep, err = getFloat("PERSONAL_KCAL_X_STEP", 33)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+
+	personalKcalPopulation, err := getInt("PERSONAL_KCAL_POPULATION", 33)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.PersonalKcalPopulation = personalKcalPopulation
+
+	personalKcalMaxGenerations, err := getInt("PERSONAL_KCAL_MAX_GENERATIONS", 333)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.PersonalKcalMaxGenerations = personalKcalMaxGenerations
+
+	personalKcalMaxStale, err := getInt("PERSONAL_KCAL_MAX_STALE", 33)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.PersonalKcalMaxStale = personalKcalMaxStale
 
 	quotesFetchDays, err := getInt("QUOTES_FETCH_DAYS", 7)
 	if err != nil {
@@ -335,29 +367,44 @@ func (c Config) Validate() error {
 	if c.OpenAITimeout <= 0 {
 		return fmt.Errorf("validate config: OPENAI_TIMEOUT_SECONDS must be greater than 0")
 	}
-	if strings.TrimSpace(c.CoefficientsJobSchedule) == "" {
-		return fmt.Errorf("validate config: COEFFICIENTS_JOB_SCHEDULE is required")
+	if strings.TrimSpace(c.PersonalKcalJobSchedule) == "" {
+		return fmt.Errorf("validate config: PERSONAL_KCAL_JOB_SCHEDULE is required")
 	}
-	if c.CoefficientsDifferentTriesPerRound <= 0 {
-		return fmt.Errorf("validate config: COEFFICIENTS_DIFFERENT_TRIES_PER_ROUND must be greater than 0")
+	if c.PersonalKcalLookbackMonths <= 0 {
+		return fmt.Errorf("validate config: PERSONAL_KCAL_LOOKBACK_MONTHS must be greater than 0")
 	}
-	if c.CoefficientsChildrenAmt <= 0 {
-		return fmt.Errorf("validate config: COEFFICIENTS_CHILDREN_AMT must be greater than 0")
+	if c.PersonalKcalDecayRate <= 0 || c.PersonalKcalDecayRate > 1 {
+		return fmt.Errorf("validate config: PERSONAL_KCAL_DECAY_RATE must be in (0, 1]")
 	}
-	if c.CoefficientsBestAmt <= 0 {
-		return fmt.Errorf("validate config: COEFFICIENTS_BEST_AMT must be greater than 0")
+	if c.PersonalKcalCoverageThreshold < 0 || c.PersonalKcalCoverageThreshold > 1 {
+		return fmt.Errorf("validate config: PERSONAL_KCAL_COVERAGE_THRESHOLD must be in [0, 1]")
 	}
-	if c.CoefficientsBestAmt > c.CoefficientsDifferentTriesPerRound {
-		return fmt.Errorf("validate config: COEFFICIENTS_BEST_AMT must not exceed COEFFICIENTS_DIFFERENT_TRIES_PER_ROUND")
+	if c.PersonalKcalMaxMonthlyChangePercent <= 0 {
+		return fmt.Errorf("validate config: PERSONAL_KCAL_MAX_MONTHLY_CHANGE_PERCENT must be greater than 0")
 	}
-	if c.CoefficientsDays7 <= 0 {
-		return fmt.Errorf("validate config: COEFFICIENTS_DAYS_7 must be greater than 0")
+	if c.PersonalKcalAnchorLambda < 0 {
+		return fmt.Errorf("validate config: PERSONAL_KCAL_ANCHOR_LAMBDA must not be negative")
 	}
-	if c.CoefficientsDays60 <= 0 {
-		return fmt.Errorf("validate config: COEFFICIENTS_DAYS_60 must be greater than 0")
+	if c.PersonalKcalEvidenceHalfKcal <= 0 {
+		return fmt.Errorf("validate config: PERSONAL_KCAL_EVIDENCE_HALF_KCAL must be greater than 0")
 	}
-	if c.CoefficientsMaxTriesIfUnchanged <= 0 {
-		return fmt.Errorf("validate config: COEFFICIENTS_MAX_TRIES_IF_UNCHANGED must be greater than 0")
+	if c.PersonalKcalCoefLogStep <= 0 {
+		return fmt.Errorf("validate config: PERSONAL_KCAL_COEF_LOG_STEP must be greater than 0")
+	}
+	if c.PersonalKcalNormStep <= 0 {
+		return fmt.Errorf("validate config: PERSONAL_KCAL_NORM_STEP must be greater than 0")
+	}
+	if c.PersonalKcalXStep <= 0 {
+		return fmt.Errorf("validate config: PERSONAL_KCAL_X_STEP must be greater than 0")
+	}
+	if c.PersonalKcalPopulation <= 0 {
+		return fmt.Errorf("validate config: PERSONAL_KCAL_POPULATION must be greater than 0")
+	}
+	if c.PersonalKcalMaxGenerations <= 0 {
+		return fmt.Errorf("validate config: PERSONAL_KCAL_MAX_GENERATIONS must be greater than 0")
+	}
+	if c.PersonalKcalMaxStale <= 0 {
+		return fmt.Errorf("validate config: PERSONAL_KCAL_MAX_STALE must be greater than 0")
 	}
 	if strings.TrimSpace(c.QuotesJobSchedule) == "" {
 		return fmt.Errorf("validate config: QUOTES_JOB_SCHEDULE is required")
@@ -511,6 +558,20 @@ func getInt(key string, fallback int) (int, error) {
 	}
 
 	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", key, err)
+	}
+
+	return parsed, nil
+}
+
+func getFloat(key string, fallback float64) (float64, error) {
+	value, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback, nil
+	}
+
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", key, err)
 	}

@@ -189,14 +189,19 @@ func buildFoodModule(db *sql.DB, cfg config.Config, logger *slog.Logger, hub *ws
 	repo := food.NewRepository(db)
 	service := food.NewService(repo)
 	service.SetClock(clk)
-	service.SetCoefficientsConfig(food.CoefficientsConfig{
-		StartWithDefaults:      cfg.CoefficientsStartWithDefaults,
-		DifferentTriesPerRound: cfg.CoefficientsDifferentTriesPerRound,
-		ChildrenAmt:            cfg.CoefficientsChildrenAmt,
-		BestAmt:                cfg.CoefficientsBestAmt,
-		Days7:                  cfg.CoefficientsDays7,
-		Days60:                 cfg.CoefficientsDays60,
-		MaxTriesIfUnchanged:    cfg.CoefficientsMaxTriesIfUnchanged,
+	service.SetPersonalKcalConfig(food.PersonalKcalConfig{
+		LookbackMonths:          cfg.PersonalKcalLookbackMonths,
+		DecayRate:               cfg.PersonalKcalDecayRate,
+		CoverageThreshold:       cfg.PersonalKcalCoverageThreshold,
+		MaxMonthlyChangePercent: cfg.PersonalKcalMaxMonthlyChangePercent,
+		AnchorLambda:            cfg.PersonalKcalAnchorLambda,
+		EvidenceHalfKcal:        cfg.PersonalKcalEvidenceHalfKcal,
+		CoefLogStep:             cfg.PersonalKcalCoefLogStep,
+		NormStep:                cfg.PersonalKcalNormStep,
+		XStep:                   cfg.PersonalKcalXStep,
+		Population:              cfg.PersonalKcalPopulation,
+		MaxGenerations:          cfg.PersonalKcalMaxGenerations,
+		MaxStale:                cfg.PersonalKcalMaxStale,
 	})
 	var mediaClient *food.OpenRouterMediaClient
 	if strings.TrimSpace(cfg.OpenRouterAPIKey) != "" {

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"strconv"
 	"sync"
 	"time"
 
@@ -24,13 +23,12 @@ type Service struct {
 	productGenerator       ProductGenerator
 	embeddingGenerator     EmbeddingGenerator
 	imageAnalyzer          ImageAnalyzer
-	imageGenerationRequest  ImageGenerationRequester
-	imageVersions           ImageVersionProvider
-	clock                   clockplatform.Clock
-	coefficientsConfig      CoefficientsConfig
-	coefficientsRunMu       sync.Mutex
-	coefficientsBatchActive bool
-	coefficientsUsersActive map[int64]bool
+	imageGenerationRequest ImageGenerationRequester
+	imageVersions          ImageVersionProvider
+	clock                  clockplatform.Clock
+	personalKcalConfig     PersonalKcalConfig
+	personalKcalRunMu      sync.Mutex
+	personalKcalJobActive  bool
 }
 
 type DiaryEntry struct {
@@ -38,6 +36,7 @@ type DiaryEntry struct {
 	DateISO         string         `json:"dateISO"`
 	FoodCatalogueID int64          `json:"foodCatalogueId"`
 	FoodWeight      int64          `json:"foodWeight"`
+	Kcals           int64          `json:"kcals"`
 	History         []HistoryEntry `json:"history"`
 }
 
@@ -86,7 +85,7 @@ type CatalogueEntry struct {
 }
 
 func NewService(repo *Repository) *Service {
-	return &Service{repo: repo, statsCache: NewStatsCache(), searchCache: NewSearchCache(), clock: clockplatform.NewRealClock(), coefficientsConfig: DefaultCoefficientsConfig(), coefficientsUsersActive: make(map[int64]bool)}
+	return &Service{repo: repo, statsCache: NewStatsCache(), searchCache: NewSearchCache(), clock: clockplatform.NewRealClock(), personalKcalConfig: DefaultPersonalKcalConfig()}
 }
 
 func (s *Service) SetProductGenerator(generator ProductGenerator) {
@@ -115,6 +114,53 @@ func (s *Service) SetClock(clk clockplatform.Clock) {
 	}
 
 	s.clock = clk
+}
+
+// buildPersonalKcalResolver loads a user's full personal-kcal history (and the shared
+// catalogue) once and returns a resolver that can answer "applied value as of month X" for
+// any product/norm/X without further DB round-trips (§7.1, §7.3).
+func (s *Service) buildPersonalKcalResolver(ctx context.Context, userID int64) (*PersonalKcalResolver, error) {
+	firstDate, err := s.repo.GetUserFirstDate(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	catalogueRows, err := s.repo.GetCatalogue(ctx)
+	if err != nil {
+		return nil, err
+	}
+	catalogueKcals := make(map[int64]float64, len(catalogueRows))
+	for _, row := range catalogueRows {
+		catalogueKcals[row.ID] = float64(row.Kcals)
+	}
+	kcalHistoryRows, err := s.repo.GetPersonalKcalHistory(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	normHistoryRows, err := s.repo.GetPersonalNormHistory(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	currentYearMonth := s.clock.Now().UTC().Format("2006-01")
+	firstYearMonth := currentYearMonth
+	if firstDate != "" {
+		firstYearMonth = firstDate[:7]
+	}
+	allMonths := sequentialYearMonths(firstYearMonth, currentYearMonth)
+	return NewPersonalKcalResolver(allMonths, catalogueKcals, kcalHistoryRows, normHistoryRows, s.personalKcalConfig), nil
+}
+
+// GetPersonalKcalsNow is the direct replacement for GetCoefficients: a complete
+// catalogueId->kcal/100g map for the CURRENT month, used only for live client-side preview of
+// an unsaved diary entry (§7.3, §7.4) — every other consumer resolves "at the entry's own
+// month" through the resolver instead.
+func (s *Service) GetPersonalKcalsNow(ctx context.Context, userID int64) (map[int64]float64, error) {
+	resolver, err := s.buildPersonalKcalResolver(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	currentYearMonth := s.clock.Now().UTC().Format("2006-01")
+	return resolver.AppliedKcalsNow(currentYearMonth), nil
 }
 
 func (s *Service) GetDiaryFullUpdate(ctx context.Context, userID int64, dateISO string, offsetDays int) (map[string]DiaryDay, error) {
@@ -148,7 +194,7 @@ func (s *Service) GetDiaryFullUpdate(ctx context.Context, userID int64, dateISO 
 	if err != nil {
 		return nil, err
 	}
-	coefficients, err := s.GetCoefficients(ctx, userID)
+	resolver, err := s.buildPersonalKcalResolver(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -171,6 +217,7 @@ func (s *Service) GetDiaryFullUpdate(ctx context.Context, userID int64, dateISO 
 			DateISO:         row.DateISO,
 			FoodCatalogueID: row.FoodCatalogueID,
 			FoodWeight:      row.FoodWeight,
+			Kcals:           resolvePersonalKcalsForEntry(resolver, row.FoodCatalogueID, row.DateISO, row.FoodWeight),
 			History:         parseHistory(row.History),
 		}
 		result[row.DateISO] = day
@@ -191,7 +238,7 @@ func (s *Service) GetDiaryFullUpdate(ctx context.Context, userID int64, dateISO 
 	targetKcals := buildTargetKcalsForRange(dates, stats)
 	targetNutrients := calculateTargetNutrientsForRange(dates, bodyWeightMap, stats, goal, targetKcals)
 	consumedNutrients := calculateConsumedNutrientsForRange(dates, result, catalogueMap)
-	consumedKcals := calculateConsumedKcalsForRange(dates, result, catalogueMap, coefficients)
+	consumedKcals := calculateConsumedKcalsForRange(dates, result)
 
 	for _, date := range dates {
 		day := result[date]
@@ -277,82 +324,6 @@ func (s *Service) imageVersion(catalogueID int64) *int64 {
 	return s.imageVersions.ImageVersion(catalogueID)
 }
 
-func (s *Service) GetCoefficients(ctx context.Context, userID int64) (map[int64]float64, error) {
-	catalogue, err := s.repo.GetCatalogue(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make(map[int64]float64, len(catalogue))
-	for _, row := range catalogue {
-		result[row.ID] = 1
-	}
-
-	stored, err := s.repo.GetUserCoefficients(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	if stored == nil || !stored.Coefficients.Valid || stored.Coefficients.String == "" {
-		payload, err := json.Marshal(result)
-		if err != nil {
-			return nil, fmt.Errorf("marshal default coefficients: %w", err)
-		}
-		if err := s.repo.UpsertUserCoefficients(ctx, userID, string(payload)); err != nil {
-			return nil, err
-		}
-		return result, nil
-	}
-
-	var parsed map[string]float64
-	if err := json.Unmarshal([]byte(stored.Coefficients.String), &parsed); err != nil {
-		payload, marshalErr := json.Marshal(result)
-		if marshalErr != nil {
-			return nil, fmt.Errorf("marshal repaired coefficients: %w", marshalErr)
-		}
-		if err := s.repo.UpsertUserCoefficients(ctx, userID, string(payload)); err != nil {
-			return nil, err
-		}
-		return result, nil
-	}
-
-	changed := false
-	for _, row := range catalogue {
-		value, ok := parsed[strconv.FormatInt(row.ID, 10)]
-		if !ok {
-			changed = true
-			continue
-		}
-		if value <= 0 || math.IsNaN(value) || math.IsInf(value, 0) {
-			changed = true
-			continue
-		}
-		result[row.ID] = value
-	}
-
-	for key := range parsed {
-		id, err := strconv.ParseInt(key, 10, 64)
-		if err != nil {
-			changed = true
-			continue
-		}
-		if _, ok := result[id]; !ok {
-			changed = true
-		}
-	}
-
-	if changed {
-		payload, err := json.Marshal(result)
-		if err != nil {
-			return nil, fmt.Errorf("marshal normalized coefficients: %w", err)
-		}
-		if err := s.repo.UpsertUserCoefficients(ctx, userID, string(payload)); err != nil {
-			return nil, err
-		}
-	}
-
-	return result, nil
-}
-
 func (s *Service) CreateDiaryEntry(ctx context.Context, userID int64, dateISO string, foodCatalogueID int64, foodWeight int64, history []HistoryEntry) (DiaryEntry, error) {
 	historyJSON, err := toHistoryJSON(history)
 	if err != nil {
@@ -362,19 +333,23 @@ func (s *Service) CreateDiaryEntry(ctx context.Context, userID int64, dateISO st
 	if err != nil {
 		return DiaryEntry{}, err
 	}
+	kcals, err := s.resolvePersonalKcalsForCurrentMonth(ctx, userID, foodCatalogueID, foodWeight)
+	if err != nil {
+		return DiaryEntry{}, err
+	}
 	s.InvalidateStats(userID)
-	return DiaryEntry{ID: id, DateISO: dateISO, FoodCatalogueID: foodCatalogueID, FoodWeight: foodWeight, History: history}, nil
+	return DiaryEntry{ID: id, DateISO: dateISO, FoodCatalogueID: foodCatalogueID, FoodWeight: foodWeight, Kcals: kcals, History: history}, nil
 }
 
 func (s *Service) EditDiaryEntry(ctx context.Context, userID int64, diaryID int64, foodWeight int64, newHistoryEntry HistoryEntry) (*DiaryEntry, error) {
-	historyJSON, err := s.repo.GetDiaryEntryHistory(ctx, diaryID, userID)
+	existing, err := s.repo.GetDiaryEntryForEdit(ctx, diaryID, userID)
 	if err != nil {
 		return nil, err
 	}
-	if historyJSON == "" {
+	if existing == nil {
 		return nil, nil
 	}
-	history := parseHistory(historyJSON)
+	history := parseHistory(existing.History)
 	history = append(history, newHistoryEntry)
 	updatedHistoryJSON, err := toHistoryJSON(history)
 	if err != nil {
@@ -387,8 +362,26 @@ func (s *Service) EditDiaryEntry(ctx context.Context, userID int64, diaryID int6
 	if !updated {
 		return nil, nil
 	}
+	kcals, err := s.resolvePersonalKcalsForCurrentMonth(ctx, userID, existing.FoodCatalogueID, foodWeight)
+	if err != nil {
+		return nil, err
+	}
 	s.InvalidateStats(userID)
-	return &DiaryEntry{ID: diaryID, FoodWeight: foodWeight, History: history}, nil
+	return &DiaryEntry{ID: diaryID, FoodCatalogueID: existing.FoodCatalogueID, FoodWeight: foodWeight, Kcals: kcals, History: history}, nil
+}
+
+func (s *Service) resolvePersonalKcalsForCurrentMonth(ctx context.Context, userID int64, foodCatalogueID int64, foodWeight int64) (int64, error) {
+	resolver, err := s.buildPersonalKcalResolver(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	nowISO := s.clock.Now().UTC().Format("2006-01-02")
+	return resolvePersonalKcalsForEntry(resolver, foodCatalogueID, nowISO, foodWeight), nil
+}
+
+func resolvePersonalKcalsForEntry(resolver *PersonalKcalResolver, foodCatalogueID int64, dateISO string, foodWeight int64) int64 {
+	kcalPer100g := resolver.AppliedKcal(foodCatalogueID, dateISO[:7])
+	return int64(math.Round(kcalPer100g * float64(foodWeight) / 100))
 }
 
 func (s *Service) DeleteDiaryEntry(ctx context.Context, userID int64, diaryID int64) (bool, error) {
@@ -422,13 +415,18 @@ func (s *Service) RestoreDiaryEntriesForDay(ctx context.Context, userID int64, d
 	if len(entries) == 0 {
 		return nil, legacy.NewError(legacy.ErrorKindValidation, "Entries not found")
 	}
+	resolver, err := s.buildPersonalKcalResolver(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
 	normalized := make([]DiaryEntry, 0, len(entries))
 	for _, entry := range entries {
 		history := entry.History
 		if len(history) == 0 {
 			history = []HistoryEntry{{Action: "init", Value: entry.FoodWeight}}
 		}
-		normalized = append(normalized, DiaryEntry{DateISO: dateISO, FoodCatalogueID: entry.FoodCatalogueID, FoodWeight: entry.FoodWeight, History: history})
+		kcals := resolvePersonalKcalsForEntry(resolver, entry.FoodCatalogueID, dateISO, entry.FoodWeight)
+		normalized = append(normalized, DiaryEntry{DateISO: dateISO, FoodCatalogueID: entry.FoodCatalogueID, FoodWeight: entry.FoodWeight, Kcals: kcals, History: history})
 	}
 	restored, err := s.repo.CreateDiaryEntriesBatch(ctx, userID, normalized)
 	if err != nil {
@@ -487,28 +485,26 @@ func (s *Service) GetStats(ctx context.Context, userID int64) (map[string][5]any
 	if err != nil {
 		return nil, err
 	}
-	coefficients, err := s.GetCoefficients(ctx, userID)
+	resolver, err := s.buildPersonalKcalResolver(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
 	weights := prepareWeights(weightRows, allDates)
+	weightsAvg := calculateCenteredAverage(weights, 10, true, 1)
 	diaryEntries := prepareDiaryEntries(diaryRows, allDates)
-	dailySumKcals := calculateDailySumKcals(diaryEntries, coefficients, allDates)
-	avgDays := 10
-	dailySumKcalsAvg := calculateCenteredAverage(dailySumKcals, avgDays, true, 0)
-	weightsAvg := calculateCenteredAverage(weights, avgDays, true, 1)
-	normDays := 30
-	targetKcalsBaseline := computeTargetKcalsFromHistory(dailySumKcalsAvg, weightsAvg, normDays)
-	targetKcalsAvgBaseline := calculateCenteredAverage(targetKcalsBaseline, normDays, true, 0)
-	targetKcalsForAllDates := normalizeTargetKcalsForAllDates(allDates, targetKcalsAvgBaseline)
-	today := s.clock.Now().UTC().Format("2006-01-02")
-	dailySumKcalsWithVirtual, virtualDaysFlags := applyVirtualKcalsForMissingPastDays(allDates, dailySumKcals, targetKcalsForAllDates, weightsAvg, today)
-	dailySumKcalsWithVirtualAvg := calculateCenteredAverage(dailySumKcalsWithVirtual, avgDays, true, 0)
-	targetKcalsFinal := computeTargetKcalsFromHistory(dailySumKcalsWithVirtualAvg, weightsAvg, normDays)
-	targetKcalsAvgFinal := calculateCenteredAverage(targetKcalsFinal, normDays, true, 0)
 
-	stats := prepareStats(allDates, weights, weightsAvg, dailySumKcalsWithVirtual, targetKcalsAvgFinal, virtualDaysFlags)
+	stats := make(map[string][5]any, len(allDates))
+	for _, date := range allDates {
+		yearMonth := date[:7]
+		var consumed float64
+		for _, row := range diaryEntries[date] {
+			consumed += resolver.AppliedKcal(row.FoodCatalogueID, yearMonth) * row.FoodWeight / 100
+		}
+		target := roundFloat(resolver.AppliedNorm(yearMonth), 0)
+		stats[date] = [5]any{weights[date], weightsAvg[date], consumed, target, false}
+	}
+
 	s.statsCache.Set(userID, stats)
 	return stats, nil
 }
@@ -612,10 +608,14 @@ func calculateConsumedNutrientsForRange(dates []string, diary map[string]DiaryDa
 	return result
 }
 
-func calculateConsumedKcalsForRange(dates []string, diary map[string]DiaryDay, catalogue map[int64]CatalogueEntry, coefficients map[int64]float64) map[string]int64 {
+func calculateConsumedKcalsForRange(dates []string, diary map[string]DiaryDay) map[string]int64 {
 	result := make(map[string]int64, len(dates))
 	for _, date := range dates {
-		result[date] = calculateDailyKcals(diary[date].Food, catalogue, coefficients)
+		var total int64
+		for _, entry := range diary[date].Food {
+			total += entry.Kcals
+		}
+		result[date] = total
 	}
 	return result
 }
@@ -661,22 +661,6 @@ func calculateDailyNutrients(entries map[int64]DiaryEntry, catalogue map[int64]C
 	}
 
 	return nutrientTotals{Protein: int64(math.Round(protein)), Fat: int64(math.Round(fat)), Carbs: int64(math.Round(carbs)), Fiber: int64(math.Round(fiber))}
-}
-
-func calculateDailyKcals(entries map[int64]DiaryEntry, catalogue map[int64]CatalogueEntry, coefficients map[int64]float64) int64 {
-	var total float64
-	for _, entry := range entries {
-		catalogueEntry, ok := catalogue[entry.FoodCatalogueID]
-		if !ok {
-			continue
-		}
-		coefficient := coefficients[entry.FoodCatalogueID]
-		if coefficient == 0 {
-			coefficient = 1
-		}
-		total += float64(catalogueEntry.Kcals) * (float64(entry.FoodWeight) / 100) * coefficient
-	}
-	return int64(math.Round(total))
 }
 
 func createUTCDate(dateISO string) time.Time {
@@ -760,34 +744,6 @@ func prepareDiaryEntries(rows []StatsDiaryRow, allDates []string) map[string][]S
 	return result
 }
 
-func calculateDailySumKcals(entries map[string][]StatsDiaryRow, coefficients map[int64]float64, allDates []string) map[string]float64 {
-	result := make(map[string]float64, len(allDates))
-	known := make(map[string]bool, len(allDates))
-	for _, date := range allDates {
-		dayEntries := entries[date]
-		if dayEntries == nil {
-			known[date] = false
-			continue
-		}
-		known[date] = true
-		var total float64
-		for _, entry := range dayEntries {
-			coefficient := coefficients[entry.FoodCatalogueID]
-			if coefficient == 0 {
-				coefficient = 1
-			}
-			total += (entry.FoodWeight / 100) * entry.Kcals * coefficient
-		}
-		result[date] = total
-	}
-	for _, date := range allDates {
-		if !known[date] {
-			result[date] = math.NaN()
-		}
-	}
-	return result
-}
-
 func calculateCenteredAverage(input map[string]float64, avgRange int, round bool, roundPlaces int) map[string]float64 {
 	keys := sortedKeys(input)
 	values := make([]float64, 0, len(keys))
@@ -812,123 +768,6 @@ func calculateCenteredAverage(input map[string]float64, avgRange int, round bool
 			avg = roundFloat(avg, roundPlaces)
 		}
 		result[keys[idx]] = avg
-	}
-	return result
-}
-
-func computeTargetKcalsFromHistory(kcals map[string]float64, weights map[string]float64, n int) map[string]float64 {
-	kcalsKeys := sortedKeys(kcals)
-	kcalsValues := valuesByKeys(kcals, kcalsKeys)
-	weightsValues := valuesByKeys(weights, kcalsKeys)
-	result := make(map[string]float64)
-	for idx := n - 1; idx < len(kcalsValues); idx++ {
-		slice := kcalsValues[idx-n+1 : idx+1]
-		weightDiff := weightsValues[idx] - weightsValues[idx-n+1]
-		maintenance := (sum(slice) - weightDiff*kcalsIn1KG) / float64(n)
-		result[kcalsKeys[idx]] = maintenance
-	}
-	return result
-}
-
-func normalizeTargetKcalsForAllDates(allDates []string, target map[string]float64) map[string]float64 {
-	result := make(map[string]float64, len(allDates))
-	known := make(map[string]bool, len(allDates))
-	for _, date := range allDates {
-		value, ok := target[date]
-		if ok {
-			result[date] = value
-			known[date] = true
-			continue
-		}
-		result[date] = math.NaN()
-	}
-	var prevKnown float64
-	prevSet := false
-	for _, date := range allDates {
-		if known[date] {
-			prevKnown = result[date]
-			prevSet = true
-			continue
-		}
-		if prevSet {
-			result[date] = prevKnown
-		}
-	}
-	var nextKnown float64
-	nextSet := false
-	for idx := len(allDates) - 1; idx >= 0; idx-- {
-		date := allDates[idx]
-		if !math.IsNaN(result[date]) {
-			nextKnown = result[date]
-			nextSet = true
-			continue
-		}
-		if nextSet {
-			result[date] = nextKnown
-		}
-	}
-	return result
-}
-
-func applyVirtualKcalsForMissingPastDays(allDates []string, factual map[string]float64, target map[string]float64, avgWeights map[string]float64, today string) (map[string]float64, map[string]bool) {
-	result := make(map[string]float64, len(factual))
-	flags := make(map[string]bool, len(allDates))
-	for key, value := range factual {
-		result[key] = value
-	}
-	segmentStart := -1
-	commitSegment := func(startIdx int, endIdx int) {
-		if startIdx < 0 || endIdx < startIdx {
-			return
-		}
-		segmentDates := allDates[startIdx : endIdx+1]
-		segmentTargetValues := make([]float64, 0, len(segmentDates))
-		for _, date := range segmentDates {
-			value := target[date]
-			if math.IsNaN(value) {
-				return
-			}
-			segmentTargetValues = append(segmentTargetValues, value)
-		}
-		leftAnchorIdx := max(0, startIdx-1)
-		rightAnchorIdx := min(len(allDates)-1, endIdx+1)
-		leftAnchorWeight := avgWeights[allDates[leftAnchorIdx]]
-		rightAnchorWeight := avgWeights[allDates[rightAnchorIdx]]
-		segmentTargetTotal := sum(segmentTargetValues)
-		if segmentTargetTotal == 0 {
-			return
-		}
-		segmentRequiredTotal := segmentTargetTotal + (rightAnchorWeight-leftAnchorWeight)*kcalsIn1KG
-		segmentRatio := segmentRequiredTotal / segmentTargetTotal
-		for idx, date := range segmentDates {
-			result[date] = roundFloat(segmentTargetValues[idx]*segmentRatio, 0)
-			flags[date] = true
-		}
-	}
-	for idx, date := range allDates {
-		isPast := date < today
-		hasFactual := !math.IsNaN(factual[date])
-		if isPast && !hasFactual {
-			if segmentStart == -1 {
-				segmentStart = idx
-			}
-			continue
-		}
-		if segmentStart != -1 {
-			commitSegment(segmentStart, idx-1)
-			segmentStart = -1
-		}
-	}
-	if segmentStart != -1 {
-		commitSegment(segmentStart, len(allDates)-1)
-	}
-	return result, flags
-}
-
-func prepareStats(allDates []string, weights map[string]float64, avgWeights map[string]float64, dailySumKcals map[string]float64, targetKcalsAvg map[string]float64, virtualDaysFlags map[string]bool) map[string][5]any {
-	result := make(map[string][5]any, len(allDates))
-	for _, date := range allDates {
-		result[date] = [5]any{weights[date], avgWeights[date], nullableNaN(dailySumKcals[date]), nullableNaN(targetKcalsAvg[date]), virtualDaysFlags[date]}
 	}
 	return result
 }
@@ -964,14 +803,6 @@ func sortedKeys(input map[string]float64) []string {
 	return keys
 }
 
-func valuesByKeys(input map[string]float64, keys []string) []float64 {
-	result := make([]float64, 0, len(keys))
-	for _, key := range keys {
-		result = append(result, input[key])
-	}
-	return result
-}
-
 func average(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
@@ -990,13 +821,6 @@ func sum(values []float64) float64 {
 func roundFloat(value float64, places int) float64 {
 	multiplier := math.Pow(10, float64(places))
 	return math.Round(value*multiplier) / multiplier
-}
-
-func nullableNaN(value float64) any {
-	if math.IsNaN(value) {
-		return nil
-	}
-	return value
 }
 
 func toInt64Pointer(value any) (*int64, bool) {
