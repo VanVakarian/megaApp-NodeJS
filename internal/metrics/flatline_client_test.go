@@ -37,6 +37,9 @@ func TestFlatlineClientPushSnapshotsSendsExpectedBody(t *testing.T) {
 	if len(receivedRequest.Snapshots) != 1 || receivedRequest.Snapshots[0].MinuteBucket != 120 {
 		t.Fatalf("Snapshots = %+v, want one snapshot at bucket 120", receivedRequest.Snapshots)
 	}
+	if receivedRequest.Snapshots[0].Granularity != GranularityMinute {
+		t.Fatalf("Granularity = %q, want %q", receivedRequest.Snapshots[0].Granularity, GranularityMinute)
+	}
 }
 
 func TestFlatlineClientPushSnapshotsReturnsErrorOnRejection(t *testing.T) {

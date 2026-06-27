@@ -166,7 +166,7 @@ func buildMetricsModule(cfg config.Config, logger *slog.Logger, hub *ws.Hub, aut
 
 	poller := metrics.NewPoller(flatlineClient, realtime, authService, cfg.FlatlinePollInterval, cfg.FlatlinePollInitialLookback, clk, logger)
 
-	hub.RegisterHandler("METRICS_SUBSCRIBE", metrics.NewSubscribeHandler(service, realtime, flatlineClient))
+	hub.RegisterHandler("METRICS_SUBSCRIBE", metrics.NewSubscribeHandler(service, realtime, flatlineClient, clk))
 	hub.RegisterHandler("METRICS_UNSUBSCRIBE", metrics.NewUnsubscribeHandler(realtime))
 
 	if err := runtime.Register("metrics", "* * * * *", func(ctx context.Context) error {

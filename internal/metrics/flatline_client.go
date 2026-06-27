@@ -32,7 +32,8 @@ type pushRequest struct {
 }
 
 type outboundSnapshot struct {
-	MinuteBucket int64              `json:"minuteBucket"`
+	Granularity  string             `json:"granularity"`
+	MinuteBucket int64              `json:"bucket"`
 	Metrics      map[string]float64 `json:"metrics"`
 }
 
@@ -43,7 +44,7 @@ type pushResponse struct {
 func (c *FlatlineClient) PushSnapshots(ctx context.Context, service string, snapshots []MinuteSnapshot) error {
 	body := pushRequest{Service: service, Snapshots: make([]outboundSnapshot, 0, len(snapshots))}
 	for _, snapshot := range snapshots {
-		body.Snapshots = append(body.Snapshots, outboundSnapshot{MinuteBucket: snapshot.MinuteBucket, Metrics: snapshot.Metrics})
+		body.Snapshots = append(body.Snapshots, outboundSnapshot{Granularity: GranularityMinute, MinuteBucket: snapshot.MinuteBucket, Metrics: snapshot.Metrics})
 	}
 
 	payload, err := json.Marshal(body)

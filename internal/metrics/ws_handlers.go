@@ -3,10 +3,20 @@ package metrics
 import (
 	"context"
 
+	clockplatform "megaapp-back/internal/platform/clock"
 	"megaapp-back/internal/ws"
 )
 
-func NewSubscribeHandler(service *Service, realtime *Realtime, flatlineClient *FlatlineClient) ws.MessageHandler {
+// Relay windows: how far back METRICS_SUBSCRIBE backfills history per
+// granularity, not how long Flatline keeps it stored — see
+// METRICS-GRANULARITY._implementation-plan.md, section 6.
+const (
+	minuteRelayWindowSeconds = 24 * 3600
+	hourRelayWindowSeconds   = 30 * 24 * 3600
+	dayRelayWindowSeconds    = 365 * 24 * 3600
+)
+
+func NewSubscribeHandler(service *Service, realtime *Realtime, flatlineClient *FlatlineClient, clk clockplatform.Clock) ws.MessageHandler {
 	return func(client *ws.Client, message map[string]any) error {
 		ctx := context.Background()
 
@@ -20,21 +30,51 @@ func NewSubscribeHandler(service *Service, realtime *Realtime, flatlineClient *F
 
 		realtime.Subscribe(client)
 
-		var cursor int64
+		var minuteCursor int64
 		if rawCursor, ok := message["cursor"].(float64); ok {
-			cursor = int64(rawCursor)
+			minuteCursor = int64(rawCursor)
 		}
 
-		points, err := flatlineClient.Since(ctx, cursor)
+		points, err := flatlineClient.Since(ctx, 0)
 		if err != nil {
 			return err
 		}
 
 		return client.SendJSON(map[string]any{
 			"type":    "METRICS_UPDATE",
-			"payload": DetailUpdate{Points: points},
+			"payload": DetailUpdate{Points: filterPointsForRelay(points, clk.Now().Unix(), minuteCursor)},
 		})
 	}
+}
+
+// filterPointsForRelay trims a full Since(0) dump down to what a single
+// subscribing client actually needs: minute points bounded by both its own
+// cursor and the relay window, hour/day points bounded only by their
+// (much larger, but still finite) relay window — their volume is tiny
+// enough that a per-client cursor isn't worth the complexity.
+func filterPointsForRelay(points []MetricPoint, nowUnix int64, minuteCursor int64) []MetricPoint {
+	filtered := make([]MetricPoint, 0, len(points))
+	for _, point := range points {
+		switch point.Granularity {
+		case GranularityHour:
+			if point.Bucket < nowUnix-hourRelayWindowSeconds {
+				continue
+			}
+		case GranularityDay:
+			if point.Bucket < nowUnix-dayRelayWindowSeconds {
+				continue
+			}
+		default: // minute, and any unset/legacy value
+			if point.Bucket <= minuteCursor {
+				continue
+			}
+			if point.Bucket < nowUnix-minuteRelayWindowSeconds {
+				continue
+			}
+		}
+		filtered = append(filtered, point)
+	}
+	return filtered
 }
 
 func NewUnsubscribeHandler(realtime *Realtime) ws.MessageHandler {
