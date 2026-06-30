@@ -2,9 +2,12 @@ package settings
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 )
+
+const defaultMetricsSettings = "{}"
 
 var ErrInvalidSetting = errors.New("invalid setting name")
 var ErrInvalidSettingPayload = errors.New("request body must contain exactly one setting")
@@ -111,6 +114,22 @@ func (s *Service) Post(ctx context.Context, userID int64, request UserSettings) 
 		LiteVersion:          request.LiteVersion,
 		Height:               request.Height,
 	})
+}
+
+func (s *Service) GetMetricsSettings(ctx context.Context, userID int64) (json.RawMessage, error) {
+	stored, err := s.repo.GetMetricsSettingsByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if stored == "" {
+		return json.RawMessage(defaultMetricsSettings), nil
+	}
+
+	return json.RawMessage(stored), nil
+}
+
+func (s *Service) PutMetricsSettings(ctx context.Context, userID int64, value json.RawMessage) error {
+	return s.repo.UpsertMetricsSettings(ctx, userID, string(value))
 }
 
 func defaultStoredSettings() *StoredSettings {

@@ -90,6 +90,48 @@ func (r *Repository) Upsert(ctx context.Context, userID int64, settings StoredSe
 	return nil
 }
 
+func (r *Repository) GetMetricsSettingsByUserID(ctx context.Context, userID int64) (string, error) {
+	row := r.db.QueryRowContext(ctx, `SELECT metricsSettings FROM settings WHERE usersId = ?`, userID)
+
+	var value sql.NullString
+	if err := row.Scan(&value); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("get metrics settings by user id: %w", err)
+	}
+
+	return value.String, nil
+}
+
+func (r *Repository) UpsertMetricsSettings(ctx context.Context, userID int64, value string) error {
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE settings
+		SET metricsSettings = ?
+		WHERE usersId = ?
+	`, value, userID)
+	if err != nil {
+		return fmt.Errorf("update metrics settings: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update metrics settings rows affected: %w", err)
+	}
+	if rowsAffected > 0 {
+		return nil
+	}
+
+	if _, err := r.db.ExecContext(ctx, `
+		INSERT INTO settings (usersId, metricsSettings)
+		VALUES (?, ?)
+	`, userID, value); err != nil {
+		return fmt.Errorf("insert metrics settings: %w", err)
+	}
+
+	return nil
+}
+
 func (r *Repository) GetUserAdminAndName(ctx context.Context, userID int64) (bool, string, error) {
 	row := r.db.QueryRowContext(ctx, `SELECT username, COALESCE(isAdmin, 0) FROM users WHERE id = ?`, userID)
 

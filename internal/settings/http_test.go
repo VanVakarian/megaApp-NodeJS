@@ -41,7 +41,8 @@ func TestSettingsEndpoints(t *testing.T) {
 			sex TEXT DEFAULT NULL,
 			birthDate TEXT DEFAULT NULL,
 			activityLevel TEXT DEFAULT NULL,
-			goal TEXT DEFAULT NULL
+			goal TEXT DEFAULT NULL,
+			metricsSettings TEXT
 		);
 	`); err != nil {
 		t.Fatalf("Exec() error = %v", err)
@@ -133,4 +134,77 @@ func TestSettingsEndpoints(t *testing.T) {
 		t.Fatalf("invalid PUT status = %d, want 400", invalidResponse.StatusCode)
 	}
 	_ = invalidResponse.Body.Close()
+
+	metricsGetRequest, err := http.NewRequest(http.MethodGet, server.URL+"/api/metrics-settings/", nil)
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	metricsGetRequest.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	metricsGetResponse, err := http.DefaultClient.Do(metricsGetRequest)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if metricsGetResponse.StatusCode != http.StatusOK {
+		t.Fatalf("metrics-settings GET status = %d, want 200", metricsGetResponse.StatusCode)
+	}
+	var defaultMetricsBody json.RawMessage
+	if err := json.NewDecoder(metricsGetResponse.Body).Decode(&defaultMetricsBody); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	_ = metricsGetResponse.Body.Close()
+	if string(defaultMetricsBody) != "{}" {
+		t.Fatalf("metrics-settings GET body = %s, want {}", defaultMetricsBody)
+	}
+
+	metricsPutBody, err := json.Marshal(map[string]any{"granularity": "hour"})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	metricsPutRequest, err := http.NewRequest(http.MethodPut, server.URL+"/api/metrics-settings/", bytes.NewReader(metricsPutBody))
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	metricsPutRequest.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	metricsPutRequest.Header.Set("Content-Type", "application/json")
+	metricsPutResponse, err := http.DefaultClient.Do(metricsPutRequest)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if metricsPutResponse.StatusCode != http.StatusOK {
+		t.Fatalf("metrics-settings PUT status = %d, want 200", metricsPutResponse.StatusCode)
+	}
+	_ = metricsPutResponse.Body.Close()
+
+	metricsGetAfterPutRequest, err := http.NewRequest(http.MethodGet, server.URL+"/api/metrics-settings/", nil)
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	metricsGetAfterPutRequest.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	metricsGetAfterPutResponse, err := http.DefaultClient.Do(metricsGetAfterPutRequest)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	var storedMetricsBody json.RawMessage
+	if err := json.NewDecoder(metricsGetAfterPutResponse.Body).Decode(&storedMetricsBody); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	_ = metricsGetAfterPutResponse.Body.Close()
+	if string(storedMetricsBody) != `{"granularity":"hour"}` {
+		t.Fatalf("metrics-settings GET after PUT body = %s, want %s", storedMetricsBody, `{"granularity":"hour"}`)
+	}
+
+	invalidMetricsRequest, err := http.NewRequest(http.MethodPut, server.URL+"/api/metrics-settings/", bytes.NewReader([]byte("not json")))
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	invalidMetricsRequest.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	invalidMetricsRequest.Header.Set("Content-Type", "application/json")
+	invalidMetricsResponse, err := http.DefaultClient.Do(invalidMetricsRequest)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if invalidMetricsResponse.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid metrics-settings PUT status = %d, want 400", invalidMetricsResponse.StatusCode)
+	}
+	_ = invalidMetricsResponse.Body.Close()
 }

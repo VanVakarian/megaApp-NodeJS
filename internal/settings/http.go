@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -24,6 +25,12 @@ func RegisterRoutes(router chi.Router, authService *auth.Service, handler *Handl
 		r.Get("/", handler.Get)
 		r.Post("/", handler.Post)
 		r.Put("/", handler.Put)
+	})
+
+	router.Route("/api/metrics-settings", func(r chi.Router) {
+		r.Use(auth.Middleware(authService))
+		r.Get("/", handler.GetMetricsSettings)
+		r.Put("/", handler.PutMetricsSettings)
 	})
 }
 
@@ -99,6 +106,43 @@ func (h *Handler) Put(w http.ResponseWriter, r *http.Request) {
 	}
 
 	legacy.WriteMessage(w, http.StatusOK, "Setting updated successfully")
+}
+
+func (h *Handler) GetMetricsSettings(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.UserClaimsFromContext(r.Context())
+	if !ok {
+		legacy.WriteMessage(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	response, err := h.service.GetMetricsSettings(r.Context(), claims.UserID)
+	if err != nil {
+		legacy.WriteAppMessageError(w, err, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+
+	legacy.WriteJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) PutMetricsSettings(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.UserClaimsFromContext(r.Context())
+	if !ok {
+		legacy.WriteMessage(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var request json.RawMessage
+	if err := legacy.DecodeJSON(r, &request); err != nil {
+		legacy.WriteAppMessageError(w, err, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if err := h.service.PutMetricsSettings(r.Context(), claims.UserID, request); err != nil {
+		legacy.WriteAppMessageError(w, err, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+
+	legacy.WriteMessage(w, http.StatusOK, "Metrics settings saved successfully")
 }
 
 func writeJSON(w http.ResponseWriter, statusCode int, payload any) {

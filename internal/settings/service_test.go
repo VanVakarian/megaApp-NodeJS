@@ -101,6 +101,52 @@ func TestPostUpsertsSettings(t *testing.T) {
 	}
 }
 
+func TestGetMetricsSettingsReturnsEmptyObjectByDefault(t *testing.T) {
+	db := openSettingsTestDB(t)
+	service := NewService(NewRepository(db))
+	userID := insertSettingsTestUser(t, db, "alice", false)
+
+	result, err := service.GetMetricsSettings(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("GetMetricsSettings() error = %v", err)
+	}
+	if string(result) != "{}" {
+		t.Fatalf("GetMetricsSettings() = %q, want {}", result)
+	}
+}
+
+func TestPutMetricsSettingsUpsertsRawValue(t *testing.T) {
+	db := openSettingsTestDB(t)
+	service := NewService(NewRepository(db))
+	userID := insertSettingsTestUser(t, db, "alice", false)
+
+	value := []byte(`{"granularity":"hour"}`)
+	if err := service.PutMetricsSettings(context.Background(), userID, value); err != nil {
+		t.Fatalf("PutMetricsSettings() error = %v", err)
+	}
+
+	result, err := service.GetMetricsSettings(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("GetMetricsSettings() error = %v", err)
+	}
+	if string(result) != `{"granularity":"hour"}` {
+		t.Fatalf("GetMetricsSettings() = %s, want %s", result, value)
+	}
+
+	updated := []byte(`{"granularity":"day"}`)
+	if err := service.PutMetricsSettings(context.Background(), userID, updated); err != nil {
+		t.Fatalf("PutMetricsSettings() second call error = %v", err)
+	}
+
+	result, err = service.GetMetricsSettings(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("GetMetricsSettings() error = %v", err)
+	}
+	if string(result) != `{"granularity":"day"}` {
+		t.Fatalf("GetMetricsSettings() after update = %s, want %s", result, updated)
+	}
+}
+
 func openSettingsTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 
@@ -128,7 +174,8 @@ func openSettingsTestDB(t *testing.T) *sql.DB {
 			sex TEXT DEFAULT NULL,
 			birthDate TEXT DEFAULT NULL,
 			activityLevel TEXT DEFAULT NULL,
-			goal TEXT DEFAULT NULL
+			goal TEXT DEFAULT NULL,
+			metricsSettings TEXT
 		);
 	`); err != nil {
 		_ = db.Close()
