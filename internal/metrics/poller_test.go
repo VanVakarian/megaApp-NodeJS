@@ -93,6 +93,34 @@ func TestPollerTickSkipsBroadcastWhenNoNewPoints(t *testing.T) {
 	}
 }
 
+func TestPollerTickSkipsRebroadcastOfUnchangedPoint(t *testing.T) {
+	// Mirrors Flatline's Since() behavior for a granularity's most recently
+	// closed bucket: it keeps satisfying `bucket+step > cursor` and gets
+	// returned again on every poll until a newer bucket appears, even though
+	// the Poller's own cursor never moves past it. See poller.go comment.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(sinceResponse{Points: []MetricPoint{
+			{Service: "hardware:1.2.3.4", Name: "load1", Granularity: GranularityMinute, Bucket: 120, Value: 0.5},
+		}})
+	}))
+	defer server.Close()
+
+	realtime := &fakeRealtime{}
+	poller := NewPoller(NewFlatlineClient(server.URL, time.Second), realtime, fakeAdminLister{}, time.Second, time.Minute, fixedMetricsClock{now: time.Unix(0, 0)}, discardLogger())
+	poller.cursor = 0
+
+	poller.tick(context.Background())
+	poller.tick(context.Background())
+	poller.tick(context.Background())
+
+	if len(realtime.detailCalls) != 1 {
+		t.Fatalf("detailCalls = %+v, want exactly one (first tick only)", realtime.detailCalls)
+	}
+	if len(realtime.latestCalls) != 3 {
+		t.Fatalf("latestCalls = %d, want 3 (health channel still ticks every poll)", len(realtime.latestCalls))
+	}
+}
+
 func TestPollerStartAndCloseStopsCleanly(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(sinceResponse{Points: nil})

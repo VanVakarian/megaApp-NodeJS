@@ -24,6 +24,7 @@ type Poller struct {
 	cursor     int64
 	latest     map[string]map[string]float64
 	lastBucket map[string]int64
+	seenBucket map[string]int64
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -39,6 +40,7 @@ func NewPoller(client *FlatlineClient, realtime realtimeBroadcaster, adminLister
 		cursor:      initialPollerCursor(clk.Now(), initialLookback),
 		latest:      make(map[string]map[string]float64),
 		lastBucket:  make(map[string]int64),
+		seenBucket:  make(map[string]int64),
 	}
 }
 
@@ -77,7 +79,7 @@ func (p *Poller) Close() error {
 }
 
 func (p *Poller) tick(ctx context.Context) {
-	points, err := p.client.Since(ctx, p.cursor)
+	points, err := p.client.Since(ctx, p.cursor, 0, 0, 0)
 	if err != nil {
 		p.logger.Warn("metrics_poll_failed", "err", err)
 		return
@@ -86,9 +88,24 @@ func (p *Poller) tick(ctx context.Context) {
 		return
 	}
 
+	// Flatline's Since() compares against bucket+step (not bucket alone) so a
+	// late-closing candle stays visible across the cursor boundary — see
+	// METRICS-GRANULARITY._implementation-plan.md, section 3. Side effect:
+	// the most recently closed bucket of any series satisfies that condition
+	// on every single tick until a newer bucket appears, so Since() keeps
+	// re-returning it unchanged. Track per-series freshness here and only
+	// broadcast points actually new since the last tick, instead of
+	// re-pushing identical data to every subscriber every poll interval.
+	newPoints := make([]MetricPoint, 0, len(points))
 	for _, point := range points {
 		if point.Bucket > p.cursor {
 			p.cursor = point.Bucket
+		}
+
+		seenKey := point.Service + "\x00" + point.Name + "\x00" + point.Granularity
+		if point.Bucket > p.seenBucket[seenKey] {
+			p.seenBucket[seenKey] = point.Bucket
+			newPoints = append(newPoints, point)
 		}
 
 		serviceMetrics, ok := p.latest[point.Service]
@@ -103,7 +120,9 @@ func (p *Poller) tick(ctx context.Context) {
 		}
 	}
 
-	p.realtime.BroadcastDetail(DetailUpdate{Points: points})
+	if len(newPoints) > 0 {
+		p.realtime.BroadcastDetail(DetailUpdate{Points: newPoints})
+	}
 
 	adminUserIDs, err := p.adminLister.ListAdminUserIDs(ctx)
 	if err != nil {

@@ -38,7 +38,17 @@ func NewSubscribeHandler(service *Service, realtime *Realtime, flatlineClient *F
 
 		realtime.Subscribe(client)
 
-		points, err := flatlineClient.Since(ctx, 0)
+		// Bounds applied in Flatline's SQL, not after the fact here — Flatline
+		// retains weeks of minute rows across every service (hundreds of
+		// thousands of points); fetching that whole table on every subscribe
+		// and discarding most of it in Go was slow enough to blow the HTTP
+		// client's timeout and silently fail the entire backfill.
+		nowUnix := clk.Now().Unix()
+		points, err := flatlineClient.Since(ctx, 0,
+			nowUnix-minuteRelayWindowSeconds,
+			nowUnix-hourRelayWindowSeconds,
+			nowUnix-dayRelayWindowSeconds,
+		)
 		if err != nil {
 			logger.Warn("metrics_subscribe_backfill_failed", "err", err)
 			return err
@@ -46,35 +56,13 @@ func NewSubscribeHandler(service *Service, realtime *Realtime, flatlineClient *F
 
 		if err := client.SendJSON(map[string]any{
 			"type":    "METRICS_UPDATE",
-			"payload": DetailUpdate{Points: filterPointsForRelay(points, clk.Now().Unix())},
+			"payload": DetailUpdate{Points: points},
 		}); err != nil {
 			logger.Warn("metrics_subscribe_send_failed", "err", err)
 			return err
 		}
 		return nil
 	}
-}
-
-// filterPointsForRelay trims a full Since(0) dump down to each granularity's
-// fixed relay window — no per-client cursor for any granularity.
-func filterPointsForRelay(points []MetricPoint, nowUnix int64) []MetricPoint {
-	filtered := make([]MetricPoint, 0, len(points))
-	for _, point := range points {
-		var window int64
-		switch point.Granularity {
-		case GranularityHour:
-			window = hourRelayWindowSeconds
-		case GranularityDay:
-			window = dayRelayWindowSeconds
-		default: // minute, and any unset/legacy value
-			window = minuteRelayWindowSeconds
-		}
-		if point.Bucket < nowUnix-window {
-			continue
-		}
-		filtered = append(filtered, point)
-	}
-	return filtered
 }
 
 func NewUnsubscribeHandler(realtime *Realtime) ws.MessageHandler {

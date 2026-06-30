@@ -78,13 +78,16 @@ func TestFlatlineClientSinceReturnsPoints(t *testing.T) {
 		if r.URL.Query().Get("cursor") != "100" {
 			t.Fatalf("cursor = %q, want 100", r.URL.Query().Get("cursor"))
 		}
+		if r.URL.Query().Get("minuteSince") != "10" || r.URL.Query().Get("hourSince") != "20" || r.URL.Query().Get("daySince") != "30" {
+			t.Fatalf("floors = %q/%q/%q, want 10/20/30", r.URL.Query().Get("minuteSince"), r.URL.Query().Get("hourSince"), r.URL.Query().Get("daySince"))
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(sinceResponse{Points: []MetricPoint{{Service: "megaapp", Name: "a", Bucket: 120, Value: 1}}})
 	}))
 	defer server.Close()
 
 	client := NewFlatlineClient(server.URL, time.Second)
-	points, err := client.Since(context.Background(), 100)
+	points, err := client.Since(context.Background(), 100, 10, 20, 30)
 	if err != nil {
 		t.Fatalf("Since() error = %v", err)
 	}
@@ -100,7 +103,7 @@ func TestFlatlineClientSinceReturnsErrorOnNonOKStatus(t *testing.T) {
 	defer server.Close()
 
 	client := NewFlatlineClient(server.URL, time.Second)
-	if _, err := client.Since(context.Background(), 0); err == nil {
+	if _, err := client.Since(context.Background(), 0, 0, 0, 0); err == nil {
 		t.Fatal("Since() error = nil, want error")
 	}
 }

@@ -84,8 +84,18 @@ type sinceResponse struct {
 	Points []MetricPoint `json:"points"`
 }
 
-func (c *FlatlineClient) Since(ctx context.Context, cursor int64) ([]MetricPoint, error) {
-	url := c.baseURL + "/api/metrics/since?cursor=" + strconv.FormatInt(cursor, 10)
+// Since fetches points newer than cursor, optionally additionally bounded by
+// age per granularity (minuteFloor/hourFloor/dayFloor — pass 0 for "no extra
+// bound"). Bounding here, not after the fact in Go, keeps Flatline from
+// having to scan and ship its entire retained history (weeks of minute rows
+// across every service) for every call — see ws_handlers.go's subscribe
+// backfill, the one caller that needs real bounds.
+func (c *FlatlineClient) Since(ctx context.Context, cursor, minuteFloor, hourFloor, dayFloor int64) ([]MetricPoint, error) {
+	url := c.baseURL + "/api/metrics/since" +
+		"?cursor=" + strconv.FormatInt(cursor, 10) +
+		"&minuteSince=" + strconv.FormatInt(minuteFloor, 10) +
+		"&hourSince=" + strconv.FormatInt(hourFloor, 10) +
+		"&daySince=" + strconv.FormatInt(dayFloor, 10)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build flatline since request: %w", err)
