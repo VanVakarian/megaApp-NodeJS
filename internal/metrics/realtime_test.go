@@ -192,7 +192,7 @@ func newMetricsTestEnv(t *testing.T) (*auth.Service, *auth.TokenManager, *Realti
 	t.Cleanup(func() { _ = hub.Close() })
 	realtime := NewRealtime(hub)
 
-	hub.RegisterHandler("METRICS_SUBSCRIBE", NewSubscribeHandler(service, realtime, flatlineClient, fixedMetricsClock{now: time.Now()}))
+	hub.RegisterHandler("METRICS_SUBSCRIBE", NewSubscribeHandler(service, realtime, flatlineClient, fixedMetricsClock{now: time.Now()}, discardLogger()))
 	hub.RegisterHandler("METRICS_UNSUBSCRIBE", NewUnsubscribeHandler(realtime))
 
 	wsHandler := ws.NewHandler(authService, hub)

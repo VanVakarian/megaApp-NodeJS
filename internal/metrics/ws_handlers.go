@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"log/slog"
 
 	clockplatform "megaapp-back/internal/platform/clock"
 	"megaapp-back/internal/ws"
@@ -16,12 +17,19 @@ const (
 	dayRelayWindowSeconds    = 365 * 24 * 3600
 )
 
-func NewSubscribeHandler(service *Service, realtime *Realtime, flatlineClient *FlatlineClient, clk clockplatform.Clock) ws.MessageHandler {
-	return func(client *ws.Client, message map[string]any) error {
+// No client-sent cursor: every (re)subscribe — fresh page load, IDB cache
+// wipe, WS reconnect after the tab was suspended — backfills the full fixed
+// relay window per granularity, same as hour/day already did. A client
+// cursor here would only reintroduce the single failure mode this is meant
+// to avoid (clock skew, a stale in-memory cursor after a cache wipe, a race
+// with the async IDB load) silently swallowing real history.
+func NewSubscribeHandler(service *Service, realtime *Realtime, flatlineClient *FlatlineClient, clk clockplatform.Clock, logger *slog.Logger) ws.MessageHandler {
+	return func(client *ws.Client, _ map[string]any) error {
 		ctx := context.Background()
 
 		isAdmin, err := service.IsAdmin(ctx, client.UserID())
 		if err != nil {
+			logger.Warn("metrics_subscribe_admin_check_failed", "err", err)
 			return err
 		}
 		if !isAdmin {
@@ -30,47 +38,39 @@ func NewSubscribeHandler(service *Service, realtime *Realtime, flatlineClient *F
 
 		realtime.Subscribe(client)
 
-		var minuteCursor int64
-		if rawCursor, ok := message["cursor"].(float64); ok {
-			minuteCursor = int64(rawCursor)
-		}
-
 		points, err := flatlineClient.Since(ctx, 0)
 		if err != nil {
+			logger.Warn("metrics_subscribe_backfill_failed", "err", err)
 			return err
 		}
 
-		return client.SendJSON(map[string]any{
+		if err := client.SendJSON(map[string]any{
 			"type":    "METRICS_UPDATE",
-			"payload": DetailUpdate{Points: filterPointsForRelay(points, clk.Now().Unix(), minuteCursor)},
-		})
+			"payload": DetailUpdate{Points: filterPointsForRelay(points, clk.Now().Unix())},
+		}); err != nil {
+			logger.Warn("metrics_subscribe_send_failed", "err", err)
+			return err
+		}
+		return nil
 	}
 }
 
-// filterPointsForRelay trims a full Since(0) dump down to what a single
-// subscribing client actually needs: minute points bounded by both its own
-// cursor and the relay window, hour/day points bounded only by their
-// (much larger, but still finite) relay window — their volume is tiny
-// enough that a per-client cursor isn't worth the complexity.
-func filterPointsForRelay(points []MetricPoint, nowUnix int64, minuteCursor int64) []MetricPoint {
+// filterPointsForRelay trims a full Since(0) dump down to each granularity's
+// fixed relay window — no per-client cursor for any granularity.
+func filterPointsForRelay(points []MetricPoint, nowUnix int64) []MetricPoint {
 	filtered := make([]MetricPoint, 0, len(points))
 	for _, point := range points {
+		var window int64
 		switch point.Granularity {
 		case GranularityHour:
-			if point.Bucket < nowUnix-hourRelayWindowSeconds {
-				continue
-			}
+			window = hourRelayWindowSeconds
 		case GranularityDay:
-			if point.Bucket < nowUnix-dayRelayWindowSeconds {
-				continue
-			}
+			window = dayRelayWindowSeconds
 		default: // minute, and any unset/legacy value
-			if point.Bucket <= minuteCursor {
-				continue
-			}
-			if point.Bucket < nowUnix-minuteRelayWindowSeconds {
-				continue
-			}
+			window = minuteRelayWindowSeconds
+		}
+		if point.Bucket < nowUnix-window {
+			continue
 		}
 		filtered = append(filtered, point)
 	}
