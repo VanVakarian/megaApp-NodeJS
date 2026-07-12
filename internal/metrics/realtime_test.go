@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -42,20 +43,12 @@ func TestSubscribeHandlerOnlyAcceptsAdmins(t *testing.T) {
 	defer func() { _ = plainConn.Close() }()
 	drainMetricsMessage(t, plainConn)
 
-	if err := adminConn.WriteJSON(map[string]any{"type": "METRICS_SUBSCRIBE", "cursor": 0}); err != nil {
+	if err := adminConn.WriteJSON(map[string]any{"type": "METRICS_SUBSCRIBE"}); err != nil {
 		t.Fatalf("WriteJSON() error = %v", err)
 	}
 
-	var update map[string]any
-	_ = adminConn.SetReadDeadline(time.Now().Add(time.Second))
-	if err := adminConn.ReadJSON(&update); err != nil {
-		t.Fatalf("ReadJSON() error = %v", err)
-	}
-	if update["type"] != "METRICS_UPDATE" {
-		t.Fatalf("type = %v, want METRICS_UPDATE", update["type"])
-	}
-
-	if err := plainConn.WriteJSON(map[string]any{"type": "METRICS_SUBSCRIBE", "cursor": 0}); err != nil {
+	time.Sleep(50 * time.Millisecond)
+	if err := plainConn.WriteJSON(map[string]any{"type": "METRICS_SUBSCRIBE"}); err != nil {
 		t.Fatalf("WriteJSON() error = %v", err)
 	}
 	_ = plainConn.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
@@ -96,10 +89,10 @@ func TestUnsubscribeStopsDetailBroadcast(t *testing.T) {
 	defer func() { _ = conn.Close() }()
 	drainMetricsMessage(t, conn)
 
-	if err := conn.WriteJSON(map[string]any{"type": "METRICS_SUBSCRIBE", "cursor": 0}); err != nil {
+	if err := conn.WriteJSON(map[string]any{"type": "METRICS_SUBSCRIBE"}); err != nil {
 		t.Fatalf("WriteJSON() error = %v", err)
 	}
-	drainMetricsMessage(t, conn)
+	time.Sleep(50 * time.Millisecond)
 
 	if err := conn.WriteJSON(map[string]any{"type": "METRICS_UNSUBSCRIBE"}); err != nil {
 		t.Fatalf("WriteJSON() error = %v", err)
@@ -157,6 +150,52 @@ func TestBroadcastLatestReachesOnlyAdmins(t *testing.T) {
 	}
 }
 
+func TestHistoryHandlerReturnsServiceSnapshots(t *testing.T) {
+	authService, tokenManager, _, wsServer, authDB := newMetricsTestEnv(t)
+	defer wsServer.Close()
+
+	adminUserID := registerAdminUser(t, authService, authDB, "admin")
+	tokens, err := tokenManager.Issue(auth.TokenClaims{UserID: adminUserID, Username: "admin", IsAdmin: true})
+	if err != nil {
+		t.Fatalf("Issue() error = %v", err)
+	}
+
+	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
+	flatlineServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		if query.Get("service") != "bot" || query.Get("names") != "a" {
+			t.Fatalf("query = %s, want bot/a", query.Encode())
+		}
+		if query.Get("minuteSince") != strconv.FormatInt(now.Unix()-minuteHistoryWindowSeconds, 10) {
+			t.Fatalf("minuteSince = %s", query.Get("minuteSince"))
+		}
+		_ = json.NewEncoder(w).Encode(historyResponse{
+			Snapshots: []MetricSnapshot{{Granularity: GranularityMinute, Bucket: now.Unix() - 60, Metrics: map[string]float64{"a": 1}}},
+		})
+	}))
+	defer flatlineServer.Close()
+
+	service := NewService(MainServiceName, fixedMetricsClock{now: now}, authService)
+	router := chi.NewRouter()
+	RegisterRoutes(router, authService, NewHistoryHandler(service, NewFlatlineClient(flatlineServer.URL, time.Second), fixedMetricsClock{now: now}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/metrics/history?service=bot&names=a", nil)
+	req.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var response historyResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(response.Snapshots) != 1 || response.Snapshots[0].Metrics["a"] != 1 {
+		t.Fatalf("snapshots = %+v, want one a snapshot", response.Snapshots)
+	}
+}
+
 func newMetricsTestEnv(t *testing.T) (*auth.Service, *auth.TokenManager, *Realtime, *httptest.Server, *sql.DB) {
 	t.Helper()
 
@@ -182,17 +221,11 @@ func newMetricsTestEnv(t *testing.T) (*auth.Service, *auth.TokenManager, *Realti
 
 	service := NewService(MainServiceName, fixedMetricsClock{now: time.Now()}, authService)
 
-	flatlineServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(sinceResponse{Points: nil})
-	}))
-	t.Cleanup(flatlineServer.Close)
-	flatlineClient := NewFlatlineClient(flatlineServer.URL, time.Second)
-
 	hub := ws.NewHub(time.Second, ws.NewSyncState())
 	t.Cleanup(func() { _ = hub.Close() })
 	realtime := NewRealtime(hub)
 
-	hub.RegisterHandler("METRICS_SUBSCRIBE", NewSubscribeHandler(service, realtime, flatlineClient, fixedMetricsClock{now: time.Now()}, discardLogger()))
+	hub.RegisterHandler("METRICS_SUBSCRIBE", NewSubscribeHandler(service, realtime))
 	hub.RegisterHandler("METRICS_UNSUBSCRIBE", NewUnsubscribeHandler(realtime))
 
 	wsHandler := ws.NewHandler(authService, hub)

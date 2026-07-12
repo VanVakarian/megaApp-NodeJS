@@ -108,28 +108,27 @@ func TestFlatlineClientSinceReturnsErrorOnNonOKStatus(t *testing.T) {
 	}
 }
 
-func TestFlatlineClientSincePageSendsCursorAndReturnsNext(t *testing.T) {
+func TestFlatlineClientHistorySendsServiceAndReturnsSnapshots(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
-		if query.Get("granularity") != GranularityMinute || query.Get("minuteSince") != "60" {
-			t.Fatalf("query = %s, want minute page", r.URL.RawQuery)
+		if r.URL.Path != "/api/metrics/history" || query.Get("service") != "bot" {
+			t.Fatalf("query = %s, want bot history", r.URL.RawQuery)
 		}
-		if query.Get("afterBucket") != "120" || query.Get("afterService") != "megaapp" || query.Get("afterName") != "a" {
-			t.Fatalf("page cursor = %s, want 120/megaapp/a", r.URL.RawQuery)
+		if query.Get("names") != "a,b" || query.Get("minuteSince") != "60" || query.Get("hourSince") != "120" || query.Get("daySince") != "180" {
+			t.Fatalf("query = %s, want history filters", r.URL.RawQuery)
 		}
-		_ = json.NewEncoder(w).Encode(sinceResponse{
-			Points: []MetricPoint{{Service: "megaapp", Name: "b", Granularity: GranularityMinute, Bucket: 180, Value: 1}},
-			Next:   &FlatlinePageCursor{Bucket: 180, Service: "megaapp", Name: "b"},
+		_ = json.NewEncoder(w).Encode(historyResponse{
+			Snapshots: []MetricSnapshot{{Granularity: GranularityMinute, Bucket: 180, Metrics: map[string]float64{"a": 1}}},
 		})
 	}))
 	defer server.Close()
 
 	client := NewFlatlineClient(server.URL, time.Second)
-	page, err := client.SincePage(context.Background(), GranularityMinute, 0, 60, &FlatlinePageCursor{Bucket: 120, Service: "megaapp", Name: "a"})
+	snapshots, err := client.History(context.Background(), "bot", []string{"a", "b"}, 60, 120, 180)
 	if err != nil {
-		t.Fatalf("SincePage() error = %v", err)
+		t.Fatalf("History() error = %v", err)
 	}
-	if len(page.Points) != 1 || page.Next == nil || page.Next.Bucket != 180 {
-		t.Fatalf("page = %+v, want one point and next cursor", page)
+	if len(snapshots) != 1 || snapshots[0].Metrics["a"] != 1 {
+		t.Fatalf("snapshots = %+v, want one snapshot", snapshots)
 	}
 }

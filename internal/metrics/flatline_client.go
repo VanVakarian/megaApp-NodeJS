@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -82,19 +83,17 @@ func (c *FlatlineClient) PushSnapshots(ctx context.Context, service string, snap
 }
 
 type sinceResponse struct {
-	Points []MetricPoint       `json:"points"`
-	Next   *FlatlinePageCursor `json:"next,omitempty"`
+	Points []MetricPoint `json:"points"`
 }
 
-type FlatlinePageCursor struct {
-	Bucket  int64  `json:"bucket"`
-	Service string `json:"service"`
-	Name    string `json:"name"`
+type MetricSnapshot struct {
+	Granularity string             `json:"granularity"`
+	Bucket      int64              `json:"bucket"`
+	Metrics     map[string]float64 `json:"metrics"`
 }
 
-type FlatlineSincePage struct {
-	Points []MetricPoint
-	Next   *FlatlinePageCursor
+type historyResponse struct {
+	Snapshots []MetricSnapshot `json:"snapshots"`
 }
 
 // Since fetches points newer than cursor, optionally additionally bounded by
@@ -133,47 +132,36 @@ func (c *FlatlineClient) Since(ctx context.Context, cursor, minuteFloor, hourFlo
 	return response.Points, nil
 }
 
-func (c *FlatlineClient) SincePage(ctx context.Context, granularity string, cursor, floor int64, after *FlatlinePageCursor) (FlatlineSincePage, error) {
+func (c *FlatlineClient) History(ctx context.Context, service string, names []string, minuteFloor, hourFloor, dayFloor int64) ([]MetricSnapshot, error) {
 	query := url.Values{
-		"cursor":      {strconv.FormatInt(cursor, 10)},
-		"granularity": {granularity},
-		"minuteSince": {"0"},
-		"hourSince":   {"0"},
-		"daySince":    {"0"},
+		"service":     {service},
+		"minuteSince": {strconv.FormatInt(minuteFloor, 10)},
+		"hourSince":   {strconv.FormatInt(hourFloor, 10)},
+		"daySince":    {strconv.FormatInt(dayFloor, 10)},
 	}
-	switch granularity {
-	case GranularityMinute:
-		query.Set("minuteSince", strconv.FormatInt(floor, 10))
-	case GranularityHour:
-		query.Set("hourSince", strconv.FormatInt(floor, 10))
-	case GranularityDay:
-		query.Set("daySince", strconv.FormatInt(floor, 10))
-	}
-	if after != nil {
-		query.Set("afterBucket", strconv.FormatInt(after.Bucket, 10))
-		query.Set("afterService", after.Service)
-		query.Set("afterName", after.Name)
+	if len(names) > 0 {
+		query.Set("names", strings.Join(names, ","))
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/metrics/since?"+query.Encode(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/metrics/history?"+query.Encode(), nil)
 	if err != nil {
-		return FlatlineSincePage{}, fmt.Errorf("build flatline since page request: %w", err)
+		return nil, fmt.Errorf("build flatline history request: %w", err)
 	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return FlatlineSincePage{}, fmt.Errorf("send flatline since page request: %w", err)
+		return nil, fmt.Errorf("send flatline history request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		return FlatlineSincePage{}, fmt.Errorf("flatline since page status %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("flatline history status %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	var response sinceResponse
+	var response historyResponse
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return FlatlineSincePage{}, fmt.Errorf("decode flatline since page response: %w", err)
+		return nil, fmt.Errorf("decode flatline history response: %w", err)
 	}
-	return FlatlineSincePage{Points: response.Points, Next: response.Next}, nil
+	return response.Snapshots, nil
 }

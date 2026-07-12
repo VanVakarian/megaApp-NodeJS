@@ -53,9 +53,10 @@ type backupModule struct {
 }
 
 type metricsModule struct {
-	service  *metrics.Service
-	realtime *metrics.Realtime
-	poller   *metrics.Poller
+	service        *metrics.Service
+	historyHandler *metrics.HistoryHandler
+	realtime       *metrics.Realtime
+	poller         *metrics.Poller
 }
 
 type foodModule struct {
@@ -154,6 +155,7 @@ func buildMetricsModule(cfg config.Config, logger *slog.Logger, hub *ws.Hub, aut
 	service := metrics.NewService(cfg.MetricsServiceKey, clk, authService)
 	realtime := metrics.NewRealtime(hub)
 	flatlineClient := metrics.NewFlatlineClient(cfg.FlatlineBaseURL, cfg.FlatlinePushTimeout)
+	historyClient := metrics.NewFlatlineClient(cfg.FlatlineBaseURL, cfg.HTTPWriteTimeout)
 
 	exporter, err := metrics.NewExporter(metrics.ExporterConfig{
 		Service:    cfg.MetricsServiceKey,
@@ -166,7 +168,7 @@ func buildMetricsModule(cfg config.Config, logger *slog.Logger, hub *ws.Hub, aut
 
 	poller := metrics.NewPoller(flatlineClient, realtime, authService, cfg.FlatlinePollInterval, cfg.FlatlinePollInitialLookback, clk, logger)
 
-	hub.RegisterHandler("METRICS_SUBSCRIBE", metrics.NewSubscribeHandler(service, realtime, flatlineClient, clk, logger))
+	hub.RegisterHandler("METRICS_SUBSCRIBE", metrics.NewSubscribeHandler(service, realtime))
 	hub.RegisterHandler("METRICS_UNSUBSCRIBE", metrics.NewUnsubscribeHandler(realtime))
 
 	if err := runtime.Register("metrics", "* * * * *", func(ctx context.Context) error {
@@ -182,7 +184,12 @@ func buildMetricsModule(cfg config.Config, logger *slog.Logger, hub *ws.Hub, aut
 
 	poller.Start()
 
-	return metricsModule{service: service, realtime: realtime, poller: poller}, nil
+	return metricsModule{
+		service:        service,
+		historyHandler: metrics.NewHistoryHandler(service, historyClient, clk),
+		realtime:       realtime,
+		poller:         poller,
+	}, nil
 }
 
 func buildFoodModule(db *sql.DB, cfg config.Config, logger *slog.Logger, hub *ws.Hub, clk clockplatform.Clock, metricsRecorder food.MetricsRecorder) (foodModule, error) {
