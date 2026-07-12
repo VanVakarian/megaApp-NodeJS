@@ -107,3 +107,29 @@ func TestFlatlineClientSinceReturnsErrorOnNonOKStatus(t *testing.T) {
 		t.Fatal("Since() error = nil, want error")
 	}
 }
+
+func TestFlatlineClientSincePageSendsCursorAndReturnsNext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		if query.Get("granularity") != GranularityMinute || query.Get("minuteSince") != "60" {
+			t.Fatalf("query = %s, want minute page", r.URL.RawQuery)
+		}
+		if query.Get("afterBucket") != "120" || query.Get("afterService") != "megaapp" || query.Get("afterName") != "a" {
+			t.Fatalf("page cursor = %s, want 120/megaapp/a", r.URL.RawQuery)
+		}
+		_ = json.NewEncoder(w).Encode(sinceResponse{
+			Points: []MetricPoint{{Service: "megaapp", Name: "b", Granularity: GranularityMinute, Bucket: 180, Value: 1}},
+			Next:   &FlatlinePageCursor{Bucket: 180, Service: "megaapp", Name: "b"},
+		})
+	}))
+	defer server.Close()
+
+	client := NewFlatlineClient(server.URL, time.Second)
+	page, err := client.SincePage(context.Background(), GranularityMinute, 0, 60, &FlatlinePageCursor{Bucket: 120, Service: "megaapp", Name: "a"})
+	if err != nil {
+		t.Fatalf("SincePage() error = %v", err)
+	}
+	if len(page.Points) != 1 || page.Next == nil || page.Next.Bucket != 180 {
+		t.Fatalf("page = %+v, want one point and next cursor", page)
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 )
@@ -81,7 +82,19 @@ func (c *FlatlineClient) PushSnapshots(ctx context.Context, service string, snap
 }
 
 type sinceResponse struct {
-	Points []MetricPoint `json:"points"`
+	Points []MetricPoint       `json:"points"`
+	Next   *FlatlinePageCursor `json:"next,omitempty"`
+}
+
+type FlatlinePageCursor struct {
+	Bucket  int64  `json:"bucket"`
+	Service string `json:"service"`
+	Name    string `json:"name"`
+}
+
+type FlatlineSincePage struct {
+	Points []MetricPoint
+	Next   *FlatlinePageCursor
 }
 
 // Since fetches points newer than cursor, optionally additionally bounded by
@@ -118,4 +131,49 @@ func (c *FlatlineClient) Since(ctx context.Context, cursor, minuteFloor, hourFlo
 	}
 
 	return response.Points, nil
+}
+
+func (c *FlatlineClient) SincePage(ctx context.Context, granularity string, cursor, floor int64, after *FlatlinePageCursor) (FlatlineSincePage, error) {
+	query := url.Values{
+		"cursor":      {strconv.FormatInt(cursor, 10)},
+		"granularity": {granularity},
+		"minuteSince": {"0"},
+		"hourSince":   {"0"},
+		"daySince":    {"0"},
+	}
+	switch granularity {
+	case GranularityMinute:
+		query.Set("minuteSince", strconv.FormatInt(floor, 10))
+	case GranularityHour:
+		query.Set("hourSince", strconv.FormatInt(floor, 10))
+	case GranularityDay:
+		query.Set("daySince", strconv.FormatInt(floor, 10))
+	}
+	if after != nil {
+		query.Set("afterBucket", strconv.FormatInt(after.Bucket, 10))
+		query.Set("afterService", after.Service)
+		query.Set("afterName", after.Name)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/metrics/since?"+query.Encode(), nil)
+	if err != nil {
+		return FlatlineSincePage{}, fmt.Errorf("build flatline since page request: %w", err)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return FlatlineSincePage{}, fmt.Errorf("send flatline since page request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		return FlatlineSincePage{}, fmt.Errorf("flatline since page status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var response sinceResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return FlatlineSincePage{}, fmt.Errorf("decode flatline since page response: %w", err)
+	}
+	return FlatlineSincePage{Points: response.Points, Next: response.Next}, nil
 }

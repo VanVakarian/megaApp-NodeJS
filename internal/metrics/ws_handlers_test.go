@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,21 +19,16 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// TestSubscribeHandlerSendsPerGranularityFloorsToFlatline is the regression
-// test for the production incident this replaces: METRICS_SUBSCRIBE used to
-// fetch Flatline's entire retained history (cursor=0, no other bound) and
-// filter it down in Go afterwards — at real data volume (weeks of minute
-// rows across every service) that response was tens of MB and blew the HTTP
-// client's timeout, silently failing the whole backfill. Bounds now travel
-// in the request itself so Flatline only has to seek its index, not scan
-// and ship everything.
-func TestSubscribeHandlerSendsPerGranularityFloorsToFlatline(t *testing.T) {
+func TestSubscribeHandlerSendsPerGranularityPagesToFlatline(t *testing.T) {
 	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
 	clock := fixedMetricsClock{now: now}
 
-	var receivedQuery url.Values
+	var receivedQueries []url.Values
+	var receivedMu sync.Mutex
 	flatlineServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedQuery = r.URL.Query()
+		receivedMu.Lock()
+		receivedQueries = append(receivedQueries, r.URL.Query())
+		receivedMu.Unlock()
 		_ = json.NewEncoder(w).Encode(sinceResponse{Points: nil})
 	}))
 	defer flatlineServer.Close()
@@ -84,23 +80,32 @@ func TestSubscribeHandlerSendsPerGranularityFloorsToFlatline(t *testing.T) {
 	}
 	drainMetricsMessage(t, conn)
 
-	if receivedQuery == nil {
-		t.Fatal("Flatline never received a request")
+	receivedMu.Lock()
+	defer receivedMu.Unlock()
+
+	if len(receivedQueries) != 3 {
+		t.Fatalf("len(receivedQueries) = %d, want 3", len(receivedQueries))
 	}
-	wantMinute := now.Unix() - minuteRelayWindowSeconds
-	wantHour := now.Unix() - hourRelayWindowSeconds
-	wantDay := now.Unix() - dayRelayWindowSeconds
-	if got := receivedQuery.Get("minuteSince"); got != fmtInt(wantMinute) {
-		t.Fatalf("minuteSince = %q, want %d", got, wantMinute)
+
+	floors := map[string]string{
+		GranularityMinute: fmtInt(now.Unix() - minuteRelayWindowSeconds),
+		GranularityHour:   fmtInt(now.Unix() - hourRelayWindowSeconds),
+		GranularityDay:    fmtInt(now.Unix() - dayRelayWindowSeconds),
 	}
-	if got := receivedQuery.Get("hourSince"); got != fmtInt(wantHour) {
-		t.Fatalf("hourSince = %q, want %d", got, wantHour)
-	}
-	if got := receivedQuery.Get("daySince"); got != fmtInt(wantDay) {
-		t.Fatalf("daySince = %q, want %d", got, wantDay)
-	}
-	if got := receivedQuery.Get("cursor"); got != "0" {
-		t.Fatalf("cursor = %q, want 0", got)
+	for index, granularity := range []string{GranularityMinute, GranularityHour, GranularityDay} {
+		query := receivedQueries[index]
+		if query.Get("cursor") != "0" || query.Get("granularity") != granularity {
+			t.Fatalf("query = %s, want cursor=0 and granularity=%s", query.Encode(), granularity)
+		}
+		for _, floorName := range []string{"minuteSince", "hourSince", "daySince"} {
+			want := "0"
+			if floorName == granularity+"Since" {
+				want = floors[granularity]
+			}
+			if got := query.Get(floorName); got != want {
+				t.Fatalf("%s = %q, want %q", floorName, got, want)
+			}
+		}
 	}
 }
 

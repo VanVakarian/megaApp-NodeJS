@@ -44,22 +44,46 @@ func NewSubscribeHandler(service *Service, realtime *Realtime, flatlineClient *F
 		// and discarding most of it in Go was slow enough to blow the HTTP
 		// client's timeout and silently fail the entire backfill.
 		nowUnix := clk.Now().Unix()
-		points, err := flatlineClient.Since(ctx, 0,
-			nowUnix-minuteRelayWindowSeconds,
-			nowUnix-hourRelayWindowSeconds,
-			nowUnix-dayRelayWindowSeconds,
-		)
-		if err != nil {
-			logger.Warn("metrics_subscribe_backfill_failed", "err", err)
-			return err
+		sentUpdate := false
+		for _, request := range []struct {
+			granularity string
+			floor       int64
+		}{
+			{GranularityMinute, nowUnix - minuteRelayWindowSeconds},
+			{GranularityHour, nowUnix - hourRelayWindowSeconds},
+			{GranularityDay, nowUnix - dayRelayWindowSeconds},
+		} {
+			var after *FlatlinePageCursor
+			for {
+				page, err := flatlineClient.SincePage(ctx, request.granularity, 0, request.floor, after)
+				if err != nil {
+					logger.Warn("metrics_subscribe_backfill_failed", "err", err)
+					return err
+				}
+				if len(page.Points) > 0 {
+					if err := client.SendJSON(map[string]any{
+						"type":    "METRICS_UPDATE",
+						"payload": DetailUpdate{Points: page.Points},
+					}); err != nil {
+						logger.Warn("metrics_subscribe_send_failed", "err", err)
+						return err
+					}
+					sentUpdate = true
+				}
+				if page.Next == nil {
+					break
+				}
+				after = page.Next
+			}
 		}
-
-		if err := client.SendJSON(map[string]any{
-			"type":    "METRICS_UPDATE",
-			"payload": DetailUpdate{Points: points},
-		}); err != nil {
-			logger.Warn("metrics_subscribe_send_failed", "err", err)
-			return err
+		if !sentUpdate {
+			if err := client.SendJSON(map[string]any{
+				"type":    "METRICS_UPDATE",
+				"payload": DetailUpdate{},
+			}); err != nil {
+				logger.Warn("metrics_subscribe_send_failed", "err", err)
+				return err
+			}
 		}
 		return nil
 	}
