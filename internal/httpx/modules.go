@@ -186,7 +186,7 @@ func buildMetricsModule(cfg config.Config, logger *slog.Logger, hub *ws.Hub, aut
 
 	return metricsModule{
 		service:        service,
-		historyHandler: metrics.NewHistoryHandler(service, historyClient, clk),
+		historyHandler: metrics.NewHistoryHandler(service, historyClient),
 		realtime:       realtime,
 		poller:         poller,
 	}, nil

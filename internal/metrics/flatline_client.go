@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -92,8 +91,13 @@ type MetricSnapshot struct {
 	Metrics     map[string]float64 `json:"metrics"`
 }
 
-type historyResponse struct {
+type ServiceHistory struct {
+	Service   string           `json:"service"`
 	Snapshots []MetricSnapshot `json:"snapshots"`
+}
+
+type historyResponse struct {
+	Histories []ServiceHistory `json:"histories"`
 }
 
 // Since fetches points newer than cursor, optionally additionally bounded by
@@ -132,15 +136,11 @@ func (c *FlatlineClient) Since(ctx context.Context, cursor, minuteFloor, hourFlo
 	return response.Points, nil
 }
 
-func (c *FlatlineClient) History(ctx context.Context, service string, names []string, minuteFloor, hourFloor, dayFloor int64) ([]MetricSnapshot, error) {
+func (c *FlatlineClient) History(ctx context.Context, minuteFloor, hourFloor, dayFloor int64) ([]ServiceHistory, error) {
 	query := url.Values{
-		"service":     {service},
 		"minuteSince": {strconv.FormatInt(minuteFloor, 10)},
 		"hourSince":   {strconv.FormatInt(hourFloor, 10)},
 		"daySince":    {strconv.FormatInt(dayFloor, 10)},
-	}
-	if len(names) > 0 {
-		query.Set("names", strings.Join(names, ","))
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/metrics/history?"+query.Encode(), nil)
@@ -163,5 +163,5 @@ func (c *FlatlineClient) History(ctx context.Context, service string, names []st
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return nil, fmt.Errorf("decode flatline history response: %w", err)
 	}
-	return response.Snapshots, nil
+	return response.Histories, nil
 }

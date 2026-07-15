@@ -108,27 +108,30 @@ func TestFlatlineClientSinceReturnsErrorOnNonOKStatus(t *testing.T) {
 	}
 }
 
-func TestFlatlineClientHistorySendsServiceAndReturnsSnapshots(t *testing.T) {
+func TestFlatlineClientHistorySendsFloorsAndReturnsAllServices(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
-		if r.URL.Path != "/api/metrics/history" || query.Get("service") != "bot" {
-			t.Fatalf("query = %s, want bot history", r.URL.RawQuery)
+		if r.URL.Path != "/api/metrics/history" {
+			t.Fatalf("path = %s, want metrics history", r.URL.Path)
 		}
-		if query.Get("names") != "a,b" || query.Get("minuteSince") != "60" || query.Get("hourSince") != "120" || query.Get("daySince") != "180" {
-			t.Fatalf("query = %s, want history filters", r.URL.RawQuery)
+		if query.Get("service") != "" || query.Get("names") != "" || query.Get("minuteSince") != "60" || query.Get("hourSince") != "120" || query.Get("daySince") != "180" {
+			t.Fatalf("query = %s, want only history floors", r.URL.RawQuery)
 		}
 		_ = json.NewEncoder(w).Encode(historyResponse{
-			Snapshots: []MetricSnapshot{{Granularity: GranularityMinute, Bucket: 180, Metrics: map[string]float64{"a": 1}}},
+			Histories: []ServiceHistory{
+				{Service: "bot-a", Snapshots: []MetricSnapshot{{Granularity: GranularityMinute, Bucket: 180, Metrics: map[string]float64{"a": 1}}}},
+				{Service: "bot-b", Snapshots: []MetricSnapshot{{Granularity: GranularityHour, Bucket: 3600, Metrics: map[string]float64{"b": 2}}}},
+			},
 		})
 	}))
 	defer server.Close()
 
 	client := NewFlatlineClient(server.URL, time.Second)
-	snapshots, err := client.History(context.Background(), "bot", []string{"a", "b"}, 60, 120, 180)
+	histories, err := client.History(context.Background(), 60, 120, 180)
 	if err != nil {
 		t.Fatalf("History() error = %v", err)
 	}
-	if len(snapshots) != 1 || snapshots[0].Metrics["a"] != 1 {
-		t.Fatalf("snapshots = %+v, want one snapshot", snapshots)
+	if len(histories) != 2 || histories[0].Service != "bot-a" || histories[1].Snapshots[0].Metrics["b"] != 2 {
+		t.Fatalf("histories = %+v, want both services", histories)
 	}
 }
