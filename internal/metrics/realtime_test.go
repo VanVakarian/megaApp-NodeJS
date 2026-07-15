@@ -196,6 +196,110 @@ func TestHistoryHandlerReturnsServiceSnapshots(t *testing.T) {
 	}
 }
 
+func TestHistoryHandlerReturnsAllServiceSnapshots(t *testing.T) {
+	authService, tokenManager, _, wsServer, authDB := newMetricsTestEnv(t)
+	defer wsServer.Close()
+
+	adminUserID := registerAdminUser(t, authService, authDB, "admin")
+	tokens, err := tokenManager.Issue(auth.TokenClaims{UserID: adminUserID, Username: "admin", IsAdmin: true})
+	if err != nil {
+		t.Fatalf("Issue() error = %v", err)
+	}
+
+	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
+	requestedServices := make(chan string, 2)
+	flatlineServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		service := query.Get("service")
+		requestedServices <- service
+		if query.Get("names") != "" {
+			t.Fatalf("names = %q, want empty", query.Get("names"))
+		}
+		_ = json.NewEncoder(w).Encode(historyResponse{
+			Snapshots: []MetricSnapshot{{Granularity: GranularityMinute, Bucket: now.Unix() - 60, Metrics: map[string]float64{service: 1}}},
+		})
+	}))
+	defer flatlineServer.Close()
+
+	service := NewService(MainServiceName, fixedMetricsClock{now: now}, authService)
+	router := chi.NewRouter()
+	RegisterRoutes(router, authService, NewHistoryHandler(service, NewFlatlineClient(flatlineServer.URL, time.Second), fixedMetricsClock{now: now}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/metrics/history?services=bot,hardware:test", nil)
+	req.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var response struct {
+		Histories []ServiceHistory `json:"histories"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(response.Histories) != 2 || response.Histories[0].Service != "bot" || response.Histories[1].Service != "hardware:test" {
+		t.Fatalf("histories = %+v, want ordered service histories", response.Histories)
+	}
+	if response.Histories[0].Snapshots[0].Metrics["bot"] != 1 || response.Histories[1].Snapshots[0].Metrics["hardware:test"] != 1 {
+		t.Fatalf("histories = %+v, want service-specific snapshots", response.Histories)
+	}
+
+	seen := map[string]bool{<-requestedServices: true, <-requestedServices: true}
+	if !seen["bot"] || !seen["hardware:test"] {
+		t.Fatalf("requested services = %+v", seen)
+	}
+}
+
+func TestParseHistoryServices(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		wantErr bool
+	}{
+		{name: "valid", raw: "bot, hardware:test"},
+		{name: "deduplicated", raw: "bot,bot"},
+		{name: "empty", raw: "", wantErr: true},
+		{name: "empty item", raw: "bot,", wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := parseHistoryServices(test.raw)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("parseHistoryServices(%q) error = %v, wantErr %v", test.raw, err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestParseHistoryAnchor(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		want    int64
+		wantErr bool
+	}{
+		{name: "fallback", want: 100},
+		{name: "explicit", raw: "200", want: 200},
+		{name: "invalid", raw: "nope", wantErr: true},
+		{name: "zero", raw: "0", wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := parseHistoryAnchor(test.raw, 100)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("parseHistoryAnchor(%q) error = %v, wantErr %v", test.raw, err, test.wantErr)
+			}
+			if got != test.want {
+				t.Fatalf("parseHistoryAnchor(%q) = %d, want %d", test.raw, got, test.want)
+			}
+		})
+	}
+}
+
 func newMetricsTestEnv(t *testing.T) (*auth.Service, *auth.TokenManager, *Realtime, *httptest.Server, *sql.DB) {
 	t.Helper()
 
