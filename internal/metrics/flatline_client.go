@@ -24,7 +24,12 @@ type FlatlineClient struct {
 }
 
 func NewFlatlineClient(baseURL string, timeout time.Duration) *FlatlineClient {
-	return &FlatlineClient{baseURL: baseURL, client: &http.Client{Timeout: timeout}}
+	transport := &http.Transport{Proxy: http.ProxyFromEnvironment}
+	if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport = defaultTransport.Clone()
+	}
+	transport.DisableKeepAlives = true
+	return &FlatlineClient{baseURL: baseURL, client: &http.Client{Timeout: timeout, Transport: transport}}
 }
 
 type pushRequest struct {

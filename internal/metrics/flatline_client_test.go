@@ -9,6 +9,17 @@ import (
 	"time"
 )
 
+func TestNewFlatlineClientDisablesKeepAlives(t *testing.T) {
+	client := NewFlatlineClient("http://flatline", time.Second)
+	transport, ok := client.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Transport = %T, want *http.Transport", client.client.Transport)
+	}
+	if !transport.DisableKeepAlives {
+		t.Fatal("DisableKeepAlives = false, want true")
+	}
+}
+
 func TestFlatlineClientPushSnapshotsSendsExpectedBody(t *testing.T) {
 	var receivedRequest pushRequest
 
