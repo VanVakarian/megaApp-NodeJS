@@ -110,12 +110,15 @@ func TestWriteOperationsPersistData(t *testing.T) {
 		t.Fatalf("created.ID = %d, want > 0", created.ID)
 	}
 
-	updated, err := service.EditDiaryEntry(context.Background(), 1, 10, 80, HistoryEntry{Action: "set", Value: 80})
+	updated, err := service.EditDiaryEntry(context.Background(), 1, 10, 80, "set")
 	if err != nil {
 		t.Fatalf("EditDiaryEntry() error = %v", err)
 	}
 	if updated == nil || updated.FoodWeight != 80 || len(updated.History) != 2 {
 		t.Fatalf("updated = %+v", updated)
+	}
+	if updated.AppliedHistoryEntry == nil || updated.AppliedHistoryEntry.Action != "set" || updated.AppliedHistoryEntry.Value != 80 {
+		t.Fatalf("updated.AppliedHistoryEntry = %+v", updated.AppliedHistoryEntry)
 	}
 
 	ok, err := service.SetBodyWeight(context.Background(), 1, "2026-06-18", 81)
@@ -152,6 +155,49 @@ func TestWriteOperationsPersistData(t *testing.T) {
 	}
 	if !deleted {
 		t.Fatal("DeleteDiaryEntry() = false, want true")
+	}
+}
+
+func TestEditDiaryEntryRetryDoesNotDuplicateHistory(t *testing.T) {
+	db := openFoodTestDB(t)
+	service := NewService(NewRepository(db))
+
+	first, err := service.EditDiaryEntry(context.Background(), 1, 10, 80, "subtract")
+	if err != nil {
+		t.Fatalf("EditDiaryEntry() first error = %v", err)
+	}
+	if first == nil || first.FoodWeight != 80 || len(first.History) != 2 {
+		t.Fatalf("first = %+v", first)
+	}
+	if first.AppliedHistoryEntry == nil || first.AppliedHistoryEntry.Action != "subtract" || first.AppliedHistoryEntry.Value != 20 {
+		t.Fatalf("first.AppliedHistoryEntry = %+v", first.AppliedHistoryEntry)
+	}
+
+	retry, err := service.EditDiaryEntry(context.Background(), 1, 10, 80, "subtract")
+	if err != nil {
+		t.Fatalf("EditDiaryEntry() retry error = %v", err)
+	}
+	if retry == nil || retry.FoodWeight != 80 || len(retry.History) != 2 {
+		t.Fatalf("retry = %+v, want history unchanged at length 2", retry)
+	}
+	if retry.AppliedHistoryEntry != nil {
+		t.Fatalf("retry.AppliedHistoryEntry = %+v, want nil (no-op)", retry.AppliedHistoryEntry)
+	}
+}
+
+func TestEditDiaryEntryDerivesDirectionFromRealDelta(t *testing.T) {
+	db := openFoodTestDB(t)
+	service := NewService(NewRepository(db))
+
+	updated, err := service.EditDiaryEntry(context.Background(), 1, 10, 120, "subtract")
+	if err != nil {
+		t.Fatalf("EditDiaryEntry() error = %v", err)
+	}
+	if updated == nil || updated.AppliedHistoryEntry == nil {
+		t.Fatalf("updated = %+v", updated)
+	}
+	if updated.AppliedHistoryEntry.Action != "add" || updated.AppliedHistoryEntry.Value != 20 {
+		t.Fatalf("AppliedHistoryEntry = %+v, want add:20 regardless of the requested action", updated.AppliedHistoryEntry)
 	}
 }
 

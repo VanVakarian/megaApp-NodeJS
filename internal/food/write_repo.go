@@ -68,39 +68,45 @@ func (r *Repository) CreateDiaryEntriesBatch(ctx context.Context, userID int64, 
 
 type DiaryEntryForEditRow struct {
 	FoodCatalogueID int64
+	FoodWeight      int64
 	History         string
 }
 
-func (r *Repository) GetDiaryEntryForEdit(ctx context.Context, diaryID int64, userID int64) (*DiaryEntryForEditRow, error) {
-	row := r.db.QueryRowContext(ctx, `SELECT foodCatalogueId, history FROM foodDiary WHERE id = ? AND usersId = ?`, diaryID, userID)
-
-	var result DiaryEntryForEditRow
-	if err := row.Scan(&result.FoodCatalogueID, &result.History); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("get diary entry for edit: %w", err)
+func (r *Repository) BeginEditDiaryEntry(ctx context.Context, diaryID int64, userID int64) (*sql.Tx, *DiaryEntryForEditRow, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("begin edit diary entry: %w", err)
 	}
 
-	return &result, nil
+	row := tx.QueryRowContext(ctx, `SELECT foodCatalogueId, foodWeight, history FROM foodDiary WHERE id = ? AND usersId = ?`, diaryID, userID)
+
+	var result DiaryEntryForEditRow
+	if err := row.Scan(&result.FoodCatalogueID, &result.FoodWeight, &result.History); err != nil {
+		_ = tx.Rollback()
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil, nil
+		}
+		return nil, nil, fmt.Errorf("get diary entry for edit: %w", err)
+	}
+
+	return tx, &result, nil
 }
 
-func (r *Repository) UpdateDiaryEntry(ctx context.Context, diaryID int64, userID int64, foodWeight int64, history string) (bool, error) {
-	result, err := r.db.ExecContext(ctx, `
+func (r *Repository) CommitEditDiaryEntry(ctx context.Context, tx *sql.Tx, diaryID int64, userID int64, foodWeight int64, history string) error {
+	if _, err := tx.ExecContext(ctx, `
 		UPDATE foodDiary
 		SET foodWeight = ?, history = ?
 		WHERE id = ? AND usersId = ?
-	`, foodWeight, history, diaryID, userID)
-	if err != nil {
-		return false, fmt.Errorf("update diary entry: %w", err)
+	`, foodWeight, history, diaryID, userID); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("update diary entry: %w", err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return false, fmt.Errorf("update diary entry rows affected: %w", err)
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit diary entry edit: %w", err)
 	}
 
-	return rowsAffected > 0, nil
+	return nil
 }
 
 func (r *Repository) DeleteDiaryEntry(ctx context.Context, diaryID int64, userID int64) (bool, error) {

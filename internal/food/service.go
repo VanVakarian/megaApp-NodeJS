@@ -32,13 +32,21 @@ type Service struct {
 }
 
 type DiaryEntry struct {
-	ID              int64          `json:"id"`
-	DateISO         string         `json:"dateISO"`
-	FoodCatalogueID int64          `json:"foodCatalogueId"`
-	FoodWeight      int64          `json:"foodWeight"`
-	Kcals           int64          `json:"kcals"`
-	History         []HistoryEntry `json:"history"`
+	ID                  int64          `json:"id"`
+	DateISO             string         `json:"dateISO"`
+	FoodCatalogueID     int64          `json:"foodCatalogueId"`
+	FoodWeight          int64          `json:"foodWeight"`
+	Kcals               int64          `json:"kcals"`
+	History             []HistoryEntry `json:"history"`
+	AppliedHistoryEntry *HistoryEntry  `json:"-"`
 }
+
+const (
+	historyActionInit     = "init"
+	historyActionSet      = "set"
+	historyActionAdd      = "add"
+	historyActionSubtract = "subtract"
+)
 
 type RestoreDiaryEntryInput struct {
 	FoodCatalogueID int64
@@ -341,33 +349,55 @@ func (s *Service) CreateDiaryEntry(ctx context.Context, userID int64, dateISO st
 	return DiaryEntry{ID: id, DateISO: dateISO, FoodCatalogueID: foodCatalogueID, FoodWeight: foodWeight, Kcals: kcals, History: history}, nil
 }
 
-func (s *Service) EditDiaryEntry(ctx context.Context, userID int64, diaryID int64, foodWeight int64, newHistoryEntry HistoryEntry) (*DiaryEntry, error) {
-	existing, err := s.repo.GetDiaryEntryForEdit(ctx, diaryID, userID)
+func (s *Service) EditDiaryEntry(ctx context.Context, userID int64, diaryID int64, targetFoodWeight int64, requestedAction string) (*DiaryEntry, error) {
+	tx, existing, err := s.repo.BeginEditDiaryEntry(ctx, diaryID, userID)
 	if err != nil {
 		return nil, err
 	}
 	if existing == nil {
 		return nil, nil
 	}
-	history := parseHistory(existing.History)
-	history = append(history, newHistoryEntry)
+
+	delta := targetFoodWeight - existing.FoodWeight
+	if delta == 0 {
+		if err := tx.Rollback(); err != nil {
+			return nil, fmt.Errorf("rollback no-op diary edit: %w", err)
+		}
+		kcals, err := s.resolvePersonalKcalsForCurrentMonth(ctx, userID, existing.FoodCatalogueID, existing.FoodWeight)
+		if err != nil {
+			return nil, err
+		}
+		return &DiaryEntry{ID: diaryID, FoodCatalogueID: existing.FoodCatalogueID, FoodWeight: existing.FoodWeight, Kcals: kcals, History: parseHistory(existing.History)}, nil
+	}
+
+	appliedEntry := buildHistoryEntry(requestedAction, targetFoodWeight, delta)
+	history := append(parseHistory(existing.History), appliedEntry)
+
 	updatedHistoryJSON, err := toHistoryJSON(history)
 	if err != nil {
+		_ = tx.Rollback()
 		return nil, err
 	}
-	updated, err := s.repo.UpdateDiaryEntry(ctx, diaryID, userID, foodWeight, updatedHistoryJSON)
-	if err != nil {
+	if err := s.repo.CommitEditDiaryEntry(ctx, tx, diaryID, userID, targetFoodWeight, updatedHistoryJSON); err != nil {
 		return nil, err
 	}
-	if !updated {
-		return nil, nil
-	}
-	kcals, err := s.resolvePersonalKcalsForCurrentMonth(ctx, userID, existing.FoodCatalogueID, foodWeight)
+
+	kcals, err := s.resolvePersonalKcalsForCurrentMonth(ctx, userID, existing.FoodCatalogueID, targetFoodWeight)
 	if err != nil {
 		return nil, err
 	}
 	s.InvalidateStats(userID)
-	return &DiaryEntry{ID: diaryID, FoodCatalogueID: existing.FoodCatalogueID, FoodWeight: foodWeight, Kcals: kcals, History: history}, nil
+	return &DiaryEntry{ID: diaryID, FoodCatalogueID: existing.FoodCatalogueID, FoodWeight: targetFoodWeight, Kcals: kcals, History: history, AppliedHistoryEntry: &appliedEntry}, nil
+}
+
+func buildHistoryEntry(requestedAction string, targetFoodWeight int64, delta int64) HistoryEntry {
+	if requestedAction == historyActionSet {
+		return HistoryEntry{Action: historyActionSet, Value: targetFoodWeight}
+	}
+	if delta > 0 {
+		return HistoryEntry{Action: historyActionAdd, Value: delta}
+	}
+	return HistoryEntry{Action: historyActionSubtract, Value: -delta}
 }
 
 func (s *Service) resolvePersonalKcalsForCurrentMonth(ctx context.Context, userID int64, foodCatalogueID int64, foodWeight int64) (int64, error) {
@@ -423,7 +453,7 @@ func (s *Service) RestoreDiaryEntriesForDay(ctx context.Context, userID int64, d
 	for _, entry := range entries {
 		history := entry.History
 		if len(history) == 0 {
-			history = []HistoryEntry{{Action: "init", Value: entry.FoodWeight}}
+			history = []HistoryEntry{{Action: historyActionInit, Value: entry.FoodWeight}}
 		}
 		kcals := resolvePersonalKcalsForEntry(resolver, entry.FoodCatalogueID, dateISO, entry.FoodWeight)
 		normalized = append(normalized, DiaryEntry{DateISO: dateISO, FoodCatalogueID: entry.FoodCatalogueID, FoodWeight: entry.FoodWeight, Kcals: kcals, History: history})

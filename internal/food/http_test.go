@@ -98,8 +98,16 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 		"id":              10,
 		"foodCatalogueId": 2,
 		"foodWeight":      80,
-		"history":         []map[string]any{{"action": "set", "value": 80}},
+		"historyAction":   "set",
 	}, http.StatusOK)
+	_ = connB.SetReadDeadline(time.Now().Add(time.Second))
+	var updatedMessage map[string]any
+	if err := connB.ReadJSON(&updatedMessage); err != nil {
+		t.Fatalf("ReadJSON() error = %v", err)
+	}
+	if updatedMessage["type"] != "DIARY_ENTRY_UPDATED" {
+		t.Fatalf("ws type = %v, want DIARY_ENTRY_UPDATED", updatedMessage["type"])
+	}
 
 	assertJSONRequestStatus(t, http.MethodDelete, server.URL+"/api/food/diary/10", tokens.AccessToken, "tab-a", nil, http.StatusOK)
 	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/body-weight", tokens.AccessToken, "tab-a", map[string]any{
@@ -115,6 +123,65 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 		}},
 	}, http.StatusCreated)
 	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/personal-kcals", tokens.AccessToken, "tab-a", nil, http.StatusOK)
+}
+
+func TestFoodDiaryEditRetryIsIdempotentOverHTTPAndWS(t *testing.T) {
+	db := openFoodTestDB(t)
+	authRepo := auth.NewRepository(db)
+	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
+	authService := auth.NewService(authRepo, tokenManager)
+	service := NewService(NewRepository(db))
+	hub := wspkg.NewHub(time.Second, wspkg.NewSyncState())
+	defer func() { _ = hub.Close() }()
+	clk := clockplatform.NewRealClock()
+	realtime := NewWSRealtimePublisher(hub, clk)
+	writeHandler := NewWriteHandler(service, realtime, &fakeMetricsRecorder{})
+	wsHandler := wspkg.NewHandler(authService, hub)
+
+	router := chi.NewRouter()
+	RegisterWriteRoutes(router, authService, writeHandler)
+	wspkg.RegisterRoutes(router, wsHandler)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	tokens, err := tokenManager.Issue(auth.TokenClaims{UserID: 1, Username: "alice"})
+	if err != nil {
+		t.Fatalf("Issue() error = %v", err)
+	}
+
+	connB := dialFoodWS(t, server.URL+"/api/ws?token="+tokens.AccessToken+"&clientId=tab-b")
+	defer func() { _ = connB.Close() }()
+	drainFoodWSMessage(t, connB)
+
+	editBody := map[string]any{
+		"id":              10,
+		"foodCatalogueId": 2,
+		"foodWeight":      80,
+		"historyAction":   "subtract",
+	}
+
+	first := decodeJSONRequest(t, http.MethodPut, server.URL+"/api/food/diary", tokens.AccessToken, "tab-a", editBody, http.StatusOK)
+	if first["appliedHistoryEntry"] == nil {
+		t.Fatalf("first response appliedHistoryEntry = %v, want a real entry", first["appliedHistoryEntry"])
+	}
+	_ = connB.SetReadDeadline(time.Now().Add(time.Second))
+	var updatedMessage map[string]any
+	if err := connB.ReadJSON(&updatedMessage); err != nil {
+		t.Fatalf("ReadJSON() error = %v", err)
+	}
+	if updatedMessage["type"] != "DIARY_ENTRY_UPDATED" {
+		t.Fatalf("ws type = %v, want DIARY_ENTRY_UPDATED", updatedMessage["type"])
+	}
+
+	retry := decodeJSONRequest(t, http.MethodPut, server.URL+"/api/food/diary", tokens.AccessToken, "tab-a", editBody, http.StatusOK)
+	if retry["appliedHistoryEntry"] != nil {
+		t.Fatalf("retry response appliedHistoryEntry = %v, want nil (no-op)", retry["appliedHistoryEntry"])
+	}
+	_ = connB.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	var unexpectedMessage map[string]any
+	if err := connB.ReadJSON(&unexpectedMessage); err == nil {
+		t.Fatalf("received unexpected ws message on retry: %+v", unexpectedMessage)
+	}
 }
 
 func TestFoodSearchAndCatalogueMutationEndpoints(t *testing.T) {
@@ -349,6 +416,38 @@ func assertJSONRequestStatus(t *testing.T, method string, url string, accessToke
 	if response.StatusCode != wantStatus {
 		t.Fatalf("status = %d, want %d", response.StatusCode, wantStatus)
 	}
+}
+
+func decodeJSONRequest(t *testing.T, method string, url string, accessToken string, clientID string, payload any, wantStatus int) map[string]any {
+	t.Helper()
+
+	jsonBody, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	request, err := http.NewRequest(method, url, bytes.NewReader(jsonBody))
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+accessToken)
+	request.Header.Set("X-Client-ID", clientID)
+	request.Header.Set("Content-Type", "application/json")
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != wantStatus {
+		t.Fatalf("status = %d, want %d", response.StatusCode, wantStatus)
+	}
+
+	var decoded map[string]any
+	if err := json.NewDecoder(response.Body).Decode(&decoded); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	return decoded
 }
 
 func assertMultipartRequestStatus(t *testing.T, url string, accessToken string, clientID string, fileData []byte, wantStatus int) {

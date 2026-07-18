@@ -43,10 +43,10 @@ type createDiaryEntryRequest struct {
 }
 
 type editDiaryEntryRequest struct {
-	ID              int64          `json:"id"`
-	FoodCatalogueID int64          `json:"foodCatalogueId"`
-	FoodWeight      int64          `json:"foodWeight"`
-	History         []HistoryEntry `json:"history"`
+	ID              int64  `json:"id"`
+	FoodCatalogueID int64  `json:"foodCatalogueId"`
+	FoodWeight      int64  `json:"foodWeight"`
+	HistoryAction   string `json:"historyAction"`
 }
 
 type restoreDiaryDayRequest struct {
@@ -112,12 +112,12 @@ func (h *WriteHandler) EditDiaryEntry(w http.ResponseWriter, r *http.Request) {
 		legacy.WriteAppResultError(w, err, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	if len(request.History) == 0 {
-		legacy.WriteResultError(w, http.StatusBadRequest, "History is required")
+	if request.HistoryAction == "" {
+		legacy.WriteResultError(w, http.StatusBadRequest, "historyAction is required")
 		return
 	}
 
-	updatedEntry, err := h.service.EditDiaryEntry(r.Context(), claims.UserID, request.ID, request.FoodWeight, request.History[0])
+	updatedEntry, err := h.service.EditDiaryEntry(r.Context(), claims.UserID, request.ID, request.FoodWeight, request.HistoryAction)
 	if err != nil {
 		legacy.WriteAppResultError(w, err, http.StatusInternalServerError, "Internal server error")
 		return
@@ -128,9 +128,16 @@ func (h *WriteHandler) EditDiaryEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.realtime.MarkUserUpdated(claims.UserID)
-	h.realtime.PublishDiaryEntryUpdated(claims.UserID, *updatedEntry, request.History[0], extractClientID(r))
+	if updatedEntry.AppliedHistoryEntry != nil {
+		h.realtime.PublishDiaryEntryUpdated(claims.UserID, *updatedEntry, *updatedEntry.AppliedHistoryEntry, extractClientID(r))
+	}
 	h.recordMetric(MetricDiaryEntryUpdated)
-	legacy.WriteJSON(w, http.StatusOK, map[string]any{"result": true, "diaryId": updatedEntry.ID, "kcals": updatedEntry.Kcals})
+	legacy.WriteJSON(w, http.StatusOK, map[string]any{
+		"result":              true,
+		"diaryId":             updatedEntry.ID,
+		"kcals":               updatedEntry.Kcals,
+		"appliedHistoryEntry": updatedEntry.AppliedHistoryEntry,
+	})
 }
 
 func (h *WriteHandler) DeleteDiaryEntry(w http.ResponseWriter, r *http.Request) {
