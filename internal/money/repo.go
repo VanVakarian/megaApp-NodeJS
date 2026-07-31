@@ -569,7 +569,7 @@ func (r *Repository) DeleteAsset(ctx context.Context, userID int64, assetID int6
 
 func (r *Repository) ListTransactions(ctx context.Context, userID int64) ([]Transaction, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, twinId
+		SELECT id, dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, twinId, ver
 		FROM moneyTransaction
 		WHERE userId = ?
 		ORDER BY dateISO DESC, id DESC
@@ -593,9 +593,9 @@ func (r *Repository) ListTransactions(ctx context.Context, userID int64) ([]Tran
 	return result, nil
 }
 
-func (r *Repository) GetTransactionByID(ctx context.Context, userID int64, transactionID int64) (*Transaction, error) {
-	row := r.db.QueryRowContext(ctx, `
-		SELECT id, dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, twinId
+func (r *Repository) GetTransactionByID(ctx context.Context, runner txRunner, userID int64, transactionID int64) (*Transaction, error) {
+	row := runner.QueryRowContext(ctx, `
+		SELECT id, dateISO, accountId, amount, categoryId, kind, isGift, notes, detailsJSON, twinId, ver
 		FROM moneyTransaction
 		WHERE id = ? AND userId = ?
 	`, transactionID, userID)
@@ -610,21 +610,11 @@ func (r *Repository) GetTransactionByID(ctx context.Context, userID int64, trans
 	return &item, nil
 }
 
-func (r *Repository) CreateTransaction(ctx context.Context, userID int64, input TransactionInput) (int64, error) {
-	return createTransactionWithRunner(ctx, r.db, userID, input, input.StoredDetailsJSON)
+func (r *Repository) CreateTransaction(ctx context.Context, tx txRunner, userID int64, input TransactionInput) (int64, error) {
+	return createTransactionWithRunner(ctx, tx, userID, input, input.StoredDetailsJSON)
 }
 
-func (r *Repository) CreateTransferPair(ctx context.Context, userID int64, input TransactionInput) (CreateTransactionResult, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return CreateTransactionResult{}, fmt.Errorf("begin create transfer pair: %w", err)
-	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
-
+func (r *Repository) CreateTransferPair(ctx context.Context, tx txRunner, userID int64, input TransactionInput) (CreateTransactionResult, error) {
 	fromDetails := `{"direction":"out"}`
 	fromID, err := createTransactionWithRunner(ctx, tx, userID, input, &fromDetails)
 	if err != nil {
@@ -653,18 +643,15 @@ func (r *Repository) CreateTransferPair(ctx context.Context, userID int64, input
 		return CreateTransactionResult{}, err
 	}
 
-	if err = tx.Commit(); err != nil {
-		return CreateTransactionResult{}, fmt.Errorf("commit create transfer pair: %w", err)
-	}
-	return CreateTransactionResult{ID: fromID, TwinID: &toID}, nil
+	return CreateTransactionResult{ID: fromID, TwinID: &toID, Version: 1}, nil
 }
 
-func (r *Repository) UpdateTransaction(ctx context.Context, userID int64, transactionID int64, input TransactionInput) error {
-	result, err := r.db.ExecContext(ctx, `
+func (r *Repository) UpdateTransaction(ctx context.Context, tx txRunner, userID int64, transactionID int64, input TransactionInput, newVersion int64) error {
+	result, err := tx.ExecContext(ctx, `
 		UPDATE moneyTransaction
-		SET dateISO = ?, accountId = ?, amount = ?, categoryId = ?, kind = ?, isGift = ?, notes = ?, detailsJSON = ?
+		SET dateISO = ?, accountId = ?, amount = ?, categoryId = ?, kind = ?, isGift = ?, notes = ?, detailsJSON = ?, ver = ?
 		WHERE id = ? AND userId = ?
-	`, input.DateISO, input.AccountID, input.Amount, nullableValue(input.CategoryID), input.Kind, boolToInt64(input.IsGift), valueOrNil(input.Notes), createTransactionDetailsValue(input.StoredDetailsJSON), transactionID, userID)
+	`, input.DateISO, input.AccountID, input.Amount, nullableValue(input.CategoryID), input.Kind, boolToInt64(input.IsGift), valueOrNil(input.Notes), createTransactionDetailsValue(input.StoredDetailsJSON), newVersion, transactionID, userID)
 	if err != nil {
 		return fmt.Errorf("update transaction: %w", err)
 	}
@@ -678,32 +665,18 @@ func (r *Repository) UpdateTransaction(ctx context.Context, userID int64, transa
 	return nil
 }
 
-func (r *Repository) UpdateTransferPair(ctx context.Context, userID int64, fromID int64, toID int64, input TransactionInput) error {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin update transfer pair: %w", err)
-	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
-
-	if err = updateTransferRowWithRunner(ctx, tx, userID, fromID, input.DateISO, input.Amount, input.Notes); err != nil {
+func (r *Repository) UpdateTransferPair(ctx context.Context, tx txRunner, userID int64, fromID int64, toID int64, input TransactionInput, fromNewVersion int64, toNewVersion int64) error {
+	if err := updateTransferRowWithRunner(ctx, tx, userID, fromID, input.DateISO, input.Amount, input.Notes, fromNewVersion); err != nil {
 		return err
 	}
-	if err = updateTransferRowWithRunner(ctx, tx, userID, toID, input.DateISO, *input.TwinAmount, input.Notes); err != nil {
+	if err := updateTransferRowWithRunner(ctx, tx, userID, toID, input.DateISO, *input.TwinAmount, input.Notes, toNewVersion); err != nil {
 		return err
-	}
-
-	if err = tx.Commit(); err != nil {
-		return fmt.Errorf("commit update transfer pair: %w", err)
 	}
 	return nil
 }
 
-func (r *Repository) DeleteTransaction(ctx context.Context, userID int64, transactionID int64) error {
-	result, err := r.db.ExecContext(ctx, `
+func (r *Repository) DeleteTransaction(ctx context.Context, tx txRunner, userID int64, transactionID int64) error {
+	result, err := tx.ExecContext(ctx, `
 		DELETE FROM moneyTransaction
 		WHERE id = ? AND userId = ?
 	`, transactionID, userID)
@@ -820,7 +793,7 @@ func scanTransaction(scanner interface{ Scan(dest ...any) error }) (Transaction,
 	var notes sql.NullString
 	var detailsJSON sql.NullString
 	var twinID sql.NullInt64
-	if err := scanner.Scan(&item.ID, &item.DateISO, &item.AccountID, &item.Amount, &categoryID, &item.Kind, &isGift, &notes, &detailsJSON, &twinID); err != nil {
+	if err := scanner.Scan(&item.ID, &item.DateISO, &item.AccountID, &item.Amount, &categoryID, &item.Kind, &isGift, &notes, &detailsJSON, &twinID, &item.Version); err != nil {
 		return Transaction{}, err
 	}
 	item.CategoryID = nullableInt64(categoryID)
@@ -890,12 +863,12 @@ func updateTwinIDWithRunner(ctx context.Context, runner txRunner, userID int64, 
 	return nil
 }
 
-func updateTransferRowWithRunner(ctx context.Context, runner txRunner, userID int64, transactionID int64, dateISO string, amount float64, notes *string) error {
+func updateTransferRowWithRunner(ctx context.Context, runner txRunner, userID int64, transactionID int64, dateISO string, amount float64, notes *string, newVersion int64) error {
 	result, err := runner.ExecContext(ctx, `
 		UPDATE moneyTransaction
-		SET dateISO = ?, amount = ?, notes = ?
+		SET dateISO = ?, amount = ?, notes = ?, ver = ?
 		WHERE id = ? AND userId = ?
-	`, dateISO, amount, valueOrNil(notes), transactionID, userID)
+	`, dateISO, amount, valueOrNil(notes), newVersion, transactionID, userID)
 	if err != nil {
 		return fmt.Errorf("update transfer row: %w", err)
 	}

@@ -12,10 +12,10 @@ type WeightByDateRow struct {
 	Weight float64
 }
 
-func (r *Repository) CreateDiaryEntry(ctx context.Context, userID int64, dateISO string, foodCatalogueID int64, foodWeight int64, history string) (int64, error) {
-	result, err := r.db.ExecContext(ctx, `
+func (r *Repository) CreateDiaryEntry(ctx context.Context, tx *sql.Tx, userID int64, dateISO string, foodCatalogueID int64, foodWeight int64, history string) (int64, error) {
+	result, err := tx.ExecContext(ctx, `
 		INSERT INTO foodDiary (dateISO, foodCatalogueId, foodWeight, history, usersId, ver, del)
-		VALUES (?, ?, ?, ?, ?, 0, 0)
+		VALUES (?, ?, ?, ?, ?, 1, 0)
 	`, dateISO, foodCatalogueID, foodWeight, history, userID)
 	if err != nil {
 		return 0, fmt.Errorf("create diary entry: %w", err)
@@ -29,15 +29,7 @@ func (r *Repository) CreateDiaryEntry(ctx context.Context, userID int64, dateISO
 	return id, nil
 }
 
-func (r *Repository) CreateDiaryEntriesBatch(ctx context.Context, userID int64, entries []DiaryEntry) ([]DiaryEntry, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("begin create diary entries batch: %w", err)
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-
+func (r *Repository) CreateDiaryEntriesBatch(ctx context.Context, tx *sql.Tx, userID int64, entries []DiaryEntry) ([]DiaryEntry, error) {
 	result := make([]DiaryEntry, 0, len(entries))
 	for _, entry := range entries {
 		historyJSON, err := toHistoryJSON(entry.History)
@@ -46,7 +38,7 @@ func (r *Repository) CreateDiaryEntriesBatch(ctx context.Context, userID int64, 
 		}
 		execResult, err := tx.ExecContext(ctx, `
 			INSERT INTO foodDiary (dateISO, foodCatalogueId, foodWeight, history, usersId, ver, del)
-			VALUES (?, ?, ?, ?, ?, 0, 0)
+			VALUES (?, ?, ?, ?, ?, 1, 0)
 		`, entry.DateISO, entry.FoodCatalogueID, entry.FoodWeight, historyJSON, userID)
 		if err != nil {
 			return nil, fmt.Errorf("insert diary entry in batch: %w", err)
@@ -59,10 +51,6 @@ func (r *Repository) CreateDiaryEntriesBatch(ctx context.Context, userID int64, 
 		result = append(result, entry)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit create diary entries batch: %w", err)
-	}
-
 	return result, nil
 }
 
@@ -70,47 +58,37 @@ type DiaryEntryForEditRow struct {
 	FoodCatalogueID int64
 	FoodWeight      int64
 	History         string
+	Version         int64
 }
 
-func (r *Repository) BeginEditDiaryEntry(ctx context.Context, diaryID int64, userID int64) (*sql.Tx, *DiaryEntryForEditRow, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, nil, fmt.Errorf("begin edit diary entry: %w", err)
-	}
-
-	row := tx.QueryRowContext(ctx, `SELECT foodCatalogueId, foodWeight, history FROM foodDiary WHERE id = ? AND usersId = ?`, diaryID, userID)
+func (r *Repository) GetDiaryEntryForEdit(ctx context.Context, tx *sql.Tx, diaryID int64, userID int64) (*DiaryEntryForEditRow, error) {
+	row := tx.QueryRowContext(ctx, `SELECT foodCatalogueId, foodWeight, history, ver FROM foodDiary WHERE id = ? AND usersId = ?`, diaryID, userID)
 
 	var result DiaryEntryForEditRow
-	if err := row.Scan(&result.FoodCatalogueID, &result.FoodWeight, &result.History); err != nil {
-		_ = tx.Rollback()
+	if err := row.Scan(&result.FoodCatalogueID, &result.FoodWeight, &result.History, &result.Version); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil, nil
+			return nil, nil
 		}
-		return nil, nil, fmt.Errorf("get diary entry for edit: %w", err)
+		return nil, fmt.Errorf("get diary entry for edit: %w", err)
 	}
 
-	return tx, &result, nil
+	return &result, nil
 }
 
-func (r *Repository) CommitEditDiaryEntry(ctx context.Context, tx *sql.Tx, diaryID int64, userID int64, foodWeight int64, history string) error {
+func (r *Repository) UpdateDiaryEntry(ctx context.Context, tx *sql.Tx, diaryID int64, userID int64, foodWeight int64, history string, newVersion int64) error {
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE foodDiary
-		SET foodWeight = ?, history = ?
+		SET foodWeight = ?, history = ?, ver = ?
 		WHERE id = ? AND usersId = ?
-	`, foodWeight, history, diaryID, userID); err != nil {
-		_ = tx.Rollback()
+	`, foodWeight, history, newVersion, diaryID, userID); err != nil {
 		return fmt.Errorf("update diary entry: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit diary entry edit: %w", err)
 	}
 
 	return nil
 }
 
-func (r *Repository) DeleteDiaryEntry(ctx context.Context, diaryID int64, userID int64) (bool, error) {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM foodDiary WHERE id = ? AND usersId = ?`, diaryID, userID)
+func (r *Repository) DeleteDiaryEntry(ctx context.Context, tx *sql.Tx, diaryID int64, userID int64) (bool, error) {
+	result, err := tx.ExecContext(ctx, `DELETE FROM foodDiary WHERE id = ? AND usersId = ?`, diaryID, userID)
 	if err != nil {
 		return false, fmt.Errorf("delete diary entry: %w", err)
 	}
@@ -123,8 +101,8 @@ func (r *Repository) DeleteDiaryEntry(ctx context.Context, diaryID int64, userID
 	return rowsAffected > 0, nil
 }
 
-func (r *Repository) DeleteDiaryEntriesByDate(ctx context.Context, dateISO string, userID int64) (int64, error) {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM foodDiary WHERE dateISO = ? AND usersId = ?`, dateISO, userID)
+func (r *Repository) DeleteDiaryEntriesByDate(ctx context.Context, tx *sql.Tx, dateISO string, userID int64) (int64, error) {
+	result, err := tx.ExecContext(ctx, `DELETE FROM foodDiary WHERE dateISO = ? AND usersId = ?`, dateISO, userID)
 	if err != nil {
 		return 0, fmt.Errorf("delete diary entries by date: %w", err)
 	}
@@ -137,8 +115,8 @@ func (r *Repository) DeleteDiaryEntriesByDate(ctx context.Context, dateISO strin
 	return rowsAffected, nil
 }
 
-func (r *Repository) GetWeightByDate(ctx context.Context, dateISO string, userID int64) (*WeightByDateRow, error) {
-	row := r.db.QueryRowContext(ctx, `SELECT id, weight FROM foodBodyWeight WHERE dateISO = ? AND usersId = ?`, dateISO, userID)
+func (r *Repository) GetWeightByDate(ctx context.Context, tx *sql.Tx, dateISO string, userID int64) (*WeightByDateRow, error) {
+	row := tx.QueryRowContext(ctx, `SELECT id, weight FROM foodBodyWeight WHERE dateISO = ? AND usersId = ?`, dateISO, userID)
 
 	var result WeightByDateRow
 	if err := row.Scan(&result.ID, &result.Weight); err != nil {
@@ -151,8 +129,8 @@ func (r *Repository) GetWeightByDate(ctx context.Context, dateISO string, userID
 	return &result, nil
 }
 
-func (r *Repository) CreateWeight(ctx context.Context, dateISO string, weight float64, userID int64) (int64, error) {
-	result, err := r.db.ExecContext(ctx, `INSERT INTO foodBodyWeight (dateISO, weight, usersId) VALUES (?, ?, ?)`, dateISO, weight, userID)
+func (r *Repository) CreateWeight(ctx context.Context, tx *sql.Tx, dateISO string, weight float64, userID int64) (int64, error) {
+	result, err := tx.ExecContext(ctx, `INSERT INTO foodBodyWeight (dateISO, weight, usersId) VALUES (?, ?, ?)`, dateISO, weight, userID)
 	if err != nil {
 		return 0, fmt.Errorf("create weight: %w", err)
 	}
@@ -163,8 +141,8 @@ func (r *Repository) CreateWeight(ctx context.Context, dateISO string, weight fl
 	return id, nil
 }
 
-func (r *Repository) UpdateWeight(ctx context.Context, dateISO string, weight float64, userID int64) (bool, error) {
-	result, err := r.db.ExecContext(ctx, `UPDATE foodBodyWeight SET weight = ? WHERE dateISO = ? AND usersId = ?`, weight, dateISO, userID)
+func (r *Repository) UpdateWeight(ctx context.Context, tx *sql.Tx, dateISO string, weight float64, userID int64) (bool, error) {
+	result, err := tx.ExecContext(ctx, `UPDATE foodBodyWeight SET weight = ? WHERE dateISO = ? AND usersId = ?`, weight, dateISO, userID)
 	if err != nil {
 		return false, fmt.Errorf("update weight: %w", err)
 	}

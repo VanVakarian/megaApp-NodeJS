@@ -33,6 +33,7 @@ func TestOpsRoutes(t *testing.T) {
 		FlatlinePushTimeout:                 time.Second,
 		FlatlinePollInterval:                time.Hour,
 		FlatlinePollInitialLookback:         time.Minute,
+		FlatlinePollMaxCatchUp:              time.Hour,
 		OpenRouterTimeout:                   time.Minute,
 		OpenAITimeout:                       time.Minute,
 		PersonalKcalJobSchedule:             "0 2 1 * *",

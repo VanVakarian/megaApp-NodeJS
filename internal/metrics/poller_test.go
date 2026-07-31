@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -47,7 +48,7 @@ func TestPollerTickAdvancesCursorAndBroadcasts(t *testing.T) {
 
 	realtime := &fakeRealtime{}
 	admins := fakeAdminLister{adminUserIDs: []int64{7}}
-	poller := NewPoller(NewFlatlineClient(server.URL, time.Second), realtime, admins, time.Second, time.Minute, fixedMetricsClock{now: time.Unix(0, 0)}, discardLogger())
+	poller := NewPoller(NewFlatlineClient(server.URL, time.Second), realtime, admins, time.Second, time.Minute, time.Hour, fixedMetricsClock{now: time.Unix(0, 0)}, discardLogger())
 	poller.cursor = 0
 
 	poller.tick(context.Background())
@@ -77,6 +78,33 @@ func TestPollerTickAdvancesCursorAndBroadcasts(t *testing.T) {
 	}
 }
 
+func TestPollerTickBoundsCatchUpFloorRegardlessOfCursorAge(t *testing.T) {
+	now := time.Unix(10_000, 0)
+	maxCatchUp := time.Hour
+	wantFloor := now.Add(-maxCatchUp).Unix()
+
+	var gotMinuteSince, gotHourSince, gotDaySince string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMinuteSince = r.URL.Query().Get("minuteSince")
+		gotHourSince = r.URL.Query().Get("hourSince")
+		gotDaySince = r.URL.Query().Get("daySince")
+		_ = json.NewEncoder(w).Encode(sinceResponse{Points: nil})
+	}))
+	defer server.Close()
+
+	poller := NewPoller(NewFlatlineClient(server.URL, time.Second), &fakeRealtime{}, fakeAdminLister{}, time.Second, time.Minute, maxCatchUp, fixedMetricsClock{now: now}, discardLogger())
+	poller.cursor = 0 // simulate a cursor stuck far in the past after an outage
+
+	poller.tick(context.Background())
+
+	wantFloorStr := strconv.FormatInt(wantFloor, 10)
+	for name, got := range map[string]string{"minuteSince": gotMinuteSince, "hourSince": gotHourSince, "daySince": gotDaySince} {
+		if got != wantFloorStr {
+			t.Fatalf("%s = %q, want %q", name, got, wantFloorStr)
+		}
+	}
+}
+
 func TestPollerTickSkipsBroadcastWhenNoNewPoints(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(sinceResponse{Points: nil})
@@ -84,7 +112,7 @@ func TestPollerTickSkipsBroadcastWhenNoNewPoints(t *testing.T) {
 	defer server.Close()
 
 	realtime := &fakeRealtime{}
-	poller := NewPoller(NewFlatlineClient(server.URL, time.Second), realtime, fakeAdminLister{}, time.Second, time.Minute, fixedMetricsClock{now: time.Unix(0, 0)}, discardLogger())
+	poller := NewPoller(NewFlatlineClient(server.URL, time.Second), realtime, fakeAdminLister{}, time.Second, time.Minute, time.Hour, fixedMetricsClock{now: time.Unix(0, 0)}, discardLogger())
 
 	poller.tick(context.Background())
 
@@ -106,7 +134,7 @@ func TestPollerTickSkipsRebroadcastOfUnchangedPoint(t *testing.T) {
 	defer server.Close()
 
 	realtime := &fakeRealtime{}
-	poller := NewPoller(NewFlatlineClient(server.URL, time.Second), realtime, fakeAdminLister{}, time.Second, time.Minute, fixedMetricsClock{now: time.Unix(0, 0)}, discardLogger())
+	poller := NewPoller(NewFlatlineClient(server.URL, time.Second), realtime, fakeAdminLister{}, time.Second, time.Minute, time.Hour, fixedMetricsClock{now: time.Unix(0, 0)}, discardLogger())
 	poller.cursor = 0
 
 	poller.tick(context.Background())
@@ -127,7 +155,7 @@ func TestPollerStartAndCloseStopsCleanly(t *testing.T) {
 	}))
 	defer server.Close()
 
-	poller := NewPoller(NewFlatlineClient(server.URL, time.Second), &fakeRealtime{}, fakeAdminLister{}, 10*time.Millisecond, time.Minute, fixedMetricsClock{now: time.Unix(0, 0)}, discardLogger())
+	poller := NewPoller(NewFlatlineClient(server.URL, time.Second), &fakeRealtime{}, fakeAdminLister{}, 10*time.Millisecond, time.Minute, time.Hour, fixedMetricsClock{now: time.Unix(0, 0)}, discardLogger())
 	poller.Start()
 	time.Sleep(20 * time.Millisecond)
 	if err := poller.Close(); err != nil {

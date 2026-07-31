@@ -57,6 +57,7 @@ func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("FLATLINE_PUSH_TIMEOUT_SECONDS", "")
 	t.Setenv("FLATLINE_POLL_INTERVAL_SECONDS", "")
 	t.Setenv("FLATLINE_POLL_INITIAL_LOOKBACK_SECONDS", "")
+	t.Setenv("FLATLINE_POLL_MAX_CATCHUP_SECONDS", "")
 	t.Setenv("HTTP_READ_TIMEOUT_SECONDS", "")
 	t.Setenv("HTTP_WRITE_TIMEOUT_SECONDS", "")
 	t.Setenv("HTTP_IDLE_TIMEOUT_SECONDS", "")
@@ -215,6 +216,9 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.FlatlinePollInitialLookback != 120*time.Second {
 		t.Fatalf("FlatlinePollInitialLookback = %v, want 120s", cfg.FlatlinePollInitialLookback)
 	}
+	if cfg.FlatlinePollMaxCatchUp != 600*time.Second {
+		t.Fatalf("FlatlinePollMaxCatchUp = %v, want 600s", cfg.FlatlinePollMaxCatchUp)
+	}
 	if cfg.HTTPReadTimeout != 15*time.Second {
 		t.Fatalf("HTTPReadTimeout = %v, want 15s", cfg.HTTPReadTimeout)
 	}
@@ -354,6 +358,7 @@ func validTestConfig() Config {
 		FlatlinePushTimeout:                 time.Second,
 		FlatlinePollInterval:                10 * time.Second,
 		FlatlinePollInitialLookback:         120 * time.Second,
+		FlatlinePollMaxCatchUp:              600 * time.Second,
 		HTTPReadTimeout:                     time.Second,
 		HTTPWriteTimeout:                    time.Second,
 		HTTPIdleTimeout:                     time.Second,

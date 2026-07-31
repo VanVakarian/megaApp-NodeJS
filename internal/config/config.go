@@ -68,6 +68,7 @@ type Config struct {
 	FlatlinePushTimeout                 time.Duration
 	FlatlinePollInterval                time.Duration
 	FlatlinePollInitialLookback         time.Duration
+	FlatlinePollMaxCatchUp              time.Duration
 	HTTPReadTimeout                     time.Duration
 	HTTPWriteTimeout                    time.Duration
 	HTTPIdleTimeout                     time.Duration
@@ -320,6 +321,12 @@ func Load() (Config, error) {
 	}
 	cfg.FlatlinePollInitialLookback = time.Duration(flatlinePollInitialLookbackSeconds) * time.Second
 
+	flatlinePollMaxCatchUpSeconds, err := getInt("FLATLINE_POLL_MAX_CATCHUP_SECONDS", 600)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.FlatlinePollMaxCatchUp = time.Duration(flatlinePollMaxCatchUpSeconds) * time.Second
+
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
@@ -441,6 +448,9 @@ func (c Config) Validate() error {
 	}
 	if c.FlatlinePollInitialLookback <= 0 {
 		return fmt.Errorf("validate config: FLATLINE_POLL_INITIAL_LOOKBACK_SECONDS must be greater than 0")
+	}
+	if c.FlatlinePollMaxCatchUp <= 0 {
+		return fmt.Errorf("validate config: FLATLINE_POLL_MAX_CATCHUP_SECONDS must be greater than 0")
 	}
 	if c.BackupJobEnabled && !c.BackupStorageEnabled {
 		return fmt.Errorf("validate config: BACKUP_STORAGE_ENABLED must be true when BACKUP_JOB_ENABLED is true")

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"megaapp-back/internal/platform/idempotency"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -63,7 +65,7 @@ func (fakeEmbeddingGenerator) GenerateEmbedding(ctx context.Context, text string
 func TestGetCatalogueAndPersonalKcalsAndStats(t *testing.T) {
 	db := openFoodTestDB(t)
 	repo := NewRepository(db)
-	service := NewService(repo)
+	service := NewService(repo, idempotency.NewStore(db))
 
 	catalogue, err := service.GetCatalogue(context.Background())
 	if err != nil {
@@ -100,44 +102,59 @@ func TestGetCatalogueAndPersonalKcalsAndStats(t *testing.T) {
 
 func TestWriteOperationsPersistData(t *testing.T) {
 	db := openFoodTestDB(t)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 
-	created, err := service.CreateDiaryEntry(context.Background(), 1, "2026-06-18", 1, 120, []HistoryEntry{{Action: "init", Value: 120}})
+	created, applied, err := service.CreateDiaryEntry(context.Background(), 1, "op-create", "2026-06-18", 1, 120, []HistoryEntry{{Action: "init", Value: 120}})
 	if err != nil {
 		t.Fatalf("CreateDiaryEntry() error = %v", err)
+	}
+	if !applied {
+		t.Fatal("CreateDiaryEntry() applied = false, want true")
 	}
 	if created.ID <= 0 {
 		t.Fatalf("created.ID = %d, want > 0", created.ID)
 	}
+	if created.Version != 1 {
+		t.Fatalf("created.Version = %d, want 1", created.Version)
+	}
 
-	updated, err := service.EditDiaryEntry(context.Background(), 1, 10, 80, "set")
+	updated, applied, err := service.EditDiaryEntry(context.Background(), 1, "op-edit", 10, 80, "set")
 	if err != nil {
 		t.Fatalf("EditDiaryEntry() error = %v", err)
 	}
+	if !applied {
+		t.Fatal("EditDiaryEntry() applied = false, want true")
+	}
 	if updated == nil || updated.FoodWeight != 80 || len(updated.History) != 2 {
 		t.Fatalf("updated = %+v", updated)
+	}
+	if updated.Version != 1 {
+		t.Fatalf("updated.Version = %d, want 1 (seeded at 0, incremented once)", updated.Version)
 	}
 	if updated.AppliedHistoryEntry == nil || updated.AppliedHistoryEntry.Action != "set" || updated.AppliedHistoryEntry.Value != 80 {
 		t.Fatalf("updated.AppliedHistoryEntry = %+v", updated.AppliedHistoryEntry)
 	}
 
-	ok, err := service.SetBodyWeight(context.Background(), 1, "2026-06-18", 81)
+	ok, applied, err := service.SetBodyWeight(context.Background(), 1, "op-weight", "2026-06-18", 81)
 	if err != nil {
 		t.Fatalf("SetBodyWeight() error = %v", err)
 	}
-	if !ok {
-		t.Fatal("SetBodyWeight() = false, want true")
+	if !ok || !applied {
+		t.Fatalf("SetBodyWeight() = (ok=%v, applied=%v), want (true, true)", ok, applied)
 	}
 
-	deletedCount, err := service.DeleteDiaryEntriesForDay(context.Background(), 1, "2026-06-18")
+	deletedCount, applied, err := service.DeleteDiaryEntriesForDay(context.Background(), 1, "op-day-delete", "2026-06-18")
 	if err != nil {
 		t.Fatalf("DeleteDiaryEntriesForDay() error = %v", err)
+	}
+	if !applied {
+		t.Fatal("DeleteDiaryEntriesForDay() applied = false, want true")
 	}
 	if deletedCount != 1 {
 		t.Fatalf("deletedCount = %d, want 1", deletedCount)
 	}
 
-	restored, err := service.RestoreDiaryEntriesForDay(context.Background(), 1, "2026-06-18", []RestoreDiaryEntryInput{{
+	restored, applied, err := service.RestoreDiaryEntriesForDay(context.Background(), 1, "op-restore", "2026-06-18", []RestoreDiaryEntryInput{{
 		FoodCatalogueID: 1,
 		FoodWeight:      120,
 		History:         []HistoryEntry{{Action: "init", Value: 120}},
@@ -145,26 +162,32 @@ func TestWriteOperationsPersistData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RestoreDiaryEntriesForDay() error = %v", err)
 	}
+	if !applied {
+		t.Fatal("RestoreDiaryEntriesForDay() applied = false, want true")
+	}
 	if len(restored) != 1 || restored[0].ID <= 0 {
 		t.Fatalf("restored = %+v", restored)
 	}
 
-	deleted, err := service.DeleteDiaryEntry(context.Background(), 1, 10)
+	deleted, applied, err := service.DeleteDiaryEntry(context.Background(), 1, "op-delete", 10)
 	if err != nil {
 		t.Fatalf("DeleteDiaryEntry() error = %v", err)
 	}
-	if !deleted {
-		t.Fatal("DeleteDiaryEntry() = false, want true")
+	if !deleted || !applied {
+		t.Fatalf("DeleteDiaryEntry() = (deleted=%v, applied=%v), want (true, true)", deleted, applied)
 	}
 }
 
-func TestEditDiaryEntryRetryDoesNotDuplicateHistory(t *testing.T) {
+func TestEditDiaryEntrySameOperationIDReplaysWithoutReapplying(t *testing.T) {
 	db := openFoodTestDB(t)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 
-	first, err := service.EditDiaryEntry(context.Background(), 1, 10, 80, "subtract")
+	first, applied, err := service.EditDiaryEntry(context.Background(), 1, "op-retry", 10, 80, "subtract")
 	if err != nil {
 		t.Fatalf("EditDiaryEntry() first error = %v", err)
+	}
+	if !applied {
+		t.Fatal("EditDiaryEntry() first applied = false, want true")
 	}
 	if first == nil || first.FoodWeight != 80 || len(first.History) != 2 {
 		t.Fatalf("first = %+v", first)
@@ -172,24 +195,63 @@ func TestEditDiaryEntryRetryDoesNotDuplicateHistory(t *testing.T) {
 	if first.AppliedHistoryEntry == nil || first.AppliedHistoryEntry.Action != "subtract" || first.AppliedHistoryEntry.Value != 20 {
 		t.Fatalf("first.AppliedHistoryEntry = %+v", first.AppliedHistoryEntry)
 	}
+	if first.Version != 1 {
+		t.Fatalf("first.Version = %d, want 1 (seeded at 0, incremented once)", first.Version)
+	}
 
-	retry, err := service.EditDiaryEntry(context.Background(), 1, 10, 80, "subtract")
+	retry, applied, err := service.EditDiaryEntry(context.Background(), 1, "op-retry", 10, 80, "subtract")
 	if err != nil {
 		t.Fatalf("EditDiaryEntry() retry error = %v", err)
+	}
+	if applied {
+		t.Fatal("EditDiaryEntry() retry applied = true, want false (replayed)")
 	}
 	if retry == nil || retry.FoodWeight != 80 || len(retry.History) != 2 {
 		t.Fatalf("retry = %+v, want history unchanged at length 2", retry)
 	}
-	if retry.AppliedHistoryEntry != nil {
-		t.Fatalf("retry.AppliedHistoryEntry = %+v, want nil (no-op)", retry.AppliedHistoryEntry)
+	if retry.Version != first.Version {
+		t.Fatalf("retry.Version = %d, want %d (replay echoes cached version, no further increment)", retry.Version, first.Version)
+	}
+	if retry.AppliedHistoryEntry == nil || retry.AppliedHistoryEntry.Action != "subtract" || retry.AppliedHistoryEntry.Value != 20 {
+		t.Fatalf("retry.AppliedHistoryEntry = %+v, want the original applied entry echoed back", retry.AppliedHistoryEntry)
+	}
+}
+
+func TestEditDiaryEntryDistinctOperationSameTargetIsRealNoOp(t *testing.T) {
+	db := openFoodTestDB(t)
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
+
+	first, applied, err := service.EditDiaryEntry(context.Background(), 1, "op-a", 10, 80, "subtract")
+	if err != nil || !applied || first == nil {
+		t.Fatalf("EditDiaryEntry() first = (%+v, applied=%v, err=%v)", first, applied, err)
+	}
+	if first.Version != 1 {
+		t.Fatalf("first.Version = %d, want 1 (seeded at 0, incremented once)", first.Version)
+	}
+
+	second, applied, err := service.EditDiaryEntry(context.Background(), 1, "op-b", 10, 80, "subtract")
+	if err != nil {
+		t.Fatalf("EditDiaryEntry() second error = %v", err)
+	}
+	if !applied {
+		t.Fatal("EditDiaryEntry() second applied = false, want true (a distinct, freshly-evaluated operation)")
+	}
+	if second == nil || second.FoodWeight != 80 || len(second.History) != 2 {
+		t.Fatalf("second = %+v, want history unchanged at length 2 (delta is 0)", second)
+	}
+	if second.AppliedHistoryEntry != nil {
+		t.Fatalf("second.AppliedHistoryEntry = %+v, want nil (target equals current value)", second.AppliedHistoryEntry)
+	}
+	if second.Version != first.Version {
+		t.Fatalf("second.Version = %d, want %d (genuine no-op must not bump version)", second.Version, first.Version)
 	}
 }
 
 func TestEditDiaryEntryDerivesDirectionFromRealDelta(t *testing.T) {
 	db := openFoodTestDB(t)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 
-	updated, err := service.EditDiaryEntry(context.Background(), 1, 10, 120, "subtract")
+	updated, _, err := service.EditDiaryEntry(context.Background(), 1, "op-1", 10, 120, "subtract")
 	if err != nil {
 		t.Fatalf("EditDiaryEntry() error = %v", err)
 	}
@@ -198,6 +260,27 @@ func TestEditDiaryEntryDerivesDirectionFromRealDelta(t *testing.T) {
 	}
 	if updated.AppliedHistoryEntry.Action != "add" || updated.AppliedHistoryEntry.Value != 20 {
 		t.Fatalf("AppliedHistoryEntry = %+v, want add:20 regardless of the requested action", updated.AppliedHistoryEntry)
+	}
+}
+
+func TestDeleteDiaryEntryRetrySucceedsInsteadOfNotFound(t *testing.T) {
+	db := openFoodTestDB(t)
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
+
+	first, applied, err := service.DeleteDiaryEntry(context.Background(), 1, "op-delete", 10)
+	if err != nil || !first || !applied {
+		t.Fatalf("DeleteDiaryEntry() first = (%v, applied=%v, err=%v)", first, applied, err)
+	}
+
+	retry, applied, err := service.DeleteDiaryEntry(context.Background(), 1, "op-delete", 10)
+	if err != nil {
+		t.Fatalf("DeleteDiaryEntry() retry error = %v", err)
+	}
+	if applied {
+		t.Fatal("DeleteDiaryEntry() retry applied = true, want false (replayed)")
+	}
+	if !retry {
+		t.Fatal("DeleteDiaryEntry() retry = false, want true (echoes original success, not a 404)")
 	}
 }
 
@@ -221,7 +304,7 @@ func testPersonalKcalConfig() PersonalKcalConfig {
 func TestRunPersonalKcalJobStoresHistoryAndInvalidatesStats(t *testing.T) {
 	db := openFoodTestDB(t)
 	seedFoodDiaryAndWeightHistory(t, db, 1)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 	service.SetClock(fixedFoodClock{now: time.Date(2026, time.July, 5, 12, 0, 0, 0, time.UTC)})
 	service.SetPersonalKcalConfig(testPersonalKcalConfig())
 
@@ -276,7 +359,7 @@ func TestRunPersonalKcalJobProcessesAllUsers(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO users(id, username, isAdmin) VALUES (2, 'bob', 0)`); err != nil {
 		t.Fatalf("Exec() error = %v", err)
 	}
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 	service.SetClock(fixedFoodClock{now: time.Date(2026, time.July, 5, 12, 0, 0, 0, time.UTC)})
 	service.SetPersonalKcalConfig(testPersonalKcalConfig())
 
@@ -297,7 +380,7 @@ func TestRunPersonalKcalJobProcessesAllUsers(t *testing.T) {
 
 func TestStatsCacheInvalidatesAfterWrites(t *testing.T) {
 	db := openFoodTestDB(t)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 
 	before, err := service.GetStats(context.Background(), 1)
 	if err != nil {
@@ -312,7 +395,7 @@ func TestStatsCacheInvalidatesAfterWrites(t *testing.T) {
 		t.Fatalf("before stats = %+v, want factual kcals", beforeValue)
 	}
 
-	if _, err := service.CreateDiaryEntry(context.Background(), 1, "2026-06-17", 1, 100, []HistoryEntry{{Action: "init", Value: 100}}); err != nil {
+	if _, _, err := service.CreateDiaryEntry(context.Background(), 1, "op-1", "2026-06-17", 1, 100, []HistoryEntry{{Action: "init", Value: 100}}); err != nil {
 		t.Fatalf("CreateDiaryEntry() error = %v", err)
 	}
 
@@ -335,7 +418,7 @@ func TestStatsCacheInvalidatesAfterWrites(t *testing.T) {
 
 func TestSearchPreviewAndSaveProduct(t *testing.T) {
 	db := openFoodTestDB(t)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 	service.SetProductGenerator(fakeProductGenerator{})
 	service.SetEmbeddingGenerator(fakeEmbeddingGenerator{})
 
@@ -382,7 +465,7 @@ func TestSearchPreviewAndSaveProduct(t *testing.T) {
 
 func TestGetDiaryFullUpdateReturnsFoodAndNutrients(t *testing.T) {
 	db := openFoodTestDB(t)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 
 	result, err := service.GetDiaryFullUpdate(context.Background(), 1, "2026-06-17", 1)
 	if err != nil {
@@ -395,6 +478,9 @@ func TestGetDiaryFullUpdateReturnsFoodAndNutrients(t *testing.T) {
 	}
 	if len(day.Food) != 1 {
 		t.Fatalf("len(day.Food) = %d, want 1", len(day.Food))
+	}
+	if day.Food[10].Version != 0 {
+		t.Fatalf("Food[10].Version = %d, want 0 (seeded value, read back unchanged)", day.Food[10].Version)
 	}
 	if day.BodyWeight == nil || *day.BodyWeight != 80 {
 		t.Fatalf("BodyWeight = %v, want 80", day.BodyWeight)
@@ -416,7 +502,7 @@ func TestGetDiaryFullUpdateIgnoresRowsOutsideRequestedRange(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("Exec() error = %v", err)
 	}
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 
 	result, err := service.GetDiaryFullUpdate(context.Background(), 1, "2026-06-17", 1)
 	if err != nil {
@@ -477,6 +563,7 @@ func openFoodTestDB(t *testing.T) *sql.DB {
 		CREATE TABLE foodSearchQueryEmbeddings (query TEXT PRIMARY KEY, embedding BLOB, hitCount INTEGER, lastUsedAt INTEGER, createdAt INTEGER);
 		CREATE TABLE foodPersonalKcalHistory (id INTEGER PRIMARY KEY AUTOINCREMENT, usersId INTEGER NOT NULL, foodCatalogueId INTEGER NOT NULL, yearMonth TEXT NOT NULL, kcalsPer100g REAL NOT NULL, createdAt TEXT NOT NULL, UNIQUE(usersId, foodCatalogueId, yearMonth));
 		CREATE TABLE foodPersonalNormHistory (id INTEGER PRIMARY KEY AUTOINCREMENT, usersId INTEGER NOT NULL, yearMonth TEXT NOT NULL, normKcals REAL NOT NULL, kcalPerKg REAL NOT NULL, createdAt TEXT NOT NULL, UNIQUE(usersId, yearMonth));
+		CREATE TABLE syncOperations (id TEXT PRIMARY KEY, userId INTEGER NOT NULL, createdAt TEXT NOT NULL, resultJSON TEXT NOT NULL);
 
 		INSERT INTO users(id, username, isAdmin) VALUES (1, 'alice', 0);
 		INSERT INTO settings(usersId, goal, darkTheme, selectedChapterFood, selectedChapterMoney, liteVersion, height) VALUES (1, 'lose', 0, 1, 0, 0, 180);

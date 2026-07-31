@@ -15,6 +15,7 @@ import (
 
 	"megaapp-back/internal/auth"
 	clockplatform "megaapp-back/internal/platform/clock"
+	"megaapp-back/internal/platform/idempotency"
 	wspkg "megaapp-back/internal/ws"
 
 	"github.com/go-chi/chi/v5"
@@ -37,7 +38,7 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 	authRepo := auth.NewRepository(db)
 	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
 	authService := auth.NewService(authRepo, tokenManager)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 	service.SetProductGenerator(fakeProductGenerator{})
 	service.SetClock(fixedFoodClock{now: time.Date(2026, time.June, 20, 12, 0, 0, 0, time.UTC)})
 	seedFoodDiaryAndWeightHistory(t, db, 1)
@@ -72,6 +73,7 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 	drainFoodWSMessage(t, connB)
 
 	createBody := map[string]any{
+		"operationId":     "op-create",
 		"dateISO":         "2026-06-18",
 		"foodCatalogueId": 1,
 		"foodWeight":      120,
@@ -95,6 +97,7 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 	}
 
 	assertJSONRequestStatus(t, http.MethodPut, server.URL+"/api/food/diary", tokens.AccessToken, "tab-a", map[string]any{
+		"operationId":     "op-edit",
 		"id":              10,
 		"foodCatalogueId": 2,
 		"foodWeight":      80,
@@ -108,14 +111,19 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 	if updatedMessage["type"] != "DIARY_ENTRY_UPDATED" {
 		t.Fatalf("ws type = %v, want DIARY_ENTRY_UPDATED", updatedMessage["type"])
 	}
+	if payload, ok := updatedMessage["payload"].(map[string]any); !ok || payload["version"] != float64(1) {
+		t.Fatalf("updatedMessage payload version = %v, want 1", updatedMessage["payload"])
+	}
 
-	assertJSONRequestStatus(t, http.MethodDelete, server.URL+"/api/food/diary/10", tokens.AccessToken, "tab-a", nil, http.StatusOK)
+	assertJSONRequestStatus(t, http.MethodDelete, server.URL+"/api/food/diary/10", tokens.AccessToken, "tab-a", map[string]any{"operationId": "op-delete"}, http.StatusOK)
 	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/body-weight", tokens.AccessToken, "tab-a", map[string]any{
-		"dateISO":    "2026-06-18",
-		"bodyWeight": "81.0",
+		"operationId": "op-weight",
+		"dateISO":     "2026-06-18",
+		"bodyWeight":  "81.0",
 	}, http.StatusCreated)
-	assertJSONRequestStatus(t, http.MethodDelete, server.URL+"/api/food/diary/day/2026-06-18", tokens.AccessToken, "tab-a", nil, http.StatusOK)
+	assertJSONRequestStatus(t, http.MethodDelete, server.URL+"/api/food/diary/day/2026-06-18", tokens.AccessToken, "tab-a", map[string]any{"operationId": "op-day-delete"}, http.StatusOK)
 	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/diary/day/2026-06-18/restore", tokens.AccessToken, "tab-a", map[string]any{
+		"operationId": "op-restore",
 		"entries": []map[string]any{{
 			"foodCatalogueId": 1,
 			"foodWeight":      120,
@@ -130,7 +138,7 @@ func TestFoodDiaryEditRetryIsIdempotentOverHTTPAndWS(t *testing.T) {
 	authRepo := auth.NewRepository(db)
 	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
 	authService := auth.NewService(authRepo, tokenManager)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 	hub := wspkg.NewHub(time.Second, wspkg.NewSyncState())
 	defer func() { _ = hub.Close() }()
 	clk := clockplatform.NewRealClock()
@@ -154,6 +162,7 @@ func TestFoodDiaryEditRetryIsIdempotentOverHTTPAndWS(t *testing.T) {
 	drainFoodWSMessage(t, connB)
 
 	editBody := map[string]any{
+		"operationId":     "op-retry",
 		"id":              10,
 		"foodCatalogueId": 2,
 		"foodWeight":      80,
@@ -163,6 +172,9 @@ func TestFoodDiaryEditRetryIsIdempotentOverHTTPAndWS(t *testing.T) {
 	first := decodeJSONRequest(t, http.MethodPut, server.URL+"/api/food/diary", tokens.AccessToken, "tab-a", editBody, http.StatusOK)
 	if first["appliedHistoryEntry"] == nil {
 		t.Fatalf("first response appliedHistoryEntry = %v, want a real entry", first["appliedHistoryEntry"])
+	}
+	if first["version"] != float64(1) {
+		t.Fatalf("first response version = %v, want 1", first["version"])
 	}
 	_ = connB.SetReadDeadline(time.Now().Add(time.Second))
 	var updatedMessage map[string]any
@@ -174,8 +186,11 @@ func TestFoodDiaryEditRetryIsIdempotentOverHTTPAndWS(t *testing.T) {
 	}
 
 	retry := decodeJSONRequest(t, http.MethodPut, server.URL+"/api/food/diary", tokens.AccessToken, "tab-a", editBody, http.StatusOK)
-	if retry["appliedHistoryEntry"] != nil {
-		t.Fatalf("retry response appliedHistoryEntry = %v, want nil (no-op)", retry["appliedHistoryEntry"])
+	if retry["appliedHistoryEntry"] == nil {
+		t.Fatalf("retry response appliedHistoryEntry = %v, want the original applied entry echoed back (same operationId)", retry["appliedHistoryEntry"])
+	}
+	if retry["version"] != first["version"] {
+		t.Fatalf("retry response version = %v, want %v (replay echoes cached version)", retry["version"], first["version"])
 	}
 	_ = connB.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
 	var unexpectedMessage map[string]any
@@ -189,7 +204,7 @@ func TestFoodSearchAndCatalogueMutationEndpoints(t *testing.T) {
 	authRepo := auth.NewRepository(db)
 	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
 	authService := auth.NewService(authRepo, tokenManager)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 	service.SetProductGenerator(fakeProductGenerator{})
 	service.SetImageAnalyzer(fakeImageAnalyzer{name: "Apple"})
 	hub := wspkg.NewHub(time.Second, wspkg.NewSyncState())
@@ -293,7 +308,7 @@ func TestFoodImageStaticRoutes(t *testing.T) {
 func TestFoodDebugRunPersonalKcalJobRoute(t *testing.T) {
 	db := openFoodTestDB(t)
 	seedFoodDiaryAndWeightHistory(t, db, 1)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 	service.SetClock(fixedFoodClock{now: time.Date(2026, time.July, 5, 12, 0, 0, 0, time.UTC)})
 	service.SetPersonalKcalConfig(testPersonalKcalConfig())
 	debugHandler := NewDebugHandler(NewDebugService(NewRepository(db), t.TempDir(), nil, service, nil))
@@ -336,7 +351,7 @@ func TestFoodReadEndpoints(t *testing.T) {
 	authRepo := auth.NewRepository(db)
 	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
 	authService := auth.NewService(authRepo, tokenManager)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 	service.SetProductGenerator(fakeProductGenerator{})
 	handler := NewHandler(service, nil)
 	hub := wspkg.NewHub(time.Second, wspkg.NewSyncState())

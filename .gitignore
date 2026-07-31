@@ -11,3 +11,4 @@ public/images/
 research
 metrics-outbox.*.ndjson
 metrics-outbox.ack.json
+bin/

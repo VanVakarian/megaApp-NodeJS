@@ -97,6 +97,7 @@ type Transaction struct {
 	Notes       *string         `json:"notes"`
 	DetailsJSON *string         `json:"detailsJSON"`
 	TwinID      *int64          `json:"twinId"`
+	Version     int64           `json:"version"`
 }
 
 type InvestAssetTrade struct {
@@ -174,6 +175,7 @@ type AssetInput struct {
 }
 
 type TransactionInput struct {
+	OperationID       string          `json:"operationId"`
 	DateISO           string          `json:"dateISO"`
 	AccountID         int64           `json:"accountId"`
 	Amount            float64         `json:"amount"`
@@ -188,6 +190,7 @@ type TransactionInput struct {
 }
 
 type CreateTransactionResult struct {
-	ID     int64
-	TwinID *int64
+	ID      int64  `json:"id"`
+	TwinID  *int64 `json:"twinId,omitempty"`
+	Version int64  `json:"version"`
 }

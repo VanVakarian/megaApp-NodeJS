@@ -13,6 +13,7 @@ type DiaryRow struct {
 	FoodCatalogueID int64
 	FoodWeight      int64
 	History         string
+	Version         int64
 }
 
 type WeightRow struct {
@@ -48,7 +49,7 @@ func NewRepository(db *sql.DB) *Repository {
 
 func (r *Repository) GetDiaryRange(ctx context.Context, userID int64, startDate string, endDate string) ([]DiaryRow, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, dateISO, foodCatalogueId, foodWeight, history
+		SELECT id, dateISO, foodCatalogueId, foodWeight, history, ver
 		FROM foodDiary
 		WHERE usersId = ? AND dateISO BETWEEN ? AND ?
 		ORDER BY dateISO ASC
@@ -63,7 +64,7 @@ func (r *Repository) GetDiaryRange(ctx context.Context, userID int64, startDate 
 
 func (r *Repository) GetAllDiaryEntries(ctx context.Context, userID int64) ([]DiaryRow, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, dateISO, foodCatalogueId, foodWeight, history
+		SELECT id, dateISO, foodCatalogueId, foodWeight, history, ver
 		FROM foodDiary
 		WHERE usersId = ?
 		ORDER BY dateISO ASC, id ASC
@@ -219,7 +220,7 @@ func scanDiaryRows(rows *sql.Rows) ([]DiaryRow, error) {
 	var result []DiaryRow
 	for rows.Next() {
 		var row DiaryRow
-		if err := rows.Scan(&row.ID, &row.DateISO, &row.FoodCatalogueID, &row.FoodWeight, &row.History); err != nil {
+		if err := rows.Scan(&row.ID, &row.DateISO, &row.FoodCatalogueID, &row.FoodWeight, &row.History, &row.Version); err != nil {
 			return nil, fmt.Errorf("scan diary row: %w", err)
 		}
 		result = append(result, row)

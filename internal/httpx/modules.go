@@ -16,6 +16,7 @@ import (
 	"megaapp-back/internal/metrics"
 	"megaapp-back/internal/money"
 	clockplatform "megaapp-back/internal/platform/clock"
+	"megaapp-back/internal/platform/idempotency"
 	s3platform "megaapp-back/internal/platform/s3"
 	"megaapp-back/internal/quotes"
 	"megaapp-back/internal/settings"
@@ -92,7 +93,7 @@ func buildWSModule(cfg config.Config, authService *auth.Service) wsModule {
 
 func buildMoneyModule(db *sql.DB) moneyModule {
 	repo := money.NewRepository(db)
-	service := money.NewService(repo)
+	service := money.NewService(repo, idempotency.NewStore(db))
 	return moneyModule{service: service, handler: money.NewHandler(service)}
 }
 
@@ -166,7 +167,7 @@ func buildMetricsModule(cfg config.Config, logger *slog.Logger, hub *ws.Hub, aut
 		return metricsModule{}, err
 	}
 
-	poller := metrics.NewPoller(flatlineClient, realtime, authService, cfg.FlatlinePollInterval, cfg.FlatlinePollInitialLookback, clk, logger)
+	poller := metrics.NewPoller(flatlineClient, realtime, authService, cfg.FlatlinePollInterval, cfg.FlatlinePollInitialLookback, cfg.FlatlinePollMaxCatchUp, clk, logger)
 
 	hub.RegisterHandler("METRICS_SUBSCRIBE", metrics.NewSubscribeHandler(service, realtime))
 	hub.RegisterHandler("METRICS_UNSUBSCRIBE", metrics.NewUnsubscribeHandler(realtime))
@@ -194,7 +195,7 @@ func buildMetricsModule(cfg config.Config, logger *slog.Logger, hub *ws.Hub, aut
 
 func buildFoodModule(db *sql.DB, cfg config.Config, logger *slog.Logger, hub *ws.Hub, clk clockplatform.Clock, metricsRecorder food.MetricsRecorder) (foodModule, error) {
 	repo := food.NewRepository(db)
-	service := food.NewService(repo)
+	service := food.NewService(repo, idempotency.NewStore(db))
 	service.SetClock(clk)
 	service.SetPersonalKcalConfig(food.PersonalKcalConfig{
 		LookbackMonths:          cfg.PersonalKcalLookbackMonths,

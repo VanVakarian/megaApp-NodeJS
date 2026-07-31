@@ -300,13 +300,18 @@ func (c *Client) readLoop() {
 }
 
 func (c *Client) writeJSON(payload any) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if err := c.conn.SetWriteDeadline(time.Now().Add(c.hub.WriteTimeout())); err != nil {
 		return err
 	}
-	return c.conn.WriteJSON(payload)
+	return c.conn.WriteMessage(websocket.TextMessage, data)
 }
 
 func (c *Client) SendJSON(payload any) error {

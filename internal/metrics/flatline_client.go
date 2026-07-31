@@ -109,8 +109,8 @@ type historyResponse struct {
 // age per granularity (minuteFloor/hourFloor/dayFloor — pass 0 for "no extra
 // bound"). Bounding here, not after the fact in Go, keeps Flatline from
 // having to scan and ship its entire retained history (weeks of minute rows
-// across every service) for every call — see ws_handlers.go's subscribe
-// backfill, the one caller that needs real bounds.
+// across every service) for every call — see Poller.tick, which always bounds
+// this to cap how much a stale cursor can catch up in one call.
 func (c *FlatlineClient) Since(ctx context.Context, cursor, minuteFloor, hourFloor, dayFloor int64) ([]MetricPoint, error) {
 	url := c.baseURL + "/api/metrics/since" +
 		"?cursor=" + strconv.FormatInt(cursor, 10) +

@@ -555,18 +555,22 @@ func (h *Handler) CreateTransaction(w http.ResponseWriter, r *http.Request) {
 		writeAppError(w, err, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	if request.OperationID == "" {
+		writeError(w, http.StatusBadRequest, "operationId is required")
+		return
+	}
 
-	created, err := h.service.CreateTransaction(r.Context(), claims.UserID, request)
+	created, _, err := h.service.CreateTransaction(r.Context(), claims.UserID, request.OperationID, request)
 	if err != nil {
 		writeAppError(w, err, http.StatusInternalServerError, "Failed to create transaction")
 		return
 	}
 
 	if created.TwinID != nil {
-		writeSuccessData(w, http.StatusCreated, map[string]any{"id": created.ID, "twinId": *created.TwinID})
+		writeSuccessData(w, http.StatusCreated, map[string]any{"id": created.ID, "twinId": *created.TwinID, "version": created.Version})
 		return
 	}
-	writeSuccessData(w, http.StatusCreated, map[string]int64{"id": created.ID})
+	writeSuccessData(w, http.StatusCreated, map[string]any{"id": created.ID, "version": created.Version})
 }
 
 func (h *Handler) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
@@ -586,13 +590,18 @@ func (h *Handler) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		writeAppError(w, err, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	if request.OperationID == "" {
+		writeError(w, http.StatusBadRequest, "operationId is required")
+		return
+	}
 
-	if err := h.service.UpdateTransaction(r.Context(), claims.UserID, id, request); err != nil {
+	newVersion, _, err := h.service.UpdateTransaction(r.Context(), claims.UserID, request.OperationID, id, request)
+	if err != nil {
 		writeAppError(w, err, http.StatusInternalServerError, "Failed to update transaction")
 		return
 	}
 
-	writeSuccessMessage(w, http.StatusOK, "Transaction updated successfully")
+	writeSuccessData(w, http.StatusOK, map[string]any{"version": newVersion})
 }
 
 func (h *Handler) DeleteTransaction(w http.ResponseWriter, r *http.Request) {
@@ -607,7 +616,19 @@ func (h *Handler) DeleteTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.service.DeleteTransaction(r.Context(), claims.UserID, id); err != nil {
+	var request struct {
+		OperationID string `json:"operationId"`
+	}
+	if err := legacy.DecodeJSON(r, &request); err != nil {
+		writeAppError(w, err, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if request.OperationID == "" {
+		writeError(w, http.StatusBadRequest, "operationId is required")
+		return
+	}
+
+	if _, err := h.service.DeleteTransaction(r.Context(), claims.UserID, request.OperationID, id); err != nil {
 		writeAppError(w, err, http.StatusInternalServerError, "Failed to delete transaction")
 		return
 	}

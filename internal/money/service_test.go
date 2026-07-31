@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"megaapp-back/internal/httpx/legacy"
+	"megaapp-back/internal/platform/idempotency"
 
 	_ "modernc.org/sqlite"
 )
@@ -24,7 +25,7 @@ func TestServiceSnapshotIncludesNormalizedAssets(t *testing.T) {
 	insertMoneyReferenceFixtures(t, db, 1)
 	insertMoneyReadFixtures(t, db, 1)
 
-	service := NewServiceWithClock(NewRepository(db), fixedMoneyClock{now: time.Date(2026, time.June, 30, 12, 0, 0, 0, time.UTC)})
+	service := NewServiceWithClock(NewRepository(db), idempotency.NewStore(db), fixedMoneyClock{now: time.Date(2026, time.June, 30, 12, 0, 0, 0, time.UTC)})
 	snapshot, err := service.GetSnapshot(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("GetSnapshot() error = %v", err)
@@ -58,9 +59,9 @@ func TestServiceSnapshotFiltersRateHistoryForCurrenciesAndHeldAssets(t *testing.
 	insertMoneyCategory(t, db, 1, 3, "Salary", nil, CategoryTypeIncome)
 	insertMoneyCurrency(t, db, 1, 2, "Dollar", "USD", "$", SymbolPositionBefore)
 	insertMoneyAsset(t, db, 1, 1, "Apple", "AAPL", AssetTypeStock, []int64{2})
-	service := NewServiceWithClock(NewRepository(db), fixedMoneyClock{now: time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)})
+	service := NewServiceWithClock(NewRepository(db), idempotency.NewStore(db), fixedMoneyClock{now: time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)})
 
-	if _, err := service.CreateTransaction(context.Background(), 1, TransactionInput{
+	if _, _, err := service.CreateTransaction(context.Background(), 1, "op-buy", TransactionInput{
 		DateISO:   "2026-06-15",
 		AccountID: 2,
 		Kind:      TransactionKindInvestBuy,
@@ -73,7 +74,7 @@ func TestServiceSnapshotFiltersRateHistoryForCurrenciesAndHeldAssets(t *testing.
 	}); err != nil {
 		t.Fatalf("CreateTransaction() buy error = %v", err)
 	}
-	if _, err := service.CreateTransaction(context.Background(), 1, TransactionInput{
+	if _, _, err := service.CreateTransaction(context.Background(), 1, "op-sell", TransactionInput{
 		DateISO:   "2026-07-10",
 		AccountID: 2,
 		Kind:      TransactionKindInvestSell,
@@ -126,7 +127,7 @@ func TestServiceSnapshotFiltersRateHistoryForCurrenciesAndHeldAssets(t *testing.
 func TestServiceCreateOrganizationResizesLogo(t *testing.T) {
 	db := openMoneyTestDB(t)
 	insertMoneyTestUser(t, db, 1, "alice")
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 
 	logo := makeBase64PNG(t, 64, 48)
 	organizationID, err := service.CreateOrganization(context.Background(), 1, OrganizationInput{Title: "Broker", LogoBase64: &logo})
@@ -153,7 +154,7 @@ func TestServiceCategoryValidationAndDeleteGuards(t *testing.T) {
 	db := openMoneyTestDB(t)
 	insertMoneyTestUser(t, db, 1, "alice")
 	insertMoneyReferenceFixtures(t, db, 1)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 
 	_, err := service.CreateCategory(context.Background(), 1, CategoryInput{Name: "Bonus", CategoryType: CategoryTypeIncome, ParentID: int64Ptr(2)})
 	assertMoneyValidationError(t, err, "Parent category type must match categoryType")
@@ -173,7 +174,7 @@ func TestServiceAccountValidationAndDeleteGuards(t *testing.T) {
 	db := openMoneyTestDB(t)
 	insertMoneyTestUser(t, db, 1, "alice")
 	insertMoneyReferenceFixtures(t, db, 1)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 
 	_, err := service.CreateAccount(context.Background(), 1, AccountInput{Title: "Wallet", CurrencyID: 999, Kind: AccountKindCash})
 	assertMoneyValidationError(t, err, "Currency not found")
@@ -201,7 +202,7 @@ func TestServiceCreateAssetNormalizesAccountsAndSuspension(t *testing.T) {
 	insertMoneyTestUser(t, db, 1, "alice")
 	insertMoneyReferenceFixtures(t, db, 1)
 	insertMoneyBrokerageAccount(t, db, 1, 2, "Brokerage", AccountKindBrokerage)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 
 	assetID, err := service.CreateAsset(context.Background(), 1, AssetInput{
 		Title:          " Apple ",
@@ -239,7 +240,7 @@ func TestServiceAssetValidationAndGuards(t *testing.T) {
 	insertMoneyReferenceFixtures(t, db, 1)
 	insertMoneyBrokerageAccount(t, db, 1, 2, "Brokerage", AccountKindBrokerage)
 	insertMoneyBrokerageAccount(t, db, 1, 3, "Crypto", AccountKindCrypto)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 
 	_, err := service.CreateAsset(context.Background(), 1, AssetInput{Title: "Asset", Ticker: "AAA", Type: AssetTypeStock, AccountIDs: []int64{1}})
 	assertMoneyValidationError(t, err, "Asset account must be brokerage or crypto: 1")
@@ -269,9 +270,9 @@ func TestServiceTransactionLifecycleAndValidation(t *testing.T) {
 	insertMoneyReferenceFixtures(t, db, 1)
 	insertMoneyAccount(t, db, 1, 2, "Card", AccountKindCard)
 	insertMoneyCategory(t, db, 1, 3, "Salary", nil, CategoryTypeIncome)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 
-	created, err := service.CreateTransaction(context.Background(), 1, TransactionInput{
+	created, _, err := service.CreateTransaction(context.Background(), 1, "op-create", TransactionInput{
 		DateISO:    "2026-06-18",
 		AccountID:  1,
 		Amount:     1500,
@@ -286,8 +287,11 @@ func TestServiceTransactionLifecycleAndValidation(t *testing.T) {
 	if created.ID <= 0 || created.TwinID != nil {
 		t.Fatalf("CreateTransaction() result = %+v, want single transaction id", created)
 	}
+	if created.Version != 1 {
+		t.Fatalf("CreateTransaction() version = %d, want 1", created.Version)
+	}
 
-	stored, err := service.repo.GetTransactionByID(context.Background(), 1, created.ID)
+	stored, err := service.repo.GetTransactionByID(context.Background(), db, 1, created.ID)
 	if err != nil {
 		t.Fatalf("GetTransactionByID() error = %v", err)
 	}
@@ -295,7 +299,7 @@ func TestServiceTransactionLifecycleAndValidation(t *testing.T) {
 		t.Fatalf("stored transaction = %+v", stored)
 	}
 
-	err = service.UpdateTransaction(context.Background(), 1, created.ID, TransactionInput{
+	_, _, err = service.UpdateTransaction(context.Background(), 1, "op-update-1", created.ID, TransactionInput{
 		DateISO:   "2026-06-19",
 		AccountID: 1,
 		Amount:    1700,
@@ -307,15 +311,15 @@ func TestServiceTransactionLifecycleAndValidation(t *testing.T) {
 		t.Fatalf("UpdateTransaction() error = %v", err)
 	}
 
-	stored, err = service.repo.GetTransactionByID(context.Background(), 1, created.ID)
+	stored, err = service.repo.GetTransactionByID(context.Background(), db, 1, created.ID)
 	if err != nil {
 		t.Fatalf("GetTransactionByID() error = %v", err)
 	}
-	if stored == nil || stored.Amount != 1700 || stored.CategoryID != nil || stored.IsGift {
+	if stored == nil || stored.Amount != 1700 || stored.CategoryID != nil || stored.IsGift || stored.Version != 2 {
 		t.Fatalf("updated transaction = %+v", stored)
 	}
 
-	err = service.UpdateTransaction(context.Background(), 1, created.ID, TransactionInput{
+	_, _, err = service.UpdateTransaction(context.Background(), 1, "op-update-2", created.ID, TransactionInput{
 		DateISO:   "2026-06-19",
 		AccountID: 2,
 		Amount:    1700,
@@ -323,7 +327,7 @@ func TestServiceTransactionLifecycleAndValidation(t *testing.T) {
 	})
 	assertMoneyValidationError(t, err, "Account cannot be changed")
 
-	err = service.UpdateTransaction(context.Background(), 1, created.ID, TransactionInput{
+	_, _, err = service.UpdateTransaction(context.Background(), 1, "op-update-3", created.ID, TransactionInput{
 		DateISO:   "2026-06-19",
 		AccountID: 1,
 		Amount:    1700,
@@ -331,11 +335,11 @@ func TestServiceTransactionLifecycleAndValidation(t *testing.T) {
 	})
 	assertMoneyValidationError(t, err, "Transaction kind cannot be changed")
 
-	err = service.DeleteTransaction(context.Background(), 1, created.ID)
+	_, err = service.DeleteTransaction(context.Background(), 1, "op-delete", created.ID)
 	if err != nil {
 		t.Fatalf("DeleteTransaction() error = %v", err)
 	}
-	stored, err = service.repo.GetTransactionByID(context.Background(), 1, created.ID)
+	stored, err = service.repo.GetTransactionByID(context.Background(), db, 1, created.ID)
 	if err != nil {
 		t.Fatalf("GetTransactionByID() error = %v", err)
 	}
@@ -350,9 +354,9 @@ func TestServiceTransferLifecycleAndRollback(t *testing.T) {
 	insertMoneyReferenceFixtures(t, db, 1)
 	insertMoneyAccount(t, db, 1, 2, "Card", AccountKindCard)
 	insertMoneyAccount(t, db, 1, 3, "Savings", AccountKindChecking)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 
-	created, err := service.CreateTransaction(context.Background(), 1, TransactionInput{
+	created, _, err := service.CreateTransaction(context.Background(), 1, "op-create-transfer", TransactionInput{
 		DateISO:       "2026-06-18",
 		AccountID:     1,
 		Amount:        100,
@@ -368,11 +372,11 @@ func TestServiceTransferLifecycleAndRollback(t *testing.T) {
 		t.Fatalf("CreateTransaction() result = %+v, want pair ids", created)
 	}
 
-	fromTransaction, err := service.repo.GetTransactionByID(context.Background(), 1, created.ID)
+	fromTransaction, err := service.repo.GetTransactionByID(context.Background(), db, 1, created.ID)
 	if err != nil {
 		t.Fatalf("GetTransactionByID() error = %v", err)
 	}
-	toTransaction, err := service.repo.GetTransactionByID(context.Background(), 1, *created.TwinID)
+	toTransaction, err := service.repo.GetTransactionByID(context.Background(), db, 1, *created.TwinID)
 	if err != nil {
 		t.Fatalf("GetTransactionByID() error = %v", err)
 	}
@@ -383,7 +387,7 @@ func TestServiceTransferLifecycleAndRollback(t *testing.T) {
 		t.Fatalf("transfer pair twin ids = %+v %+v", fromTransaction, toTransaction)
 	}
 
-	err = service.UpdateTransaction(context.Background(), 1, created.ID, TransactionInput{
+	_, _, err = service.UpdateTransaction(context.Background(), 1, "op-update-transfer-1", created.ID, TransactionInput{
 		DateISO:       "2026-06-19",
 		AccountID:     1,
 		Amount:        110,
@@ -396,19 +400,22 @@ func TestServiceTransferLifecycleAndRollback(t *testing.T) {
 		t.Fatalf("UpdateTransaction() error = %v", err)
 	}
 
-	fromTransaction, err = service.repo.GetTransactionByID(context.Background(), 1, created.ID)
+	fromTransaction, err = service.repo.GetTransactionByID(context.Background(), db, 1, created.ID)
 	if err != nil {
 		t.Fatalf("GetTransactionByID() error = %v", err)
 	}
-	toTransaction, err = service.repo.GetTransactionByID(context.Background(), 1, *created.TwinID)
+	toTransaction, err = service.repo.GetTransactionByID(context.Background(), db, 1, *created.TwinID)
 	if err != nil {
 		t.Fatalf("GetTransactionByID() error = %v", err)
 	}
 	if fromTransaction == nil || toTransaction == nil || fromTransaction.Amount != 110 || toTransaction.Amount != 108 || fromTransaction.DateISO != "2026-06-19" || toTransaction.DateISO != "2026-06-19" {
 		t.Fatalf("updated transfer pair = %+v %+v", fromTransaction, toTransaction)
 	}
+	if fromTransaction.Version != 2 || toTransaction.Version != 2 {
+		t.Fatalf("updated transfer pair versions = %+v %+v, want 2 and 2", fromTransaction, toTransaction)
+	}
 
-	err = service.UpdateTransaction(context.Background(), 1, created.ID, TransactionInput{
+	_, _, err = service.UpdateTransaction(context.Background(), 1, "op-update-transfer-2", created.ID, TransactionInput{
 		DateISO:       "2026-06-19",
 		AccountID:     1,
 		Amount:        110,
@@ -418,15 +425,15 @@ func TestServiceTransferLifecycleAndRollback(t *testing.T) {
 	})
 	assertMoneyValidationError(t, err, "Account cannot be changed")
 
-	err = service.DeleteTransaction(context.Background(), 1, created.ID)
+	_, err = service.DeleteTransaction(context.Background(), 1, "op-delete-transfer", created.ID)
 	if err != nil {
 		t.Fatalf("DeleteTransaction() error = %v", err)
 	}
-	fromTransaction, err = service.repo.GetTransactionByID(context.Background(), 1, created.ID)
+	fromTransaction, err = service.repo.GetTransactionByID(context.Background(), db, 1, created.ID)
 	if err != nil {
 		t.Fatalf("GetTransactionByID() error = %v", err)
 	}
-	toTransaction, err = service.repo.GetTransactionByID(context.Background(), 1, *created.TwinID)
+	toTransaction, err = service.repo.GetTransactionByID(context.Background(), db, 1, *created.TwinID)
 	if err != nil {
 		t.Fatalf("GetTransactionByID() error = %v", err)
 	}
@@ -434,7 +441,11 @@ func TestServiceTransferLifecycleAndRollback(t *testing.T) {
 		t.Fatalf("deleted transfer pair = %+v %+v, want nil nil", fromTransaction, toTransaction)
 	}
 
-	_, err = service.repo.CreateTransferPair(context.Background(), 1, TransactionInput{
+	rollbackTx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("BeginTx() error = %v", err)
+	}
+	_, err = service.repo.CreateTransferPair(context.Background(), rollbackTx, 1, TransactionInput{
 		DateISO:       "2026-06-20",
 		AccountID:     1,
 		Amount:        50,
@@ -443,8 +454,9 @@ func TestServiceTransferLifecycleAndRollback(t *testing.T) {
 		Kind:          TransactionKindTransfer,
 	})
 	if err == nil {
-		t.Fatal("CreateTransferPair() error = nil, want rollback error")
+		t.Fatal("CreateTransferPair() error = nil, want error")
 	}
+	_ = rollbackTx.Rollback()
 	assertMoneyTransactionCount(t, db, 0, `SELECT COUNT(*) FROM moneyTransaction WHERE userId = 1 AND kind = 'transfer'`)
 }
 
@@ -456,9 +468,9 @@ func TestServiceInvestTransactionLifecycleAndValidation(t *testing.T) {
 	insertMoneyBrokerageAccount(t, db, 1, 3, "Crypto", AccountKindCrypto)
 	insertMoneyAsset(t, db, 1, 1, "Apple", "AAPL", AssetTypeStock, []int64{2})
 	insertMoneyAsset(t, db, 1, 2, "Bond", "OFZ", AssetTypeBond, []int64{2})
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
 
-	buyResult, err := service.CreateTransaction(context.Background(), 1, TransactionInput{
+	buyResult, _, err := service.CreateTransaction(context.Background(), 1, "op-buy", TransactionInput{
 		DateISO:   "2026-06-18",
 		AccountID: 2,
 		Kind:      TransactionKindInvestBuy,
@@ -472,7 +484,7 @@ func TestServiceInvestTransactionLifecycleAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTransaction() error = %v", err)
 	}
-	buyTransaction, err := service.repo.GetTransactionByID(context.Background(), 1, buyResult.ID)
+	buyTransaction, err := service.repo.GetTransactionByID(context.Background(), db, 1, buyResult.ID)
 	if err != nil {
 		t.Fatalf("GetTransactionByID() error = %v", err)
 	}
@@ -484,7 +496,7 @@ func TestServiceInvestTransactionLifecycleAndValidation(t *testing.T) {
 		t.Fatalf("buy assetId = %v, want 1", got)
 	}
 
-	err = service.UpdateTransaction(context.Background(), 1, buyResult.ID, TransactionInput{
+	_, _, err = service.UpdateTransaction(context.Background(), 1, "op-update-buy-1", buyResult.ID, TransactionInput{
 		DateISO:   "2026-06-19",
 		AccountID: 2,
 		Kind:      TransactionKindInvestBuy,
@@ -498,7 +510,7 @@ func TestServiceInvestTransactionLifecycleAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateTransaction() error = %v", err)
 	}
-	buyTransaction, err = service.repo.GetTransactionByID(context.Background(), 1, buyResult.ID)
+	buyTransaction, err = service.repo.GetTransactionByID(context.Background(), db, 1, buyResult.ID)
 	if err != nil {
 		t.Fatalf("GetTransactionByID() error = %v", err)
 	}
@@ -506,7 +518,7 @@ func TestServiceInvestTransactionLifecycleAndValidation(t *testing.T) {
 		t.Fatalf("updated buy transaction = %+v", buyTransaction)
 	}
 
-	sellResult, err := service.CreateTransaction(context.Background(), 1, TransactionInput{
+	sellResult, _, err := service.CreateTransaction(context.Background(), 1, "op-sell", TransactionInput{
 		DateISO:   "2026-06-20",
 		AccountID: 2,
 		Kind:      TransactionKindInvestSell,
@@ -524,7 +536,7 @@ func TestServiceInvestTransactionLifecycleAndValidation(t *testing.T) {
 		t.Fatalf("CreateTransaction() sell id = %d, want > 0", sellResult.ID)
 	}
 
-	dividendResult, err := service.CreateTransaction(context.Background(), 1, TransactionInput{
+	dividendResult, _, err := service.CreateTransaction(context.Background(), 1, "op-dividend", TransactionInput{
 		DateISO:   "2026-06-21",
 		AccountID: 2,
 		Amount:    15,
@@ -536,7 +548,7 @@ func TestServiceInvestTransactionLifecycleAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTransaction() error = %v", err)
 	}
-	dividendTransaction, err := service.repo.GetTransactionByID(context.Background(), 1, dividendResult.ID)
+	dividendTransaction, err := service.repo.GetTransactionByID(context.Background(), db, 1, dividendResult.ID)
 	if err != nil {
 		t.Fatalf("GetTransactionByID() error = %v", err)
 	}
@@ -552,7 +564,7 @@ func TestServiceInvestTransactionLifecycleAndValidation(t *testing.T) {
 		t.Fatalf("InvestAssetTrades len = %d, want 2", len(snapshot.InvestAssetTrades))
 	}
 
-	_, err = service.CreateTransaction(context.Background(), 1, TransactionInput{
+	_, _, err = service.CreateTransaction(context.Background(), 1, "op-invalid-account", TransactionInput{
 		DateISO:   "2026-06-22",
 		AccountID: 1,
 		Kind:      TransactionKindInvestBuy,
@@ -565,7 +577,7 @@ func TestServiceInvestTransactionLifecycleAndValidation(t *testing.T) {
 	})
 	assertMoneyValidationError(t, err, "Invest transaction requires brokerage or crypto account")
 
-	_, err = service.CreateTransaction(context.Background(), 1, TransactionInput{
+	_, _, err = service.CreateTransaction(context.Background(), 1, "op-invalid-category", TransactionInput{
 		DateISO:    "2026-06-22",
 		AccountID:  2,
 		CategoryID: int64Ptr(1),
@@ -579,7 +591,7 @@ func TestServiceInvestTransactionLifecycleAndValidation(t *testing.T) {
 	})
 	assertMoneyValidationError(t, err, "Category is not allowed for invest transactions")
 
-	_, err = service.CreateTransaction(context.Background(), 1, TransactionInput{
+	_, _, err = service.CreateTransaction(context.Background(), 1, "op-invalid-asset-account", TransactionInput{
 		DateISO:   "2026-06-22",
 		AccountID: 3,
 		Kind:      TransactionKindInvestBuy,
@@ -592,7 +604,7 @@ func TestServiceInvestTransactionLifecycleAndValidation(t *testing.T) {
 	})
 	assertMoneyValidationError(t, err, "Asset does not belong to selected account")
 
-	_, err = service.CreateTransaction(context.Background(), 1, TransactionInput{
+	_, _, err = service.CreateTransaction(context.Background(), 1, "op-invalid-bond-field", TransactionInput{
 		DateISO:   "2026-06-22",
 		AccountID: 2,
 		Kind:      TransactionKindInvestBuy,
@@ -606,7 +618,7 @@ func TestServiceInvestTransactionLifecycleAndValidation(t *testing.T) {
 	})
 	assertMoneyValidationError(t, err, "detailsJSON.accruedInterestAmount is allowed only for bond assets")
 
-	err = service.UpdateTransaction(context.Background(), 1, buyResult.ID, TransactionInput{
+	_, _, err = service.UpdateTransaction(context.Background(), 1, "op-update-buy-2", buyResult.ID, TransactionInput{
 		DateISO:   "2026-06-19",
 		AccountID: 2,
 		Kind:      TransactionKindInvestBuy,
@@ -618,6 +630,117 @@ func TestServiceInvestTransactionLifecycleAndValidation(t *testing.T) {
 		},
 	})
 	assertMoneyValidationError(t, err, "Asset cannot be changed")
+}
+
+func TestCreateTransactionSameOperationIDReplaysWithoutDuplicate(t *testing.T) {
+	db := openMoneyTestDB(t)
+	insertMoneyTestUser(t, db, 1, "alice")
+	insertMoneyReferenceFixtures(t, db, 1)
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
+
+	input := TransactionInput{
+		DateISO:   "2026-06-18",
+		AccountID: 1,
+		Amount:    1500,
+		Kind:      TransactionKindIncome,
+		Notes:     stringPtr("Salary"),
+	}
+
+	first, applied, err := service.CreateTransaction(context.Background(), 1, "op-retry", input)
+	if err != nil || !applied {
+		t.Fatalf("CreateTransaction() first = (%+v, applied=%v, err=%v)", first, applied, err)
+	}
+
+	retry, applied, err := service.CreateTransaction(context.Background(), 1, "op-retry", input)
+	if err != nil {
+		t.Fatalf("CreateTransaction() retry error = %v", err)
+	}
+	if applied {
+		t.Fatal("CreateTransaction() retry applied = true, want false (replayed)")
+	}
+	if retry.ID != first.ID || retry.Version != first.Version {
+		t.Fatalf("retry = %+v, want it to echo first = %+v", retry, first)
+	}
+
+	assertMoneyTransactionCount(t, db, 1, `SELECT COUNT(*) FROM moneyTransaction WHERE userId = 1`)
+}
+
+func TestUpdateTransactionRetryDoesNotReapply(t *testing.T) {
+	db := openMoneyTestDB(t)
+	insertMoneyTestUser(t, db, 1, "alice")
+	insertMoneyReferenceFixtures(t, db, 1)
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
+
+	created, _, err := service.CreateTransaction(context.Background(), 1, "op-create", TransactionInput{
+		DateISO:   "2026-06-18",
+		AccountID: 1,
+		Amount:    1500,
+		Kind:      TransactionKindIncome,
+	})
+	if err != nil {
+		t.Fatalf("CreateTransaction() error = %v", err)
+	}
+
+	update := TransactionInput{
+		DateISO:   "2026-06-19",
+		AccountID: 1,
+		Amount:    1700,
+		Kind:      TransactionKindIncome,
+	}
+
+	firstVersion, applied, err := service.UpdateTransaction(context.Background(), 1, "op-update-retry", created.ID, update)
+	if err != nil || !applied || firstVersion != 2 {
+		t.Fatalf("UpdateTransaction() first = (version=%d, applied=%v, err=%v), want version 2", firstVersion, applied, err)
+	}
+
+	retryVersion, applied, err := service.UpdateTransaction(context.Background(), 1, "op-update-retry", created.ID, update)
+	if err != nil {
+		t.Fatalf("UpdateTransaction() retry error = %v", err)
+	}
+	if applied {
+		t.Fatal("UpdateTransaction() retry applied = true, want false (replayed)")
+	}
+	if retryVersion != firstVersion {
+		t.Fatalf("UpdateTransaction() retry version = %d, want %d (echoed from cache)", retryVersion, firstVersion)
+	}
+
+	stored, err := service.repo.GetTransactionByID(context.Background(), db, 1, created.ID)
+	if err != nil {
+		t.Fatalf("GetTransactionByID() error = %v", err)
+	}
+	if stored == nil || stored.Version != 2 {
+		t.Fatalf("stored.Version = %v, want 2 (retry must not increment twice)", stored)
+	}
+}
+
+func TestDeleteTransactionRetrySucceedsInsteadOfNotFound(t *testing.T) {
+	db := openMoneyTestDB(t)
+	insertMoneyTestUser(t, db, 1, "alice")
+	insertMoneyReferenceFixtures(t, db, 1)
+	service := NewService(NewRepository(db), idempotency.NewStore(db))
+
+	created, _, err := service.CreateTransaction(context.Background(), 1, "op-create", TransactionInput{
+		DateISO:   "2026-06-18",
+		AccountID: 1,
+		Amount:    1500,
+		Kind:      TransactionKindIncome,
+	})
+	if err != nil {
+		t.Fatalf("CreateTransaction() error = %v", err)
+	}
+
+	applied, err := service.DeleteTransaction(context.Background(), 1, "op-delete", created.ID)
+	if err != nil || !applied {
+		t.Fatalf("DeleteTransaction() first = (applied=%v, err=%v)", applied, err)
+	}
+
+	applied, err = service.DeleteTransaction(context.Background(), 1, "op-delete", created.ID)
+	if err != nil {
+		t.Fatalf("DeleteTransaction() retry error = %v, want nil (replay, not a real not-found)", err)
+	}
+	if applied {
+		t.Fatal("DeleteTransaction() retry applied = true, want false (replayed)")
+	}
 }
 
 func openMoneyTestDB(t *testing.T) *sql.DB {
@@ -705,6 +828,7 @@ func openMoneyTestDB(t *testing.T) *sql.DB {
 			notes TEXT,
 			detailsJSON TEXT,
 			twinId INTEGER,
+			ver INTEGER NOT NULL DEFAULT 1,
 			FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
 			FOREIGN KEY (accountId) REFERENCES moneyAccount(id) ON DELETE RESTRICT,
 			FOREIGN KEY (categoryId) REFERENCES moneyCategories(id) ON DELETE RESTRICT,
@@ -715,6 +839,13 @@ func openMoneyTestDB(t *testing.T) *sql.DB {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			dateISO TEXT NOT NULL,
 			ratesJson TEXT NOT NULL
+		);
+
+		CREATE TABLE syncOperations (
+			id TEXT PRIMARY KEY,
+			userId INTEGER NOT NULL,
+			createdAt TEXT NOT NULL,
+			resultJSON TEXT NOT NULL
 		);
 	`
 

@@ -12,12 +12,14 @@ import (
 
 	"megaapp-back/internal/httpx/legacy"
 	clockplatform "megaapp-back/internal/platform/clock"
+	"megaapp-back/internal/platform/idempotency"
 )
 
 const kcalsIn1KG = 7700
 
 type Service struct {
 	repo                   *Repository
+	idempotency            *idempotency.Store
 	statsCache             *StatsCache
 	searchCache            *SearchCache
 	productGenerator       ProductGenerator
@@ -38,7 +40,8 @@ type DiaryEntry struct {
 	FoodWeight          int64          `json:"foodWeight"`
 	Kcals               int64          `json:"kcals"`
 	History             []HistoryEntry `json:"history"`
-	AppliedHistoryEntry *HistoryEntry  `json:"-"`
+	Version             int64          `json:"version"`
+	AppliedHistoryEntry *HistoryEntry  `json:"appliedHistoryEntry,omitempty"`
 }
 
 const (
@@ -92,8 +95,8 @@ type CatalogueEntry struct {
 	CanDelete    *bool   `json:"canDelete,omitempty"`
 }
 
-func NewService(repo *Repository) *Service {
-	return &Service{repo: repo, statsCache: NewStatsCache(), searchCache: NewSearchCache(), clock: clockplatform.NewRealClock(), personalKcalConfig: DefaultPersonalKcalConfig()}
+func NewService(repo *Repository, idempotencyStore *idempotency.Store) *Service {
+	return &Service{repo: repo, idempotency: idempotencyStore, statsCache: NewStatsCache(), searchCache: NewSearchCache(), clock: clockplatform.NewRealClock(), personalKcalConfig: DefaultPersonalKcalConfig()}
 }
 
 func (s *Service) SetProductGenerator(generator ProductGenerator) {
@@ -227,6 +230,7 @@ func (s *Service) GetDiaryFullUpdate(ctx context.Context, userID int64, dateISO 
 			FoodWeight:      row.FoodWeight,
 			Kcals:           resolvePersonalKcalsForEntry(resolver, row.FoodCatalogueID, row.DateISO, row.FoodWeight),
 			History:         parseHistory(row.History),
+			Version:         row.Version,
 		}
 		result[row.DateISO] = day
 	}
@@ -332,62 +336,138 @@ func (s *Service) imageVersion(catalogueID int64) *int64 {
 	return s.imageVersions.ImageVersion(catalogueID)
 }
 
-func (s *Service) CreateDiaryEntry(ctx context.Context, userID int64, dateISO string, foodCatalogueID int64, foodWeight int64, history []HistoryEntry) (DiaryEntry, error) {
-	historyJSON, err := toHistoryJSON(history)
+func (s *Service) CreateDiaryEntry(ctx context.Context, userID int64, operationID string, dateISO string, foodCatalogueID int64, foodWeight int64, history []HistoryEntry) (entry DiaryEntry, applied bool, err error) {
+	tx, err := s.idempotency.BeginTx(ctx)
 	if err != nil {
-		return DiaryEntry{}, err
-	}
-	id, err := s.repo.CreateDiaryEntry(ctx, userID, dateISO, foodCatalogueID, foodWeight, historyJSON)
-	if err != nil {
-		return DiaryEntry{}, err
-	}
-	kcals, err := s.resolvePersonalKcalsForCurrentMonth(ctx, userID, foodCatalogueID, foodWeight)
-	if err != nil {
-		return DiaryEntry{}, err
-	}
-	s.InvalidateStats(userID)
-	return DiaryEntry{ID: id, DateISO: dateISO, FoodCatalogueID: foodCatalogueID, FoodWeight: foodWeight, Kcals: kcals, History: history}, nil
-}
-
-func (s *Service) EditDiaryEntry(ctx context.Context, userID int64, diaryID int64, targetFoodWeight int64, requestedAction string) (*DiaryEntry, error) {
-	tx, existing, err := s.repo.BeginEditDiaryEntry(ctx, diaryID, userID)
-	if err != nil {
-		return nil, err
-	}
-	if existing == nil {
-		return nil, nil
+		return DiaryEntry{}, false, err
 	}
 
-	delta := targetFoodWeight - existing.FoodWeight
-	if delta == 0 {
-		if err := tx.Rollback(); err != nil {
-			return nil, fmt.Errorf("rollback no-op diary edit: %w", err)
-		}
-		kcals, err := s.resolvePersonalKcalsForCurrentMonth(ctx, userID, existing.FoodCatalogueID, existing.FoodWeight)
-		if err != nil {
-			return nil, err
-		}
-		return &DiaryEntry{ID: diaryID, FoodCatalogueID: existing.FoodCatalogueID, FoodWeight: existing.FoodWeight, Kcals: kcals, History: parseHistory(existing.History)}, nil
-	}
-
-	appliedEntry := buildHistoryEntry(requestedAction, targetFoodWeight, delta)
-	history := append(parseHistory(existing.History), appliedEntry)
-
-	updatedHistoryJSON, err := toHistoryJSON(history)
+	cachedJSON, found, err := s.idempotency.Find(ctx, tx, userID, operationID)
 	if err != nil {
 		_ = tx.Rollback()
-		return nil, err
+		return DiaryEntry{}, false, err
 	}
-	if err := s.repo.CommitEditDiaryEntry(ctx, tx, diaryID, userID, targetFoodWeight, updatedHistoryJSON); err != nil {
-		return nil, err
+	if found {
+		_ = tx.Rollback()
+		var cached DiaryEntry
+		if err := json.Unmarshal([]byte(cachedJSON), &cached); err != nil {
+			return DiaryEntry{}, false, fmt.Errorf("decode cached diary create: %w", err)
+		}
+		kcals, err := s.resolvePersonalKcalsForCurrentMonth(ctx, userID, cached.FoodCatalogueID, cached.FoodWeight)
+		if err != nil {
+			return DiaryEntry{}, false, err
+		}
+		cached.Kcals = kcals
+		return cached, false, nil
 	}
 
-	kcals, err := s.resolvePersonalKcalsForCurrentMonth(ctx, userID, existing.FoodCatalogueID, targetFoodWeight)
+	historyJSON, err := toHistoryJSON(history)
 	if err != nil {
-		return nil, err
+		_ = tx.Rollback()
+		return DiaryEntry{}, false, err
 	}
+	id, err := s.repo.CreateDiaryEntry(ctx, tx, userID, dateISO, foodCatalogueID, foodWeight, historyJSON)
+	if err != nil {
+		_ = tx.Rollback()
+		return DiaryEntry{}, false, err
+	}
+
+	result := DiaryEntry{ID: id, DateISO: dateISO, FoodCatalogueID: foodCatalogueID, FoodWeight: foodWeight, History: history, Version: 1}
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		_ = tx.Rollback()
+		return DiaryEntry{}, false, err
+	}
+	if err := s.idempotency.Record(ctx, tx, userID, operationID, string(resultJSON)); err != nil {
+		_ = tx.Rollback()
+		return DiaryEntry{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return DiaryEntry{}, false, fmt.Errorf("commit create diary entry: %w", err)
+	}
+
+	kcals, err := s.resolvePersonalKcalsForCurrentMonth(ctx, userID, foodCatalogueID, foodWeight)
+	if err != nil {
+		return DiaryEntry{}, false, err
+	}
+	result.Kcals = kcals
 	s.InvalidateStats(userID)
-	return &DiaryEntry{ID: diaryID, FoodCatalogueID: existing.FoodCatalogueID, FoodWeight: targetFoodWeight, Kcals: kcals, History: history, AppliedHistoryEntry: &appliedEntry}, nil
+	return result, true, nil
+}
+
+func (s *Service) EditDiaryEntry(ctx context.Context, userID int64, operationID string, diaryID int64, targetFoodWeight int64, requestedAction string) (entry *DiaryEntry, applied bool, err error) {
+	tx, err := s.idempotency.BeginTx(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+
+	cachedJSON, found, err := s.idempotency.Find(ctx, tx, userID, operationID)
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, false, err
+	}
+
+	var result DiaryEntry
+	if found {
+		_ = tx.Rollback()
+		if err := json.Unmarshal([]byte(cachedJSON), &result); err != nil {
+			return nil, false, fmt.Errorf("decode cached diary edit: %w", err)
+		}
+	} else {
+		existing, err := s.repo.GetDiaryEntryForEdit(ctx, tx, diaryID, userID)
+		if err != nil {
+			_ = tx.Rollback()
+			return nil, false, err
+		}
+		if existing == nil {
+			_ = tx.Rollback()
+			return nil, false, nil
+		}
+
+		delta := targetFoodWeight - existing.FoodWeight
+		result = DiaryEntry{ID: diaryID, FoodCatalogueID: existing.FoodCatalogueID, FoodWeight: existing.FoodWeight, History: parseHistory(existing.History), Version: existing.Version}
+		if delta != 0 {
+			appliedEntry := buildHistoryEntry(requestedAction, targetFoodWeight, delta)
+			result.FoodWeight = targetFoodWeight
+			result.History = append(result.History, appliedEntry)
+			result.Version = existing.Version + 1
+			result.AppliedHistoryEntry = &appliedEntry
+
+			updatedHistoryJSON, err := toHistoryJSON(result.History)
+			if err != nil {
+				_ = tx.Rollback()
+				return nil, false, err
+			}
+			if err := s.repo.UpdateDiaryEntry(ctx, tx, diaryID, userID, result.FoodWeight, updatedHistoryJSON, result.Version); err != nil {
+				_ = tx.Rollback()
+				return nil, false, err
+			}
+		}
+
+		resultJSON, err := json.Marshal(result)
+		if err != nil {
+			_ = tx.Rollback()
+			return nil, false, err
+		}
+		if err := s.idempotency.Record(ctx, tx, userID, operationID, string(resultJSON)); err != nil {
+			_ = tx.Rollback()
+			return nil, false, err
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, false, fmt.Errorf("commit diary entry edit: %w", err)
+		}
+		applied = true
+	}
+
+	kcals, err := s.resolvePersonalKcalsForCurrentMonth(ctx, userID, result.FoodCatalogueID, result.FoodWeight)
+	if err != nil {
+		return nil, false, err
+	}
+	result.Kcals = kcals
+	if applied && result.AppliedHistoryEntry != nil {
+		s.InvalidateStats(userID)
+	}
+	return &result, applied, nil
 }
 
 func buildHistoryEntry(requestedAction string, targetFoodWeight int64, delta int64) HistoryEntry {
@@ -414,79 +494,222 @@ func resolvePersonalKcalsForEntry(resolver *PersonalKcalResolver, foodCatalogueI
 	return int64(math.Round(kcalPer100g * float64(foodWeight) / 100))
 }
 
-func (s *Service) DeleteDiaryEntry(ctx context.Context, userID int64, diaryID int64) (bool, error) {
-	deleted, err := s.repo.DeleteDiaryEntry(ctx, diaryID, userID)
+func (s *Service) DeleteDiaryEntry(ctx context.Context, userID int64, operationID string, diaryID int64) (deleted bool, applied bool, err error) {
+	tx, err := s.idempotency.BeginTx(ctx)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
+
+	if cachedJSON, found, err := s.idempotency.Find(ctx, tx, userID, operationID); err != nil {
+		_ = tx.Rollback()
+		return false, false, err
+	} else if found {
+		_ = tx.Rollback()
+		var cached struct {
+			Deleted bool `json:"deleted"`
+		}
+		if err := json.Unmarshal([]byte(cachedJSON), &cached); err != nil {
+			return false, false, fmt.Errorf("decode cached diary delete: %w", err)
+		}
+		return cached.Deleted, false, nil
+	}
+
+	deleted, err = s.repo.DeleteDiaryEntry(ctx, tx, diaryID, userID)
+	if err != nil {
+		_ = tx.Rollback()
+		return false, false, err
+	}
+	payload, err := json.Marshal(struct {
+		Deleted bool `json:"deleted"`
+	}{deleted})
+	if err != nil {
+		_ = tx.Rollback()
+		return false, false, err
+	}
+	if err := s.idempotency.Record(ctx, tx, userID, operationID, string(payload)); err != nil {
+		_ = tx.Rollback()
+		return false, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, false, fmt.Errorf("commit diary entry delete: %w", err)
+	}
+
 	if deleted {
 		s.InvalidateStats(userID)
 	}
-	return deleted, nil
+	return deleted, true, nil
 }
 
-func (s *Service) DeleteDiaryEntriesForDay(ctx context.Context, userID int64, dateISO string) (int64, error) {
-	rows, err := s.repo.GetDiaryRange(ctx, userID, dateISO, dateISO)
+func (s *Service) DeleteDiaryEntriesForDay(ctx context.Context, userID int64, operationID string, dateISO string) (deletedCount int64, applied bool, err error) {
+	tx, err := s.idempotency.BeginTx(ctx)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	if len(rows) == 0 {
-		return 0, legacy.NewError(legacy.ErrorKindNotFound, "Entries not found")
+
+	if cachedJSON, found, err := s.idempotency.Find(ctx, tx, userID, operationID); err != nil {
+		_ = tx.Rollback()
+		return 0, false, err
+	} else if found {
+		_ = tx.Rollback()
+		var cached struct {
+			DeletedCount int64 `json:"deletedCount"`
+		}
+		if err := json.Unmarshal([]byte(cachedJSON), &cached); err != nil {
+			return 0, false, fmt.Errorf("decode cached diary day delete: %w", err)
+		}
+		return cached.DeletedCount, false, nil
 	}
-	deletedCount, err := s.repo.DeleteDiaryEntriesByDate(ctx, dateISO, userID)
+
+	deletedCount, err = s.repo.DeleteDiaryEntriesByDate(ctx, tx, dateISO, userID)
 	if err != nil {
-		return 0, err
+		_ = tx.Rollback()
+		return 0, false, err
 	}
+	if deletedCount == 0 {
+		_ = tx.Rollback()
+		return 0, false, legacy.NewError(legacy.ErrorKindNotFound, "Entries not found")
+	}
+	payload, err := json.Marshal(struct {
+		DeletedCount int64 `json:"deletedCount"`
+	}{deletedCount})
+	if err != nil {
+		_ = tx.Rollback()
+		return 0, false, err
+	}
+	if err := s.idempotency.Record(ctx, tx, userID, operationID, string(payload)); err != nil {
+		_ = tx.Rollback()
+		return 0, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, false, fmt.Errorf("commit diary day delete: %w", err)
+	}
+
 	s.InvalidateStats(userID)
-	return deletedCount, nil
+	return deletedCount, true, nil
 }
 
-func (s *Service) RestoreDiaryEntriesForDay(ctx context.Context, userID int64, dateISO string, entries []RestoreDiaryEntryInput) ([]DiaryEntry, error) {
+func (s *Service) RestoreDiaryEntriesForDay(ctx context.Context, userID int64, operationID string, dateISO string, entries []RestoreDiaryEntryInput) (restored []DiaryEntry, applied bool, err error) {
 	if len(entries) == 0 {
-		return nil, legacy.NewError(legacy.ErrorKindValidation, "Entries not found")
+		return nil, false, legacy.NewError(legacy.ErrorKindValidation, "Entries not found")
 	}
+
+	tx, err := s.idempotency.BeginTx(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+
+	cachedJSON, found, err := s.idempotency.Find(ctx, tx, userID, operationID)
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, false, err
+	}
+	if found {
+		_ = tx.Rollback()
+		if err := json.Unmarshal([]byte(cachedJSON), &restored); err != nil {
+			return nil, false, fmt.Errorf("decode cached diary day restore: %w", err)
+		}
+	} else {
+		normalized := make([]DiaryEntry, 0, len(entries))
+		for _, entry := range entries {
+			history := entry.History
+			if len(history) == 0 {
+				history = []HistoryEntry{{Action: historyActionInit, Value: entry.FoodWeight}}
+			}
+			normalized = append(normalized, DiaryEntry{DateISO: dateISO, FoodCatalogueID: entry.FoodCatalogueID, FoodWeight: entry.FoodWeight, History: history, Version: 1})
+		}
+		restored, err = s.repo.CreateDiaryEntriesBatch(ctx, tx, userID, normalized)
+		if err != nil {
+			_ = tx.Rollback()
+			return nil, false, err
+		}
+		payload, err := json.Marshal(restored)
+		if err != nil {
+			_ = tx.Rollback()
+			return nil, false, err
+		}
+		if err := s.idempotency.Record(ctx, tx, userID, operationID, string(payload)); err != nil {
+			_ = tx.Rollback()
+			return nil, false, err
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, false, fmt.Errorf("commit diary day restore: %w", err)
+		}
+		applied = true
+	}
+
 	resolver, err := s.buildPersonalKcalResolver(ctx, userID)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	normalized := make([]DiaryEntry, 0, len(entries))
-	for _, entry := range entries {
-		history := entry.History
-		if len(history) == 0 {
-			history = []HistoryEntry{{Action: historyActionInit, Value: entry.FoodWeight}}
-		}
-		kcals := resolvePersonalKcalsForEntry(resolver, entry.FoodCatalogueID, dateISO, entry.FoodWeight)
-		normalized = append(normalized, DiaryEntry{DateISO: dateISO, FoodCatalogueID: entry.FoodCatalogueID, FoodWeight: entry.FoodWeight, Kcals: kcals, History: history})
+	for i := range restored {
+		restored[i].Kcals = resolvePersonalKcalsForEntry(resolver, restored[i].FoodCatalogueID, restored[i].DateISO, restored[i].FoodWeight)
 	}
-	restored, err := s.repo.CreateDiaryEntriesBatch(ctx, userID, normalized)
-	if err != nil {
-		return nil, err
+	if applied {
+		s.InvalidateStats(userID)
 	}
-	s.InvalidateStats(userID)
-	return restored, nil
+	return restored, applied, nil
 }
 
-func (s *Service) SetBodyWeight(ctx context.Context, userID int64, dateISO string, bodyWeight float64) (bool, error) {
-	existing, err := s.repo.GetWeightByDate(ctx, dateISO, userID)
+func (s *Service) SetBodyWeight(ctx context.Context, userID int64, operationID string, dateISO string, bodyWeight float64) (okResult bool, applied bool, err error) {
+	tx, err := s.idempotency.BeginTx(ctx)
 	if err != nil {
-		return false, err
+		return false, false, err
+	}
+
+	if cachedJSON, found, err := s.idempotency.Find(ctx, tx, userID, operationID); err != nil {
+		_ = tx.Rollback()
+		return false, false, err
+	} else if found {
+		_ = tx.Rollback()
+		var cached struct {
+			OK bool `json:"ok"`
+		}
+		if err := json.Unmarshal([]byte(cachedJSON), &cached); err != nil {
+			return false, false, fmt.Errorf("decode cached body weight: %w", err)
+		}
+		return cached.OK, false, nil
+	}
+
+	existing, err := s.repo.GetWeightByDate(ctx, tx, dateISO, userID)
+	if err != nil {
+		_ = tx.Rollback()
+		return false, false, err
 	}
 	if existing == nil {
-		_, err := s.repo.CreateWeight(ctx, dateISO, bodyWeight, userID)
-		if err != nil {
-			return false, err
+		if _, err := s.repo.CreateWeight(ctx, tx, dateISO, bodyWeight, userID); err != nil {
+			_ = tx.Rollback()
+			return false, false, err
 		}
-		s.InvalidateStats(userID)
-		return true, nil
+		okResult = true
+	} else {
+		okResult, err = s.repo.UpdateWeight(ctx, tx, dateISO, bodyWeight, userID)
+		if err != nil {
+			_ = tx.Rollback()
+			return false, false, err
+		}
 	}
-	updated, err := s.repo.UpdateWeight(ctx, dateISO, bodyWeight, userID)
+	if !okResult {
+		_ = tx.Rollback()
+		return false, false, nil
+	}
+
+	payload, err := json.Marshal(struct {
+		OK bool `json:"ok"`
+	}{okResult})
 	if err != nil {
-		return false, err
+		_ = tx.Rollback()
+		return false, false, err
 	}
-	if updated {
-		s.InvalidateStats(userID)
+	if err := s.idempotency.Record(ctx, tx, userID, operationID, string(payload)); err != nil {
+		_ = tx.Rollback()
+		return false, false, err
 	}
-	return updated, nil
+	if err := tx.Commit(); err != nil {
+		return false, false, fmt.Errorf("commit body weight: %w", err)
+	}
+
+	s.InvalidateStats(userID)
+	return true, true, nil
 }
 
 func (s *Service) InvalidateStats(userID int64) {

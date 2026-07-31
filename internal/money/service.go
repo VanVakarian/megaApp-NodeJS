@@ -14,24 +14,26 @@ import (
 
 	"megaapp-back/internal/httpx/legacy"
 	platformclock "megaapp-back/internal/platform/clock"
+	"megaapp-back/internal/platform/idempotency"
 
 	"github.com/disintegration/imaging"
 )
 
 type Service struct {
-	repo  *Repository
-	clock platformclock.Clock
+	repo        *Repository
+	idempotency *idempotency.Store
+	clock       platformclock.Clock
 }
 
-func NewService(repo *Repository) *Service {
-	return NewServiceWithClock(repo, platformclock.NewRealClock())
+func NewService(repo *Repository, idempotencyStore *idempotency.Store) *Service {
+	return NewServiceWithClock(repo, idempotencyStore, platformclock.NewRealClock())
 }
 
-func NewServiceWithClock(repo *Repository, appClock platformclock.Clock) *Service {
+func NewServiceWithClock(repo *Repository, idempotencyStore *idempotency.Store, appClock platformclock.Clock) *Service {
 	if appClock == nil {
 		appClock = platformclock.NewRealClock()
 	}
-	return &Service{repo: repo, clock: appClock}
+	return &Service{repo: repo, idempotency: idempotencyStore, clock: appClock}
 }
 
 func (s *Service) GetSnapshot(ctx context.Context, userID int64) (Snapshot, error) {
@@ -399,102 +401,224 @@ func (s *Service) GetRateHistory(ctx context.Context) ([]RateHistory, error) {
 	return s.repo.ListRateHistory(ctx)
 }
 
-func (s *Service) CreateTransaction(ctx context.Context, userID int64, input TransactionInput) (CreateTransactionResult, error) {
+// peekIdempotency reports whether operationID has already been applied, without holding a
+// transaction open across it. Checked first and unconditionally in every write method below —
+// on a replay, nothing else (existence checks, cross-table validation) should run at all, since
+// the entity a stale retry refers to may have legitimately been mutated or deleted since by an
+// operation that already subsumes it. Cross-table validation reads (account/category/asset
+// lookups) happen via r.db between this peek and the real write's own transaction; both are
+// safe from races because SetMaxOpenConns(1) serializes the whole app onto one connection —
+// nothing else can run in between regardless of how many round-trips this takes.
+func (s *Service) peekIdempotency(ctx context.Context, userID int64, operationID string) (string, bool, error) {
+	tx, err := s.idempotency.BeginTx(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	cachedJSON, found, err := s.idempotency.Find(ctx, tx, userID, operationID)
+	_ = tx.Rollback()
+	return cachedJSON, found, err
+}
+
+func (s *Service) CreateTransaction(ctx context.Context, userID int64, operationID string, input TransactionInput) (CreateTransactionResult, bool, error) {
+	cachedJSON, found, err := s.peekIdempotency(ctx, userID, operationID)
+	if err != nil {
+		return CreateTransactionResult{}, false, err
+	}
+	if found {
+		var cached CreateTransactionResult
+		if err := json.Unmarshal([]byte(cachedJSON), &cached); err != nil {
+			return CreateTransactionResult{}, false, fmt.Errorf("decode cached transaction create: %w", err)
+		}
+		return cached, false, nil
+	}
+
 	normalized, err := validateTransactionInput(input)
 	if err != nil {
-		return CreateTransactionResult{}, err
+		return CreateTransactionResult{}, false, err
 	}
 	if err := s.ensureTransactionAccount(ctx, userID, normalized.AccountID); err != nil {
-		return CreateTransactionResult{}, err
+		return CreateTransactionResult{}, false, err
 	}
-	if normalized.Kind == TransactionKindTransfer {
+	isTransfer := normalized.Kind == TransactionKindTransfer
+	if isTransfer {
 		if err := s.ensureTransactionAccount(ctx, userID, *normalized.TwinAccountID); err != nil {
-			return CreateTransactionResult{}, err
+			return CreateTransactionResult{}, false, err
 		}
-		return s.repo.CreateTransferPair(ctx, userID, normalized)
-	}
-	if isInvestTransactionKind(normalized.Kind) {
+	} else if isInvestTransactionKind(normalized.Kind) {
 		normalized, err = s.normalizeInvestTransaction(ctx, userID, normalized)
 		if err != nil {
-			return CreateTransactionResult{}, err
+			return CreateTransactionResult{}, false, err
 		}
 	} else {
 		if err := s.ensureTransactionCategory(ctx, userID, normalized.CategoryID, normalized.Kind); err != nil {
-			return CreateTransactionResult{}, err
+			return CreateTransactionResult{}, false, err
 		}
 	}
-	createdID, err := s.repo.CreateTransaction(ctx, userID, normalized)
+
+	tx, err := s.idempotency.BeginTx(ctx)
 	if err != nil {
-		return CreateTransactionResult{}, err
+		return CreateTransactionResult{}, false, err
 	}
-	return CreateTransactionResult{ID: createdID}, nil
+
+	var result CreateTransactionResult
+	if isTransfer {
+		result, err = s.repo.CreateTransferPair(ctx, tx, userID, normalized)
+	} else {
+		var createdID int64
+		createdID, err = s.repo.CreateTransaction(ctx, tx, userID, normalized)
+		result = CreateTransactionResult{ID: createdID, Version: 1}
+	}
+	if err != nil {
+		_ = tx.Rollback()
+		return CreateTransactionResult{}, false, err
+	}
+
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		_ = tx.Rollback()
+		return CreateTransactionResult{}, false, err
+	}
+	if err := s.idempotency.Record(ctx, tx, userID, operationID, string(resultJSON)); err != nil {
+		_ = tx.Rollback()
+		return CreateTransactionResult{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return CreateTransactionResult{}, false, fmt.Errorf("commit create transaction: %w", err)
+	}
+	return result, true, nil
 }
 
-func (s *Service) UpdateTransaction(ctx context.Context, userID int64, transactionID int64, input TransactionInput) error {
-	existing, err := s.repo.GetTransactionByID(ctx, userID, transactionID)
+func (s *Service) UpdateTransaction(ctx context.Context, userID int64, operationID string, transactionID int64, input TransactionInput) (newVersion int64, applied bool, err error) {
+	cachedJSON, found, err := s.peekIdempotency(ctx, userID, operationID)
 	if err != nil {
-		return err
+		return 0, false, err
+	}
+	if found {
+		var cached struct {
+			Version int64 `json:"version"`
+		}
+		if err := json.Unmarshal([]byte(cachedJSON), &cached); err != nil {
+			return 0, false, fmt.Errorf("decode cached transaction update: %w", err)
+		}
+		return cached.Version, false, nil
+	}
+
+	existing, err := s.repo.GetTransactionByID(ctx, s.repo.db, userID, transactionID)
+	if err != nil {
+		return 0, false, err
 	}
 	if existing == nil {
-		return legacy.NewError(legacy.ErrorKindNotFound, "Transaction not found")
+		return 0, false, legacy.NewError(legacy.ErrorKindNotFound, "Transaction not found")
 	}
 
 	normalized, err := validateTransactionInput(input)
 	if err != nil {
-		return err
+		return 0, false, err
 	}
 	if normalized.Kind != existing.Kind {
-		return legacy.NewError(legacy.ErrorKindValidation, "Transaction kind cannot be changed")
+		return 0, false, legacy.NewError(legacy.ErrorKindValidation, "Transaction kind cannot be changed")
 	}
 	if normalized.AccountID != existing.AccountID {
-		return legacy.NewError(legacy.ErrorKindValidation, "Account cannot be changed")
+		return 0, false, legacy.NewError(legacy.ErrorKindValidation, "Account cannot be changed")
 	}
 
-	if existing.Kind == TransactionKindTransfer {
+	isTransfer := existing.Kind == TransactionKindTransfer
+	var twinTransaction *Transaction
+	if isTransfer {
 		if normalized.TwinAccountID == nil || normalized.TwinAmount == nil {
-			return missingFieldsError("twinAccountId", "twinAmount")
+			return 0, false, missingFieldsError("twinAccountId", "twinAmount")
 		}
 		if existing.TwinID == nil {
-			return legacy.NewError(legacy.ErrorKindValidation, "Transfer pair is missing")
+			return 0, false, legacy.NewError(legacy.ErrorKindValidation, "Transfer pair is missing")
 		}
-		twinTransaction, err := s.repo.GetTransactionByID(ctx, userID, *existing.TwinID)
+		twinTransaction, err = s.repo.GetTransactionByID(ctx, s.repo.db, userID, *existing.TwinID)
 		if err != nil {
-			return err
+			return 0, false, err
 		}
 		if twinTransaction == nil {
-			return legacy.NewError(legacy.ErrorKindValidation, "Transfer pair is missing")
+			return 0, false, legacy.NewError(legacy.ErrorKindValidation, "Transfer pair is missing")
 		}
 		if *normalized.TwinAccountID != twinTransaction.AccountID {
-			return legacy.NewError(legacy.ErrorKindValidation, "Account cannot be changed")
+			return 0, false, legacy.NewError(legacy.ErrorKindValidation, "Account cannot be changed")
 		}
-		return s.repo.UpdateTransferPair(ctx, userID, existing.ID, twinTransaction.ID, normalized)
-	}
-
-	if isInvestTransactionKind(existing.Kind) {
+	} else if isInvestTransactionKind(existing.Kind) {
 		normalized, err = s.normalizeExistingInvestTransaction(ctx, userID, *existing, normalized)
 		if err != nil {
-			return err
+			return 0, false, err
 		}
 	} else {
 		if err := s.ensureTransactionCategory(ctx, userID, normalized.CategoryID, normalized.Kind); err != nil {
-			return err
+			return 0, false, err
 		}
 	}
-	if err := s.repo.UpdateTransaction(ctx, userID, transactionID, normalized); err != nil {
-		return err
+
+	tx, err := s.idempotency.BeginTx(ctx)
+	if err != nil {
+		return 0, false, err
 	}
-	return nil
+
+	newVersion = existing.Version + 1
+	if isTransfer {
+		err = s.repo.UpdateTransferPair(ctx, tx, userID, existing.ID, twinTransaction.ID, normalized, newVersion, twinTransaction.Version+1)
+	} else {
+		err = s.repo.UpdateTransaction(ctx, tx, userID, transactionID, normalized, newVersion)
+	}
+	if err != nil {
+		_ = tx.Rollback()
+		return 0, false, err
+	}
+
+	resultJSON, err := json.Marshal(struct {
+		Version int64 `json:"version"`
+	}{newVersion})
+	if err != nil {
+		_ = tx.Rollback()
+		return 0, false, err
+	}
+	if err := s.idempotency.Record(ctx, tx, userID, operationID, string(resultJSON)); err != nil {
+		_ = tx.Rollback()
+		return 0, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, false, fmt.Errorf("commit update transaction: %w", err)
+	}
+	return newVersion, true, nil
 }
 
-func (s *Service) DeleteTransaction(ctx context.Context, userID int64, transactionID int64) error {
-	existing, err := s.repo.GetTransactionByID(ctx, userID, transactionID)
+func (s *Service) DeleteTransaction(ctx context.Context, userID int64, operationID string, transactionID int64) (applied bool, err error) {
+	_, found, err := s.peekIdempotency(ctx, userID, operationID)
 	if err != nil {
-		return err
+		return false, err
+	}
+	if found {
+		return false, nil
+	}
+
+	existing, err := s.repo.GetTransactionByID(ctx, s.repo.db, userID, transactionID)
+	if err != nil {
+		return false, err
 	}
 	if existing == nil {
-		return legacy.NewError(legacy.ErrorKindNotFound, "Transaction not found")
+		return false, legacy.NewError(legacy.ErrorKindNotFound, "Transaction not found")
 	}
-	return s.repo.DeleteTransaction(ctx, userID, transactionID)
+
+	tx, err := s.idempotency.BeginTx(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	if err := s.repo.DeleteTransaction(ctx, tx, userID, transactionID); err != nil {
+		_ = tx.Rollback()
+		return false, err
+	}
+	if err := s.idempotency.Record(ctx, tx, userID, operationID, "{}"); err != nil {
+		_ = tx.Rollback()
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit delete transaction: %w", err)
+	}
+	return true, nil
 }
 
 func (s *Service) ensureAccountReferences(ctx context.Context, userID int64, input AccountInput) error {

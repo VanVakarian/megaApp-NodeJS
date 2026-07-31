@@ -253,6 +253,7 @@ func legacyFixtureConfig(t *testing.T, tempDir string) config.Config {
 		FlatlinePushTimeout:                 time.Second,
 		FlatlinePollInterval:                time.Hour,
 		FlatlinePollInitialLookback:         time.Minute,
+		FlatlinePollMaxCatchUp:              time.Hour,
 		OpenRouterTimeout:                   time.Minute,
 		OpenAIEmbeddingDims:                 768,
 		OpenAITimeout:                       time.Minute,
