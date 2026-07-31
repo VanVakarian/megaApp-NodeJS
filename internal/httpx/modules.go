@@ -150,7 +150,7 @@ func buildBackupModule(db sqlite.WriteDB, cfg config.Config, logger *slog.Logger
 			return backupModule{}, err
 		}
 	}
-	return backupModule{service: service, debugHandler: backup.NewDebugHandler(service)}, nil
+	return backupModule{service: service, debugHandler: backup.NewDebugHandler(service, logger)}, nil
 }
 
 func buildMetricsModule(cfg config.Config, logger *slog.Logger, hub *ws.Hub, authService *auth.Service, clk clockplatform.Clock, runtime *jobs.Runtime) (metricsModule, error) {

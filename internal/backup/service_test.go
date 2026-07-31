@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ func (c fixedClock) Now() time.Time {
 }
 
 type fakeUploader struct {
+	mu           sync.Mutex
 	key          string
 	contentType  string
 	storageClass string
@@ -33,6 +35,8 @@ type fakeUploader struct {
 }
 
 func (u *fakeUploader) UploadFile(_ context.Context, key string, filePath string, contentType string, storageClass string) error {
+	u.mu.Lock()
+	defer u.mu.Unlock()
 	u.key = key
 	u.contentType = contentType
 	u.storageClass = storageClass
@@ -45,6 +49,12 @@ func (u *fakeUploader) UploadFile(_ context.Context, key string, filePath string
 	}
 	u.archiveBytes = data
 	return nil
+}
+
+func (u *fakeUploader) Key() string {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.key
 }
 
 func TestServiceRunCreatesUploadsAndCleansBackup(t *testing.T) {
