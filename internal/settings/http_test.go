@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"megaapp-back/internal/auth"
+	"megaapp-back/internal/platform/sqlite"
 
 	"github.com/go-chi/chi/v5"
 	_ "modernc.org/sqlite"
@@ -48,7 +49,7 @@ func TestSettingsEndpoints(t *testing.T) {
 		t.Fatalf("Exec() error = %v", err)
 	}
 
-	authRepo := auth.NewRepository(db)
+	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
 	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
 	authService := auth.NewService(authRepo, tokenManager)
 	userID, err := authService.Register(t.Context(), "alice", "password123")
@@ -59,7 +60,7 @@ func TestSettingsEndpoints(t *testing.T) {
 		t.Fatalf("Exec() error = %v", err)
 	}
 
-	settingsService := NewService(NewRepository(db))
+	settingsService := NewService(NewRepository(db, sqlite.WriteDB{DB: db}))
 	settingsHandler := NewHandler(settingsService)
 
 	tokens, err := tokenManager.Issue(auth.TokenClaims{UserID: userID, Username: "alice"})

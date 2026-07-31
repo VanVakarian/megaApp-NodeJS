@@ -18,6 +18,7 @@ import (
 	clockplatform "megaapp-back/internal/platform/clock"
 	"megaapp-back/internal/platform/idempotency"
 	s3platform "megaapp-back/internal/platform/s3"
+	"megaapp-back/internal/platform/sqlite"
 	"megaapp-back/internal/quotes"
 	"megaapp-back/internal/settings"
 	"megaapp-back/internal/ws"
@@ -71,15 +72,15 @@ type foodModule struct {
 	backgrounds      []interface{ Close() error }
 }
 
-func buildAuthModule(db *sql.DB, cfg config.Config) authModule {
-	repo := auth.NewRepository(db)
+func buildAuthModule(read *sql.DB, write sqlite.WriteDB, cfg config.Config) authModule {
+	repo := auth.NewRepository(read, write)
 	tokenManager := auth.NewTokenManager(cfg.JWTSecret, auth.AccessTokenTTL(), auth.RefreshTokenTTL())
 	service := auth.NewService(repo, tokenManager)
 	return authModule{service: service, handler: auth.NewHandler(service)}
 }
 
-func buildSettingsModule(db *sql.DB) settingsModule {
-	repo := settings.NewRepository(db)
+func buildSettingsModule(read *sql.DB, write sqlite.WriteDB) settingsModule {
+	repo := settings.NewRepository(read, write)
 	service := settings.NewService(repo)
 	return settingsModule{service: service, handler: settings.NewHandler(service)}
 }
@@ -91,14 +92,14 @@ func buildWSModule(cfg config.Config, authService *auth.Service) wsModule {
 	return wsModule{hub: hub, handler: ws.NewHandler(authService, hub)}
 }
 
-func buildMoneyModule(db *sql.DB) moneyModule {
-	repo := money.NewRepository(db)
-	service := money.NewService(repo, idempotency.NewStore(db))
+func buildMoneyModule(read *sql.DB, write sqlite.WriteDB) moneyModule {
+	repo := money.NewRepository(read, write)
+	service := money.NewService(repo, idempotency.NewStore(write))
 	return moneyModule{service: service, handler: money.NewHandler(service)}
 }
 
-func buildQuotesModule(db *sql.DB, cfg config.Config, logger *slog.Logger, clk clockplatform.Clock, runtime *jobs.Runtime) (quotesModule, error) {
-	repo := quotes.NewRepository(db)
+func buildQuotesModule(read *sql.DB, write sqlite.WriteDB, cfg config.Config, logger *slog.Logger, clk clockplatform.Clock, runtime *jobs.Runtime) (quotesModule, error) {
+	repo := quotes.NewRepository(read, write)
 	service := quotes.NewService(repo, quotes.Config{
 		FetchDays:      cfg.QuotesFetchDays,
 		RetryAttempts:  cfg.QuotesRetryAttempts,
@@ -116,7 +117,7 @@ func buildQuotesModule(db *sql.DB, cfg config.Config, logger *slog.Logger, clk c
 	return quotesModule{service: service, debugHandler: quotes.NewDebugHandler(service)}, nil
 }
 
-func buildBackupModule(db *sql.DB, cfg config.Config, logger *slog.Logger, clk clockplatform.Clock, runtime *jobs.Runtime, metricsRecorder *metrics.Service) (backupModule, error) {
+func buildBackupModule(db sqlite.WriteDB, cfg config.Config, logger *slog.Logger, clk clockplatform.Clock, runtime *jobs.Runtime, metricsRecorder *metrics.Service) (backupModule, error) {
 	var uploader *s3platform.Client
 	if cfg.BackupStorageEnabled {
 		uploader = s3platform.NewClient(s3platform.Config{
@@ -193,9 +194,9 @@ func buildMetricsModule(cfg config.Config, logger *slog.Logger, hub *ws.Hub, aut
 	}, nil
 }
 
-func buildFoodModule(db *sql.DB, cfg config.Config, logger *slog.Logger, hub *ws.Hub, clk clockplatform.Clock, metricsRecorder food.MetricsRecorder) (foodModule, error) {
-	repo := food.NewRepository(db)
-	service := food.NewService(repo, idempotency.NewStore(db))
+func buildFoodModule(read *sql.DB, write sqlite.WriteDB, cfg config.Config, logger *slog.Logger, hub *ws.Hub, clk clockplatform.Clock, metricsRecorder food.MetricsRecorder) (foodModule, error) {
+	repo := food.NewRepository(read, write)
+	service := food.NewService(repo, idempotency.NewStore(write))
 	service.SetClock(clk)
 	service.SetPersonalKcalConfig(food.PersonalKcalConfig{
 		LookbackMonths:          cfg.PersonalKcalLookbackMonths,

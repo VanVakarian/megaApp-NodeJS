@@ -29,19 +29,26 @@ func (r *Repository) GetQueryEmbedding(ctx context.Context, query string) ([]byt
 		return nil, nil
 	}
 
-	if _, err := r.db.ExecContext(ctx, `
+	return embedding, nil
+}
+
+// RecordQueryEmbeddingHit bumps the cache hit counter for an already-cached query embedding.
+// Best-effort and separate from GetQueryEmbedding on purpose: it's just popularity tracking, not
+// consistency-critical, so it doesn't need to share a transaction with the read, and it goes
+// through the write pool on its own instead of forcing every cache-hit read onto it too.
+func (r *Repository) RecordQueryEmbeddingHit(ctx context.Context, query string) error {
+	if _, err := r.write.ExecContext(ctx, `
 		UPDATE foodSearchQueryEmbeddings
 		SET hitCount = hitCount + 1, lastUsedAt = ?
 		WHERE query = ?
 	`, nowUnixMilli(), query); err != nil {
-		return nil, fmt.Errorf("update query embedding usage: %w", err)
+		return fmt.Errorf("update query embedding usage: %w", err)
 	}
-
-	return embedding, nil
+	return nil
 }
 
 func (r *Repository) SaveQueryEmbedding(ctx context.Context, query string, embedding []byte) error {
-	_, err := r.db.ExecContext(ctx, `
+	_, err := r.write.ExecContext(ctx, `
 		INSERT OR REPLACE INTO foodSearchQueryEmbeddings (query, embedding, hitCount, lastUsedAt, createdAt)
 		VALUES (?, ?, 1, ?, ?)
 	`, query, embedding, nowUnixMilli(), nowUnixMilli())

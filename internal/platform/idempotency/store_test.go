@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"testing"
 
+	"megaapp-back/internal/platform/sqlite"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -25,7 +27,7 @@ func openTestDB(t *testing.T) *sql.DB {
 
 func TestStoreFindMissThenRecordThenHit(t *testing.T) {
 	db := openTestDB(t)
-	store := NewStore(db)
+	store := NewStore(sqlite.WriteDB{DB: db})
 	ctx := context.Background()
 
 	tx, err := store.BeginTx(ctx)
@@ -58,7 +60,7 @@ func TestStoreFindMissThenRecordThenHit(t *testing.T) {
 
 func TestStoreFindScopedToUser(t *testing.T) {
 	db := openTestDB(t)
-	store := NewStore(db)
+	store := NewStore(sqlite.WriteDB{DB: db})
 	ctx := context.Background()
 
 	tx, err := store.BeginTx(ctx)

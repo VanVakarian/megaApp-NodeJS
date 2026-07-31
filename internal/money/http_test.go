@@ -12,6 +12,7 @@ import (
 
 	"megaapp-back/internal/auth"
 	"megaapp-back/internal/platform/idempotency"
+	"megaapp-back/internal/platform/sqlite"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -23,10 +24,10 @@ func TestMoneyRoutesSnapshotAndReferenceCrud(t *testing.T) {
 	insertMoneyReadFixtures(t, db, 1)
 	insertMoneyBrokerageAccount(t, db, 1, 2, "Brokerage", AccountKindBrokerage)
 
-	authRepo := auth.NewRepository(db)
+	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
 	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
 	authService := auth.NewService(authRepo, tokenManager)
-	handler := NewHandler(NewService(NewRepository(db), idempotency.NewStore(db)))
+	handler := NewHandler(NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db})))
 
 	router := chi.NewRouter()
 	RegisterRoutes(router, authService, handler)
@@ -126,10 +127,10 @@ func TestMoneyRoutesTransactionsCrud(t *testing.T) {
 	insertMoneyAccount(t, db, 1, 2, "Card", AccountKindCard)
 	insertMoneyCategory(t, db, 1, 3, "Salary", nil, CategoryTypeIncome)
 
-	authRepo := auth.NewRepository(db)
+	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
 	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
 	authService := auth.NewService(authRepo, tokenManager)
-	handler := NewHandler(NewService(NewRepository(db), idempotency.NewStore(db)))
+	handler := NewHandler(NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db})))
 
 	router := chi.NewRouter()
 	RegisterRoutes(router, authService, handler)
@@ -217,10 +218,10 @@ func TestMoneyRoutesInvestTransactions(t *testing.T) {
 	insertMoneyAsset(t, db, 1, 1, "Apple", "AAPL", AssetTypeStock, []int64{2})
 	insertMoneyAsset(t, db, 1, 2, "Bond", "OFZ", AssetTypeBond, []int64{2})
 
-	authRepo := auth.NewRepository(db)
+	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
 	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
 	authService := auth.NewService(authRepo, tokenManager)
-	handler := NewHandler(NewService(NewRepository(db), idempotency.NewStore(db)))
+	handler := NewHandler(NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db})))
 
 	router := chi.NewRouter()
 	RegisterRoutes(router, authService, handler)
@@ -328,8 +329,8 @@ func TestMoneyRoutesTradesAndRateHistory(t *testing.T) {
 	insertMoneyRateHistory(t, db, 1, "2026-06-10", `{"USD":1,"RUB":90,"AAPL":210}`)
 	insertMoneyRateHistory(t, db, 2, "2026-06-30", `{"USD":1,"RUB":91,"AAPL":220}`)
 
-	handler := NewHandler(NewServiceWithClock(NewRepository(db), idempotency.NewStore(db), fixedMoneyClock{now: time.Date(2026, time.June, 30, 12, 0, 0, 0, time.UTC)}))
-	authRepo := auth.NewRepository(db)
+	handler := NewHandler(NewServiceWithClock(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}), fixedMoneyClock{now: time.Date(2026, time.June, 30, 12, 0, 0, 0, time.UTC)}))
+	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
 	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
 	authService := auth.NewService(authRepo, tokenManager)
 

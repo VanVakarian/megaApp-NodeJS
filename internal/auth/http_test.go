@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"megaapp-back/internal/platform/sqlite"
+
 	"github.com/go-chi/chi/v5"
 	_ "modernc.org/sqlite"
 )
@@ -31,7 +33,7 @@ func TestAuthEndpointsAndMiddleware(t *testing.T) {
 		t.Fatalf("Exec() error = %v", err)
 	}
 
-	repo := NewRepository(db)
+	repo := NewRepository(db, sqlite.WriteDB{DB: db})
 	service := NewService(repo, NewTokenManager("test-secret", time.Hour, 24*time.Hour))
 	handler := NewHandler(service)
 

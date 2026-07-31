@@ -406,9 +406,10 @@ func (s *Service) GetRateHistory(ctx context.Context) ([]RateHistory, error) {
 // on a replay, nothing else (existence checks, cross-table validation) should run at all, since
 // the entity a stale retry refers to may have legitimately been mutated or deleted since by an
 // operation that already subsumes it. Cross-table validation reads (account/category/asset
-// lookups) happen via r.db between this peek and the real write's own transaction; both are
-// safe from races because SetMaxOpenConns(1) serializes the whole app onto one connection —
-// nothing else can run in between regardless of how many round-trips this takes.
+// lookups) happen via r.db (read pool) between this peek and the real write's own transaction
+// (write pool) — a concurrent write to one of those referenced rows in that window is a known,
+// accepted race (same class as "stale retry over a newer edit", see plan 15), not something this
+// function needs to close.
 func (s *Service) peekIdempotency(ctx context.Context, userID int64, operationID string) (string, bool, error) {
 	tx, err := s.idempotency.BeginTx(ctx)
 	if err != nil {

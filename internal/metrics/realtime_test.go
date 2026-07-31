@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"megaapp-back/internal/auth"
+	"megaapp-back/internal/platform/sqlite"
 	"megaapp-back/internal/ws"
 
 	"github.com/go-chi/chi/v5"
@@ -254,7 +255,7 @@ func newMetricsTestEnv(t *testing.T) (*auth.Service, *auth.TokenManager, *Realti
 	}
 
 	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
-	authService := auth.NewService(auth.NewRepository(authDB), tokenManager)
+	authService := auth.NewService(auth.NewRepository(authDB, sqlite.WriteDB{DB: authDB}), tokenManager)
 
 	service := NewService(MainServiceName, fixedMetricsClock{now: time.Now()}, authService)
 

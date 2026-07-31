@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+
+	"megaapp-back/internal/platform/sqlite"
 )
 
 type UserSettings struct {
@@ -26,11 +28,12 @@ type StoredSettings struct {
 }
 
 type Repository struct {
-	db *sql.DB
+	db    *sql.DB
+	write sqlite.WriteDB
 }
 
-func NewRepository(db *sql.DB) *Repository {
-	return &Repository{db: db}
+func NewRepository(read *sql.DB, write sqlite.WriteDB) *Repository {
+	return &Repository{db: read, write: write}
 }
 
 func (r *Repository) GetByUserID(ctx context.Context, userID int64) (*StoredSettings, error) {
@@ -63,7 +66,7 @@ func (r *Repository) GetByUserID(ctx context.Context, userID int64) (*StoredSett
 }
 
 func (r *Repository) Upsert(ctx context.Context, userID int64, settings StoredSettings) error {
-	result, err := r.db.ExecContext(ctx, `
+	result, err := r.write.ExecContext(ctx, `
 		UPDATE settings
 		SET darkTheme = ?, selectedChapterFood = ?, selectedChapterMoney = ?, liteVersion = ?, height = ?
 		WHERE usersId = ?
@@ -80,7 +83,7 @@ func (r *Repository) Upsert(ctx context.Context, userID int64, settings StoredSe
 		return nil
 	}
 
-	if _, err := r.db.ExecContext(ctx, `
+	if _, err := r.write.ExecContext(ctx, `
 		INSERT INTO settings (usersId, darkTheme, selectedChapterFood, selectedChapterMoney, liteVersion, height)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`, userID, settings.DarkTheme, settings.SelectedChapterFood, settings.SelectedChapterMoney, settings.LiteVersion, settings.Height); err != nil {
@@ -105,7 +108,7 @@ func (r *Repository) GetMetricsSettingsByUserID(ctx context.Context, userID int6
 }
 
 func (r *Repository) UpsertMetricsSettings(ctx context.Context, userID int64, value string) error {
-	result, err := r.db.ExecContext(ctx, `
+	result, err := r.write.ExecContext(ctx, `
 		UPDATE settings
 		SET metricsSettings = ?
 		WHERE usersId = ?
@@ -122,7 +125,7 @@ func (r *Repository) UpsertMetricsSettings(ctx context.Context, userID int64, va
 		return nil
 	}
 
-	if _, err := r.db.ExecContext(ctx, `
+	if _, err := r.write.ExecContext(ctx, `
 		INSERT INTO settings (usersId, metricsSettings)
 		VALUES (?, ?)
 	`, userID, value); err != nil {

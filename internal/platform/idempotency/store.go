@@ -6,17 +6,21 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"megaapp-back/internal/platform/sqlite"
 )
 
 // Store lets a write operation be replayed safely: the caller checks Find inside its own
 // transaction before doing any business writes, and calls Record in that same transaction
 // right before committing. A retry with the same operationID then short-circuits to the
-// original result instead of re-applying the operation.
+// original result instead of re-applying the operation. Always backed by the write connection —
+// idempotency correctness depends on this transaction being part of the single serialized write
+// path, never the read pool.
 type Store struct {
-	db *sql.DB
+	db sqlite.WriteDB
 }
 
-func NewStore(db *sql.DB) *Store {
+func NewStore(db sqlite.WriteDB) *Store {
 	return &Store{db: db}
 }
 

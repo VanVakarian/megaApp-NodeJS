@@ -82,7 +82,7 @@ func (r *Repository) GetCatalogueEntriesWithoutEmbeddings(ctx context.Context, l
 }
 
 func (r *Repository) UpdateCatalogueEntryEmbeddings(ctx context.Context, catalogueID int64, nameVector []byte, descriptionVector []byte) (bool, error) {
-	result, err := r.db.ExecContext(ctx, `
+	result, err := r.write.ExecContext(ctx, `
 		UPDATE foodCatalogue
 		SET nameVec = ?, descriptionVec = ?
 		WHERE id = ?
@@ -98,7 +98,7 @@ func (r *Repository) UpdateCatalogueEntryEmbeddings(ctx context.Context, catalog
 }
 
 func (r *Repository) UpdateGeneratedCatalogueEntry(ctx context.Context, catalogueID int64, input ProductInput) (bool, error) {
-	result, err := r.db.ExecContext(ctx, `
+	result, err := r.write.ExecContext(ctx, `
 		UPDATE foodCatalogue
 		SET name = ?, kcals = ?, protein = ?, fat = ?, carbs = ?, fiber = ?, description = ?,
 			legacyName = COALESCE(legacyName, (SELECT name FROM foodCatalogue WHERE id = ?)),
@@ -178,7 +178,7 @@ func (r *Repository) GetAllCatalogueDebugEntries(ctx context.Context) ([]Catalog
 }
 
 func (r *Repository) ClearAllCatalogueEntries(ctx context.Context) (int64, error) {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM foodCatalogue`)
+	result, err := r.write.ExecContext(ctx, `DELETE FROM foodCatalogue`)
 	if err != nil {
 		return 0, fmt.Errorf("clear catalogue entries: %w", err)
 	}
@@ -190,7 +190,7 @@ func (r *Repository) ClearAllCatalogueEntries(ctx context.Context) (int64, error
 }
 
 func (r *Repository) ImportCatalogueEntries(ctx context.Context, entries []CatalogueImportEntry) (int64, error) {
-	statement, err := r.db.PrepareContext(ctx, `
+	statement, err := r.write.PrepareContext(ctx, `
 		INSERT INTO foodCatalogue (name, description, legacyName)
 		VALUES (?, ?, ?)
 	`)

@@ -7,10 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+
+	"megaapp-back/internal/platform/sqlite"
 )
 
 type Repository struct {
-	db *sql.DB
+	db    *sql.DB
+	write sqlite.WriteDB
 }
 
 type txRunner interface {
@@ -18,8 +21,8 @@ type txRunner interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-func NewRepository(db *sql.DB) *Repository {
-	return &Repository{db: db}
+func NewRepository(read *sql.DB, write sqlite.WriteDB) *Repository {
+	return &Repository{db: read, write: write}
 }
 
 func (r *Repository) ListOrganizations(ctx context.Context, userID int64) ([]Organization, error) {
@@ -82,7 +85,7 @@ func (r *Repository) CountAccountsByOrganization(ctx context.Context, userID int
 }
 
 func (r *Repository) CreateOrganization(ctx context.Context, userID int64, input OrganizationInput) (int64, error) {
-	result, err := r.db.ExecContext(ctx, `
+	result, err := r.write.ExecContext(ctx, `
 		INSERT INTO moneyOrganization (title, logoBase64, userId)
 		VALUES (?, ?, ?)
 	`, input.Title, valueOrNil(input.LogoBase64), userID)
@@ -97,7 +100,7 @@ func (r *Repository) CreateOrganization(ctx context.Context, userID int64, input
 }
 
 func (r *Repository) UpdateOrganization(ctx context.Context, userID int64, organizationID int64, input OrganizationInput) error {
-	_, err := r.db.ExecContext(ctx, `
+	_, err := r.write.ExecContext(ctx, `
 		UPDATE moneyOrganization
 		SET title = ?, logoBase64 = ?
 		WHERE id = ? AND userId = ?
@@ -109,7 +112,7 @@ func (r *Repository) UpdateOrganization(ctx context.Context, userID int64, organ
 }
 
 func (r *Repository) DeleteOrganization(ctx context.Context, userID int64, organizationID int64) error {
-	_, err := r.db.ExecContext(ctx, `
+	_, err := r.write.ExecContext(ctx, `
 		DELETE FROM moneyOrganization
 		WHERE id = ? AND userId = ?
 	`, organizationID, userID)
@@ -179,7 +182,7 @@ func (r *Repository) CountAccountsByCurrency(ctx context.Context, userID int64, 
 }
 
 func (r *Repository) CreateCurrency(ctx context.Context, userID int64, input CurrencyInput) (int64, error) {
-	result, err := r.db.ExecContext(ctx, `
+	result, err := r.write.ExecContext(ctx, `
 		INSERT INTO moneyCurrency (title, ticker, symbol, symbolPosEnum, whitespace, userId)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`, input.Title, input.Ticker, input.Symbol, input.SymbolPosEnum, boolToInt64(input.Whitespace), userID)
@@ -194,7 +197,7 @@ func (r *Repository) CreateCurrency(ctx context.Context, userID int64, input Cur
 }
 
 func (r *Repository) UpdateCurrency(ctx context.Context, userID int64, currencyID int64, input CurrencyInput) error {
-	_, err := r.db.ExecContext(ctx, `
+	_, err := r.write.ExecContext(ctx, `
 		UPDATE moneyCurrency
 		SET title = ?, ticker = ?, symbol = ?, symbolPosEnum = ?, whitespace = ?
 		WHERE id = ? AND userId = ?
@@ -206,7 +209,7 @@ func (r *Repository) UpdateCurrency(ctx context.Context, userID int64, currencyI
 }
 
 func (r *Repository) DeleteCurrency(ctx context.Context, userID int64, currencyID int64) error {
-	_, err := r.db.ExecContext(ctx, `
+	_, err := r.write.ExecContext(ctx, `
 		DELETE FROM moneyCurrency
 		WHERE id = ? AND userId = ?
 	`, currencyID, userID)
@@ -288,7 +291,7 @@ func (r *Repository) CountTransactionsByCategory(ctx context.Context, userID int
 }
 
 func (r *Repository) CreateCategory(ctx context.Context, userID int64, input CategoryInput) (int64, error) {
-	result, err := r.db.ExecContext(ctx, `
+	result, err := r.write.ExecContext(ctx, `
 		INSERT INTO moneyCategories (name, categoryType, userId, parentId)
 		VALUES (?, ?, ?, ?)
 	`, input.Name, input.CategoryType, userID, nullableValue(input.ParentID))
@@ -303,7 +306,7 @@ func (r *Repository) CreateCategory(ctx context.Context, userID int64, input Cat
 }
 
 func (r *Repository) UpdateCategory(ctx context.Context, userID int64, categoryID int64, input CategoryInput) error {
-	_, err := r.db.ExecContext(ctx, `
+	_, err := r.write.ExecContext(ctx, `
 		UPDATE moneyCategories
 		SET name = ?, categoryType = ?, parentId = ?
 		WHERE id = ? AND userId = ?
@@ -315,7 +318,7 @@ func (r *Repository) UpdateCategory(ctx context.Context, userID int64, categoryI
 }
 
 func (r *Repository) DeleteCategory(ctx context.Context, userID int64, categoryID int64) error {
-	_, err := r.db.ExecContext(ctx, `
+	_, err := r.write.ExecContext(ctx, `
 		DELETE FROM moneyCategories
 		WHERE id = ? AND userId = ?
 	`, categoryID, userID)
@@ -405,7 +408,7 @@ func (r *Repository) CountAssetsByAccount(ctx context.Context, userID int64, acc
 }
 
 func (r *Repository) CreateAccount(ctx context.Context, userID int64, input AccountInput) (int64, error) {
-	result, err := r.db.ExecContext(ctx, `
+	result, err := r.write.ExecContext(ctx, `
 		INSERT INTO moneyAccount (title, currencyId, isInvest, isArchived, kind, organizationId, userId)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`, input.Title, input.CurrencyID, boolToInt64(input.IsInvest), boolToInt64(input.IsArchived), input.Kind, nullableValue(input.OrganizationID), userID)
@@ -420,7 +423,7 @@ func (r *Repository) CreateAccount(ctx context.Context, userID int64, input Acco
 }
 
 func (r *Repository) UpdateAccount(ctx context.Context, userID int64, accountID int64, input AccountInput) error {
-	_, err := r.db.ExecContext(ctx, `
+	_, err := r.write.ExecContext(ctx, `
 		UPDATE moneyAccount
 		SET title = ?, currencyId = ?, isInvest = ?, isArchived = ?, kind = ?, organizationId = ?
 		WHERE id = ? AND userId = ?
@@ -432,7 +435,7 @@ func (r *Repository) UpdateAccount(ctx context.Context, userID int64, accountID 
 }
 
 func (r *Repository) DeleteAccount(ctx context.Context, userID int64, accountID int64) error {
-	_, err := r.db.ExecContext(ctx, `
+	_, err := r.write.ExecContext(ctx, `
 		DELETE FROM moneyAccount
 		WHERE id = ? AND userId = ?
 	`, accountID, userID)
@@ -530,7 +533,7 @@ func (r *Repository) ListLinkedTransactionAccountIDsByAsset(ctx context.Context,
 }
 
 func (r *Repository) CreateAsset(ctx context.Context, userID int64, input AssetInput) (int64, error) {
-	result, err := r.db.ExecContext(ctx, `
+	result, err := r.write.ExecContext(ctx, `
 		INSERT INTO moneyAsset (title, ticker, type, accountIdsJSON, suspendedSince, suspendedUntil, userId)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`, input.Title, input.Ticker, input.Type, marshalAccountIDs(input.AccountIDs), valueOrNil(input.SuspendedSince), valueOrNil(input.SuspendedUntil), userID)
@@ -545,7 +548,7 @@ func (r *Repository) CreateAsset(ctx context.Context, userID int64, input AssetI
 }
 
 func (r *Repository) UpdateAsset(ctx context.Context, userID int64, assetID int64, input AssetInput) error {
-	_, err := r.db.ExecContext(ctx, `
+	_, err := r.write.ExecContext(ctx, `
 		UPDATE moneyAsset
 		SET title = ?, ticker = ?, type = ?, accountIdsJSON = ?, suspendedSince = ?, suspendedUntil = ?
 		WHERE id = ? AND userId = ?
@@ -557,7 +560,7 @@ func (r *Repository) UpdateAsset(ctx context.Context, userID int64, assetID int6
 }
 
 func (r *Repository) DeleteAsset(ctx context.Context, userID int64, assetID int64) error {
-	_, err := r.db.ExecContext(ctx, `
+	_, err := r.write.ExecContext(ctx, `
 		DELETE FROM moneyAsset
 		WHERE id = ? AND userId = ?
 	`, assetID, userID)

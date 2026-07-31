@@ -15,6 +15,7 @@ import (
 
 	"megaapp-back/internal/httpx/legacy"
 	"megaapp-back/internal/platform/idempotency"
+	"megaapp-back/internal/platform/sqlite"
 
 	_ "modernc.org/sqlite"
 )
@@ -25,7 +26,7 @@ func TestServiceSnapshotIncludesNormalizedAssets(t *testing.T) {
 	insertMoneyReferenceFixtures(t, db, 1)
 	insertMoneyReadFixtures(t, db, 1)
 
-	service := NewServiceWithClock(NewRepository(db), idempotency.NewStore(db), fixedMoneyClock{now: time.Date(2026, time.June, 30, 12, 0, 0, 0, time.UTC)})
+	service := NewServiceWithClock(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}), fixedMoneyClock{now: time.Date(2026, time.June, 30, 12, 0, 0, 0, time.UTC)})
 	snapshot, err := service.GetSnapshot(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("GetSnapshot() error = %v", err)
@@ -59,7 +60,7 @@ func TestServiceSnapshotFiltersRateHistoryForCurrenciesAndHeldAssets(t *testing.
 	insertMoneyCategory(t, db, 1, 3, "Salary", nil, CategoryTypeIncome)
 	insertMoneyCurrency(t, db, 1, 2, "Dollar", "USD", "$", SymbolPositionBefore)
 	insertMoneyAsset(t, db, 1, 1, "Apple", "AAPL", AssetTypeStock, []int64{2})
-	service := NewServiceWithClock(NewRepository(db), idempotency.NewStore(db), fixedMoneyClock{now: time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)})
+	service := NewServiceWithClock(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}), fixedMoneyClock{now: time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)})
 
 	if _, _, err := service.CreateTransaction(context.Background(), 1, "op-buy", TransactionInput{
 		DateISO:   "2026-06-15",
@@ -127,7 +128,7 @@ func TestServiceSnapshotFiltersRateHistoryForCurrenciesAndHeldAssets(t *testing.
 func TestServiceCreateOrganizationResizesLogo(t *testing.T) {
 	db := openMoneyTestDB(t)
 	insertMoneyTestUser(t, db, 1, "alice")
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 
 	logo := makeBase64PNG(t, 64, 48)
 	organizationID, err := service.CreateOrganization(context.Background(), 1, OrganizationInput{Title: "Broker", LogoBase64: &logo})
@@ -154,7 +155,7 @@ func TestServiceCategoryValidationAndDeleteGuards(t *testing.T) {
 	db := openMoneyTestDB(t)
 	insertMoneyTestUser(t, db, 1, "alice")
 	insertMoneyReferenceFixtures(t, db, 1)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 
 	_, err := service.CreateCategory(context.Background(), 1, CategoryInput{Name: "Bonus", CategoryType: CategoryTypeIncome, ParentID: int64Ptr(2)})
 	assertMoneyValidationError(t, err, "Parent category type must match categoryType")
@@ -174,7 +175,7 @@ func TestServiceAccountValidationAndDeleteGuards(t *testing.T) {
 	db := openMoneyTestDB(t)
 	insertMoneyTestUser(t, db, 1, "alice")
 	insertMoneyReferenceFixtures(t, db, 1)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 
 	_, err := service.CreateAccount(context.Background(), 1, AccountInput{Title: "Wallet", CurrencyID: 999, Kind: AccountKindCash})
 	assertMoneyValidationError(t, err, "Currency not found")
@@ -202,7 +203,7 @@ func TestServiceCreateAssetNormalizesAccountsAndSuspension(t *testing.T) {
 	insertMoneyTestUser(t, db, 1, "alice")
 	insertMoneyReferenceFixtures(t, db, 1)
 	insertMoneyBrokerageAccount(t, db, 1, 2, "Brokerage", AccountKindBrokerage)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 
 	assetID, err := service.CreateAsset(context.Background(), 1, AssetInput{
 		Title:          " Apple ",
@@ -240,7 +241,7 @@ func TestServiceAssetValidationAndGuards(t *testing.T) {
 	insertMoneyReferenceFixtures(t, db, 1)
 	insertMoneyBrokerageAccount(t, db, 1, 2, "Brokerage", AccountKindBrokerage)
 	insertMoneyBrokerageAccount(t, db, 1, 3, "Crypto", AccountKindCrypto)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 
 	_, err := service.CreateAsset(context.Background(), 1, AssetInput{Title: "Asset", Ticker: "AAA", Type: AssetTypeStock, AccountIDs: []int64{1}})
 	assertMoneyValidationError(t, err, "Asset account must be brokerage or crypto: 1")
@@ -270,7 +271,7 @@ func TestServiceTransactionLifecycleAndValidation(t *testing.T) {
 	insertMoneyReferenceFixtures(t, db, 1)
 	insertMoneyAccount(t, db, 1, 2, "Card", AccountKindCard)
 	insertMoneyCategory(t, db, 1, 3, "Salary", nil, CategoryTypeIncome)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 
 	created, _, err := service.CreateTransaction(context.Background(), 1, "op-create", TransactionInput{
 		DateISO:    "2026-06-18",
@@ -354,7 +355,7 @@ func TestServiceTransferLifecycleAndRollback(t *testing.T) {
 	insertMoneyReferenceFixtures(t, db, 1)
 	insertMoneyAccount(t, db, 1, 2, "Card", AccountKindCard)
 	insertMoneyAccount(t, db, 1, 3, "Savings", AccountKindChecking)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 
 	created, _, err := service.CreateTransaction(context.Background(), 1, "op-create-transfer", TransactionInput{
 		DateISO:       "2026-06-18",
@@ -468,7 +469,7 @@ func TestServiceInvestTransactionLifecycleAndValidation(t *testing.T) {
 	insertMoneyBrokerageAccount(t, db, 1, 3, "Crypto", AccountKindCrypto)
 	insertMoneyAsset(t, db, 1, 1, "Apple", "AAPL", AssetTypeStock, []int64{2})
 	insertMoneyAsset(t, db, 1, 2, "Bond", "OFZ", AssetTypeBond, []int64{2})
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 
 	buyResult, _, err := service.CreateTransaction(context.Background(), 1, "op-buy", TransactionInput{
 		DateISO:   "2026-06-18",
@@ -636,7 +637,7 @@ func TestCreateTransactionSameOperationIDReplaysWithoutDuplicate(t *testing.T) {
 	db := openMoneyTestDB(t)
 	insertMoneyTestUser(t, db, 1, "alice")
 	insertMoneyReferenceFixtures(t, db, 1)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 
 	input := TransactionInput{
 		DateISO:   "2026-06-18",
@@ -669,7 +670,7 @@ func TestUpdateTransactionRetryDoesNotReapply(t *testing.T) {
 	db := openMoneyTestDB(t)
 	insertMoneyTestUser(t, db, 1, "alice")
 	insertMoneyReferenceFixtures(t, db, 1)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 
 	created, _, err := service.CreateTransaction(context.Background(), 1, "op-create", TransactionInput{
 		DateISO:   "2026-06-18",
@@ -717,7 +718,7 @@ func TestDeleteTransactionRetrySucceedsInsteadOfNotFound(t *testing.T) {
 	db := openMoneyTestDB(t)
 	insertMoneyTestUser(t, db, 1, "alice")
 	insertMoneyReferenceFixtures(t, db, 1)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 
 	created, _, err := service.CreateTransaction(context.Background(), 1, "op-create", TransactionInput{
 		DateISO:   "2026-06-18",

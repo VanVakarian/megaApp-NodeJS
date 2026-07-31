@@ -258,6 +258,10 @@ func (s *Service) searchCatalogueIDsByEmbedding(ctx context.Context, query strin
 		if err := s.repo.SaveQueryEmbedding(ctx, query, embeddingBlob); err != nil {
 			return nil, err
 		}
+	} else {
+		// Best-effort popularity counter — losing an increment on failure isn't worth failing
+		// the search itself over.
+		_ = s.repo.RecordQueryEmbeddingHit(ctx, query)
 	}
 	queryVector := decodeFloat32Blob(embeddingBlob)
 	if len(queryVector) == 0 {

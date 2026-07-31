@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"megaapp-back/internal/auth"
+	"megaapp-back/internal/platform/sqlite"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
@@ -163,7 +164,7 @@ func openWSTestAuthService(t *testing.T) (*auth.Service, *auth.TokenManager) {
 	}
 
 	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
-	return auth.NewService(auth.NewRepository(db), tokenManager), tokenManager
+	return auth.NewService(auth.NewRepository(db, sqlite.WriteDB{DB: db}), tokenManager), tokenManager
 }
 
 func dialWS(t *testing.T, httpURL string) *websocket.Conn {

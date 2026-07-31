@@ -8,13 +8,15 @@ import (
 	"testing"
 	"time"
 
+	"megaapp-back/internal/platform/sqlite"
+
 	"github.com/go-chi/chi/v5"
 )
 
 func TestDebugRouteRunsBackupJob(t *testing.T) {
 	db, _ := openBackupTestDB(t)
 	seedBackupTestDB(t, db)
-	service := NewService(db, Config{
+	service := NewService(sqlite.WriteDB{DB: db}, Config{
 		DatabaseName:   "megaapp",
 		DatabaseEnv:    "test",
 		BackupsDir:     filepath.Join(t.TempDir(), "backups"),

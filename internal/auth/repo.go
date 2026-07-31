@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+
+	"megaapp-back/internal/platform/sqlite"
 )
 
 type User struct {
@@ -15,15 +17,16 @@ type User struct {
 }
 
 type Repository struct {
-	db *sql.DB
+	db    *sql.DB
+	write sqlite.WriteDB
 }
 
-func NewRepository(db *sql.DB) *Repository {
-	return &Repository{db: db}
+func NewRepository(read *sql.DB, write sqlite.WriteDB) *Repository {
+	return &Repository{db: read, write: write}
 }
 
 func (r *Repository) CreateUser(ctx context.Context, username string, hashedPassword string) (int64, error) {
-	result, err := r.db.ExecContext(ctx, `INSERT INTO users (username, hashedPassword, isAdmin) VALUES (?, ?, 0)`, username, hashedPassword)
+	result, err := r.write.ExecContext(ctx, `INSERT INTO users (username, hashedPassword, isAdmin) VALUES (?, ?, 0)`, username, hashedPassword)
 	if err != nil {
 		return 0, fmt.Errorf("create user: %w", err)
 	}

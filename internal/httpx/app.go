@@ -56,9 +56,9 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 
 	jobRuntime := jobs.NewRuntime(logger)
 
-	authModule := buildAuthModule(db.SQL(), cfg)
-	settingsModule := buildSettingsModule(db.SQL())
-	moneyModule := buildMoneyModule(db.SQL())
+	authModule := buildAuthModule(db.Read(), db.Write(), cfg)
+	settingsModule := buildSettingsModule(db.Read(), db.Write())
+	moneyModule := buildMoneyModule(db.Read(), db.Write())
 	wsModule := buildWSModule(cfg, authModule.service)
 	metricsModule, err := buildMetricsModule(cfg, logger, wsModule.hub, authModule.service, clk, jobRuntime)
 	if err != nil {
@@ -67,7 +67,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 		_ = db.Close()
 		return nil, err
 	}
-	quotesModule, err := buildQuotesModule(db.SQL(), cfg, logger, clk, jobRuntime)
+	quotesModule, err := buildQuotesModule(db.Read(), db.Write(), cfg, logger, clk, jobRuntime)
 	if err != nil {
 		_ = metricsModule.poller.Close()
 		_ = wsModule.hub.Close()
@@ -75,7 +75,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 		_ = db.Close()
 		return nil, err
 	}
-	backupModule, err := buildBackupModule(db.SQL(), cfg, logger, clk, jobRuntime, metricsModule.service)
+	backupModule, err := buildBackupModule(db.Write(), cfg, logger, clk, jobRuntime, metricsModule.service)
 	if err != nil {
 		_ = metricsModule.poller.Close()
 		_ = wsModule.hub.Close()
@@ -83,7 +83,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 		_ = db.Close()
 		return nil, err
 	}
-	foodModule, err := buildFoodModule(db.SQL(), cfg, logger, wsModule.hub, clk, metricsModule.service)
+	foodModule, err := buildFoodModule(db.Read(), db.Write(), cfg, logger, wsModule.hub, clk, metricsModule.service)
 	if err != nil {
 		_ = metricsModule.poller.Close()
 		_ = wsModule.hub.Close()

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"megaapp-back/internal/platform/idempotency"
+	"megaapp-back/internal/platform/sqlite"
 
 	_ "modernc.org/sqlite"
 )
@@ -64,8 +65,8 @@ func (fakeEmbeddingGenerator) GenerateEmbedding(ctx context.Context, text string
 
 func TestGetCatalogueAndPersonalKcalsAndStats(t *testing.T) {
 	db := openFoodTestDB(t)
-	repo := NewRepository(db)
-	service := NewService(repo, idempotency.NewStore(db))
+	repo := NewRepository(db, sqlite.WriteDB{DB: db})
+	service := NewService(repo, idempotency.NewStore(sqlite.WriteDB{DB: db}))
 
 	catalogue, err := service.GetCatalogue(context.Background())
 	if err != nil {
@@ -102,7 +103,7 @@ func TestGetCatalogueAndPersonalKcalsAndStats(t *testing.T) {
 
 func TestWriteOperationsPersistData(t *testing.T) {
 	db := openFoodTestDB(t)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 
 	created, applied, err := service.CreateDiaryEntry(context.Background(), 1, "op-create", "2026-06-18", 1, 120, []HistoryEntry{{Action: "init", Value: 120}})
 	if err != nil {
@@ -180,7 +181,7 @@ func TestWriteOperationsPersistData(t *testing.T) {
 
 func TestEditDiaryEntrySameOperationIDReplaysWithoutReapplying(t *testing.T) {
 	db := openFoodTestDB(t)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 
 	first, applied, err := service.EditDiaryEntry(context.Background(), 1, "op-retry", 10, 80, "subtract")
 	if err != nil {
@@ -219,7 +220,7 @@ func TestEditDiaryEntrySameOperationIDReplaysWithoutReapplying(t *testing.T) {
 
 func TestEditDiaryEntryDistinctOperationSameTargetIsRealNoOp(t *testing.T) {
 	db := openFoodTestDB(t)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 
 	first, applied, err := service.EditDiaryEntry(context.Background(), 1, "op-a", 10, 80, "subtract")
 	if err != nil || !applied || first == nil {
@@ -249,7 +250,7 @@ func TestEditDiaryEntryDistinctOperationSameTargetIsRealNoOp(t *testing.T) {
 
 func TestEditDiaryEntryDerivesDirectionFromRealDelta(t *testing.T) {
 	db := openFoodTestDB(t)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 
 	updated, _, err := service.EditDiaryEntry(context.Background(), 1, "op-1", 10, 120, "subtract")
 	if err != nil {
@@ -265,7 +266,7 @@ func TestEditDiaryEntryDerivesDirectionFromRealDelta(t *testing.T) {
 
 func TestDeleteDiaryEntryRetrySucceedsInsteadOfNotFound(t *testing.T) {
 	db := openFoodTestDB(t)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 
 	first, applied, err := service.DeleteDiaryEntry(context.Background(), 1, "op-delete", 10)
 	if err != nil || !first || !applied {
@@ -304,7 +305,7 @@ func testPersonalKcalConfig() PersonalKcalConfig {
 func TestRunPersonalKcalJobStoresHistoryAndInvalidatesStats(t *testing.T) {
 	db := openFoodTestDB(t)
 	seedFoodDiaryAndWeightHistory(t, db, 1)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 	service.SetClock(fixedFoodClock{now: time.Date(2026, time.July, 5, 12, 0, 0, 0, time.UTC)})
 	service.SetPersonalKcalConfig(testPersonalKcalConfig())
 
@@ -329,14 +330,14 @@ func TestRunPersonalKcalJobStoresHistoryAndInvalidatesStats(t *testing.T) {
 		t.Fatal("stats cache still present after job run")
 	}
 
-	kcalHistory, err := NewRepository(db).GetPersonalKcalHistory(context.Background(), 1)
+	kcalHistory, err := NewRepository(db, sqlite.WriteDB{DB: db}).GetPersonalKcalHistory(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("GetPersonalKcalHistory() error = %v", err)
 	}
 	if len(kcalHistory) != 2 {
 		t.Fatalf("len(kcalHistory) = %d, want 2 (one row per touched product)", len(kcalHistory))
 	}
-	normHistory, err := NewRepository(db).GetPersonalNormHistory(context.Background(), 1)
+	normHistory, err := NewRepository(db, sqlite.WriteDB{DB: db}).GetPersonalNormHistory(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("GetPersonalNormHistory() error = %v", err)
 	}
@@ -359,7 +360,7 @@ func TestRunPersonalKcalJobProcessesAllUsers(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO users(id, username, isAdmin) VALUES (2, 'bob', 0)`); err != nil {
 		t.Fatalf("Exec() error = %v", err)
 	}
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 	service.SetClock(fixedFoodClock{now: time.Date(2026, time.July, 5, 12, 0, 0, 0, time.UTC)})
 	service.SetPersonalKcalConfig(testPersonalKcalConfig())
 
@@ -380,7 +381,7 @@ func TestRunPersonalKcalJobProcessesAllUsers(t *testing.T) {
 
 func TestStatsCacheInvalidatesAfterWrites(t *testing.T) {
 	db := openFoodTestDB(t)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 
 	before, err := service.GetStats(context.Background(), 1)
 	if err != nil {
@@ -418,7 +419,7 @@ func TestStatsCacheInvalidatesAfterWrites(t *testing.T) {
 
 func TestSearchPreviewAndSaveProduct(t *testing.T) {
 	db := openFoodTestDB(t)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 	service.SetProductGenerator(fakeProductGenerator{})
 	service.SetEmbeddingGenerator(fakeEmbeddingGenerator{})
 
@@ -465,7 +466,7 @@ func TestSearchPreviewAndSaveProduct(t *testing.T) {
 
 func TestGetDiaryFullUpdateReturnsFoodAndNutrients(t *testing.T) {
 	db := openFoodTestDB(t)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 
 	result, err := service.GetDiaryFullUpdate(context.Background(), 1, "2026-06-17", 1)
 	if err != nil {
@@ -502,7 +503,7 @@ func TestGetDiaryFullUpdateIgnoresRowsOutsideRequestedRange(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("Exec() error = %v", err)
 	}
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 
 	result, err := service.GetDiaryFullUpdate(context.Background(), 1, "2026-06-17", 1)
 	if err != nil {

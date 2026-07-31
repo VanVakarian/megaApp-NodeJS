@@ -16,6 +16,7 @@ import (
 	"megaapp-back/internal/auth"
 	clockplatform "megaapp-back/internal/platform/clock"
 	"megaapp-back/internal/platform/idempotency"
+	"megaapp-back/internal/platform/sqlite"
 	wspkg "megaapp-back/internal/ws"
 
 	"github.com/go-chi/chi/v5"
@@ -35,10 +36,10 @@ func (f *fakeMetricsRecorder) Increment(name string) {
 
 func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 	db := openFoodTestDB(t)
-	authRepo := auth.NewRepository(db)
+	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
 	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
 	authService := auth.NewService(authRepo, tokenManager)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 	service.SetProductGenerator(fakeProductGenerator{})
 	service.SetClock(fixedFoodClock{now: time.Date(2026, time.June, 20, 12, 0, 0, 0, time.UTC)})
 	seedFoodDiaryAndWeightHistory(t, db, 1)
@@ -135,10 +136,10 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 
 func TestFoodDiaryEditRetryIsIdempotentOverHTTPAndWS(t *testing.T) {
 	db := openFoodTestDB(t)
-	authRepo := auth.NewRepository(db)
+	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
 	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
 	authService := auth.NewService(authRepo, tokenManager)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 	hub := wspkg.NewHub(time.Second, wspkg.NewSyncState())
 	defer func() { _ = hub.Close() }()
 	clk := clockplatform.NewRealClock()
@@ -201,10 +202,10 @@ func TestFoodDiaryEditRetryIsIdempotentOverHTTPAndWS(t *testing.T) {
 
 func TestFoodSearchAndCatalogueMutationEndpoints(t *testing.T) {
 	db := openFoodTestDB(t)
-	authRepo := auth.NewRepository(db)
+	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
 	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
 	authService := auth.NewService(authRepo, tokenManager)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 	service.SetProductGenerator(fakeProductGenerator{})
 	service.SetImageAnalyzer(fakeImageAnalyzer{name: "Apple"})
 	hub := wspkg.NewHub(time.Second, wspkg.NewSyncState())
@@ -308,10 +309,10 @@ func TestFoodImageStaticRoutes(t *testing.T) {
 func TestFoodDebugRunPersonalKcalJobRoute(t *testing.T) {
 	db := openFoodTestDB(t)
 	seedFoodDiaryAndWeightHistory(t, db, 1)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 	service.SetClock(fixedFoodClock{now: time.Date(2026, time.July, 5, 12, 0, 0, 0, time.UTC)})
 	service.SetPersonalKcalConfig(testPersonalKcalConfig())
-	debugHandler := NewDebugHandler(NewDebugService(NewRepository(db), t.TempDir(), nil, service, nil))
+	debugHandler := NewDebugHandler(NewDebugService(NewRepository(db, sqlite.WriteDB{DB: db}), t.TempDir(), nil, service, nil))
 
 	router := chi.NewRouter()
 	RegisterDebugRoutes(router, debugHandler)
@@ -348,10 +349,10 @@ func TestFoodDebugRunPersonalKcalJobRoute(t *testing.T) {
 
 func TestFoodReadEndpoints(t *testing.T) {
 	db := openFoodTestDB(t)
-	authRepo := auth.NewRepository(db)
+	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
 	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
 	authService := auth.NewService(authRepo, tokenManager)
-	service := NewService(NewRepository(db), idempotency.NewStore(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 	service.SetProductGenerator(fakeProductGenerator{})
 	handler := NewHandler(service, nil)
 	hub := wspkg.NewHub(time.Second, wspkg.NewSyncState())

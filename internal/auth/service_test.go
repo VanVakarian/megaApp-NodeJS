@@ -6,12 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"megaapp-back/internal/platform/sqlite"
+
 	_ "modernc.org/sqlite"
 )
 
 func TestServiceRegisterLoginRefreshVerify(t *testing.T) {
 	db := openAuthTestDB(t)
-	repo := NewRepository(db)
+	repo := NewRepository(db, sqlite.WriteDB{DB: db})
 	service := NewService(repo, NewTokenManager("secret", time.Hour, 24*time.Hour))
 
 	userID, err := service.Register(context.Background(), "alice", "password123")

@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"megaapp-back/internal/platform/sqlite"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -50,7 +52,7 @@ func TestServiceRunCreatesUploadsAndCleansBackup(t *testing.T) {
 	seedBackupTestDB(t, db)
 	backupsDir := filepath.Join(t.TempDir(), "backups")
 	uploader := &fakeUploader{}
-	service := NewService(db, Config{
+	service := NewService(sqlite.WriteDB{DB: db}, Config{
 		DatabaseName:   "megaapp",
 		DatabaseEnv:    "test",
 		BackupsDir:     backupsDir,
@@ -102,7 +104,7 @@ func TestServiceRunCleansFilesAfterUploadFailure(t *testing.T) {
 	db, _ := openBackupTestDB(t)
 	seedBackupTestDB(t, db)
 	backupsDir := filepath.Join(t.TempDir(), "backups")
-	service := NewService(db, Config{
+	service := NewService(sqlite.WriteDB{DB: db}, Config{
 		DatabaseName:   "megaapp",
 		DatabaseEnv:    "test",
 		BackupsDir:     backupsDir,
@@ -124,7 +126,7 @@ func TestServiceRunCleansFilesAfterUploadFailure(t *testing.T) {
 
 func TestServiceRejectsDisabledStorage(t *testing.T) {
 	db, _ := openBackupTestDB(t)
-	service := NewService(db, Config{StorageEnabled: false}, fixedClock{now: time.Now().UTC()}, nil, &fakeUploader{})
+	service := NewService(sqlite.WriteDB{DB: db}, Config{StorageEnabled: false}, fixedClock{now: time.Now().UTC()}, nil, &fakeUploader{})
 	if _, err := service.Run(context.Background()); err == nil {
 		t.Fatal("Run() error = nil, want error")
 	}

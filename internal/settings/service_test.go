@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"testing"
 
+	"megaapp-back/internal/platform/sqlite"
+
 	_ "modernc.org/sqlite"
 )
 
 func TestGetCreatesDefaultsAndReturnsUserMetadata(t *testing.T) {
 	db := openSettingsTestDB(t)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}))
 
 	userID := insertSettingsTestUser(t, db, "alice", true)
 
@@ -31,7 +33,7 @@ func TestGetCreatesDefaultsAndReturnsUserMetadata(t *testing.T) {
 		t.Fatalf("Height = %v, want nil", result.Height)
 	}
 
-	stored, err := NewRepository(db).GetByUserID(context.Background(), userID)
+	stored, err := NewRepository(db, sqlite.WriteDB{DB: db}).GetByUserID(context.Background(), userID)
 	if err != nil {
 		t.Fatalf("GetByUserID() error = %v", err)
 	}
@@ -42,7 +44,7 @@ func TestGetCreatesDefaultsAndReturnsUserMetadata(t *testing.T) {
 
 func TestPutUpdatesSingleSetting(t *testing.T) {
 	db := openSettingsTestDB(t)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}))
 	userID := insertSettingsTestUser(t, db, "alice", false)
 
 	input, err := ParseUpdateInput(map[string]any{"darkTheme": true})
@@ -75,7 +77,7 @@ func TestPutRejectsInvalidField(t *testing.T) {
 
 func TestPostUpsertsSettings(t *testing.T) {
 	db := openSettingsTestDB(t)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}))
 	userID := insertSettingsTestUser(t, db, "alice", false)
 	height := int64(185)
 
@@ -103,7 +105,7 @@ func TestPostUpsertsSettings(t *testing.T) {
 
 func TestGetMetricsSettingsReturnsEmptyObjectByDefault(t *testing.T) {
 	db := openSettingsTestDB(t)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}))
 	userID := insertSettingsTestUser(t, db, "alice", false)
 
 	result, err := service.GetMetricsSettings(context.Background(), userID)
@@ -117,7 +119,7 @@ func TestGetMetricsSettingsReturnsEmptyObjectByDefault(t *testing.T) {
 
 func TestPutMetricsSettingsUpsertsRawValue(t *testing.T) {
 	db := openSettingsTestDB(t)
-	service := NewService(NewRepository(db))
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}))
 	userID := insertSettingsTestUser(t, db, "alice", false)
 
 	value := []byte(`{"granularity":"hour"}`)

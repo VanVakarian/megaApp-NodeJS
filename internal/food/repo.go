@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+
+	"megaapp-back/internal/platform/sqlite"
 )
 
 type DiaryRow struct {
@@ -40,11 +42,12 @@ type StatsDiaryRow struct {
 }
 
 type Repository struct {
-	db *sql.DB
+	db    *sql.DB
+	write sqlite.WriteDB
 }
 
-func NewRepository(db *sql.DB) *Repository {
-	return &Repository{db: db}
+func NewRepository(read *sql.DB, write sqlite.WriteDB) *Repository {
+	return &Repository{db: read, write: write}
 }
 
 func (r *Repository) GetDiaryRange(ctx context.Context, userID int64, startDate string, endDate string) ([]DiaryRow, error) {

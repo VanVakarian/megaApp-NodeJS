@@ -11,6 +11,7 @@ import (
 	"time"
 
 	platformclock "megaapp-back/internal/platform/clock"
+	"megaapp-back/internal/platform/sqlite"
 
 	_ "modernc.org/sqlite"
 )
@@ -50,7 +51,7 @@ func TestServiceRunDiscoversTickersAndUpsertsRates(t *testing.T) {
 	insertQuoteTrade(t, db, 5, "invest_sell", `{"assetId":4,"quantity":1}`)
 	insertQuoteRateHistory(t, db, "2026-07-03", `{"USD":1}`)
 
-	service := NewService(NewRepository(db), Config{
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), Config{
 		FetchDays:      7,
 		RetryAttempts:  3,
 		RetryDelay:     time.Millisecond,

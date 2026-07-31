@@ -39,7 +39,7 @@ func (r *Repository) GetCatalogueEntryByName(ctx context.Context, name string) (
 }
 
 func (r *Repository) CreateCatalogueEntry(ctx context.Context, input ProductInput) (int64, error) {
-	result, err := r.db.ExecContext(ctx, `
+	result, err := r.write.ExecContext(ctx, `
 		INSERT INTO foodCatalogue (name, kcals, protein, fat, carbs, fiber, description, legacyName, nameVec, descriptionVec)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, input.Name, input.Kcals, input.Protein, input.Fat, input.Carbs, input.Fiber, input.Description, input.Name, input.NameVector, input.DescriptionVec)
@@ -56,7 +56,7 @@ func (r *Repository) CreateCatalogueEntry(ctx context.Context, input ProductInpu
 }
 
 func (r *Repository) UpdateCatalogueEntry(ctx context.Context, catalogueID int64, input ProductInput) (bool, error) {
-	result, err := r.db.ExecContext(ctx, `
+	result, err := r.write.ExecContext(ctx, `
 		UPDATE foodCatalogue
 		SET name = ?, kcals = ?, protein = ?, fat = ?, carbs = ?, fiber = ?, description = ?, legacyName = ?, nameVec = ?, descriptionVec = ?
 		WHERE id = ?
@@ -74,7 +74,7 @@ func (r *Repository) UpdateCatalogueEntry(ctx context.Context, catalogueID int64
 }
 
 func (r *Repository) DeleteCatalogueEntry(ctx context.Context, catalogueID int64) (bool, error) {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM foodCatalogue WHERE id = ?`, catalogueID)
+	result, err := r.write.ExecContext(ctx, `DELETE FROM foodCatalogue WHERE id = ?`, catalogueID)
 	if err != nil {
 		return false, fmt.Errorf("delete catalogue entry: %w", err)
 	}
