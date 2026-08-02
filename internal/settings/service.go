@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"megaapp-back/internal/platform/idempotency"
 )
 
 const defaultMetricsSettings = "{}"
@@ -29,22 +31,31 @@ type UpdateInput struct {
 }
 
 type Service struct {
-	repo *Repository
+	repo        *Repository
+	idempotency *idempotency.Store
 }
 
-func NewService(repo *Repository) *Service {
-	return &Service{repo: repo}
+func NewService(repo *Repository, idempotencyStore *idempotency.Store) *Service {
+	return &Service{repo: repo, idempotency: idempotencyStore}
 }
 
 func (s *Service) Get(ctx context.Context, userID int64, fallbackUserName string) (UserSettings, error) {
-	stored, err := s.repo.GetByUserID(ctx, userID)
+	stored, err := s.repo.GetByUserID(ctx, s.repo.db, userID)
 	if err != nil {
 		return UserSettings{}, err
 	}
 	if stored == nil {
 		stored = defaultStoredSettings()
-		if err := s.repo.Upsert(ctx, userID, *stored); err != nil {
+		tx, err := s.idempotency.BeginTx(ctx)
+		if err != nil {
 			return UserSettings{}, err
+		}
+		if err := s.repo.Upsert(ctx, tx, userID, *stored); err != nil {
+			_ = tx.Rollback()
+			return UserSettings{}, err
+		}
+		if err := tx.Commit(); err != nil {
+			return UserSettings{}, fmt.Errorf("commit default settings: %w", err)
 		}
 	}
 
@@ -67,10 +78,24 @@ func (s *Service) Get(ctx context.Context, userID int64, fallbackUserName string
 	}, nil
 }
 
-func (s *Service) Put(ctx context.Context, userID int64, input UpdateInput) error {
-	stored, err := s.repo.GetByUserID(ctx, userID)
+func (s *Service) Put(ctx context.Context, userID int64, operationID string, input UpdateInput) (bool, error) {
+	tx, err := s.idempotency.BeginTx(ctx)
 	if err != nil {
-		return err
+		return false, err
+	}
+
+	if _, found, err := s.idempotency.Find(ctx, tx, userID, operationID); err != nil {
+		_ = tx.Rollback()
+		return false, err
+	} else if found {
+		_ = tx.Rollback()
+		return false, nil
+	}
+
+	stored, err := s.repo.GetByUserID(ctx, tx, userID)
+	if err != nil {
+		_ = tx.Rollback()
+		return false, err
 	}
 	if stored == nil {
 		stored = defaultStoredSettings()
@@ -79,41 +104,71 @@ func (s *Service) Put(ctx context.Context, userID int64, input UpdateInput) erro
 	switch input.Field {
 	case UpdateFieldDarkTheme:
 		if input.BoolValue == nil {
-			return fmt.Errorf("invalid darkTheme value")
+			_ = tx.Rollback()
+			return false, fmt.Errorf("invalid darkTheme value")
 		}
 		stored.DarkTheme = *input.BoolValue
 	case UpdateFieldSelectedChapterFood:
 		if input.BoolValue == nil {
-			return fmt.Errorf("invalid selectedChapterFood value")
+			_ = tx.Rollback()
+			return false, fmt.Errorf("invalid selectedChapterFood value")
 		}
 		stored.SelectedChapterFood = *input.BoolValue
 	case UpdateFieldSelectedChapterMoney:
 		if input.BoolValue == nil {
-			return fmt.Errorf("invalid selectedChapterMoney value")
+			_ = tx.Rollback()
+			return false, fmt.Errorf("invalid selectedChapterMoney value")
 		}
 		stored.SelectedChapterMoney = *input.BoolValue
 	case UpdateFieldLiteVersion:
 		if input.BoolValue == nil {
-			return fmt.Errorf("invalid liteVersion value")
+			_ = tx.Rollback()
+			return false, fmt.Errorf("invalid liteVersion value")
 		}
 		stored.LiteVersion = *input.BoolValue
 	case UpdateFieldHeight:
 		stored.Height = input.HeightValue
 	default:
-		return ErrInvalidSetting
+		_ = tx.Rollback()
+		return false, ErrInvalidSetting
 	}
 
-	return s.repo.Upsert(ctx, userID, *stored)
+	if err := s.repo.Upsert(ctx, tx, userID, *stored); err != nil {
+		_ = tx.Rollback()
+		return false, err
+	}
+	if err := s.idempotency.Record(ctx, tx, userID, operationID, "{}"); err != nil {
+		_ = tx.Rollback()
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit settings update: %w", err)
+	}
+
+	return true, nil
 }
 
 func (s *Service) Post(ctx context.Context, userID int64, request UserSettings) error {
-	return s.repo.Upsert(ctx, userID, StoredSettings{
+	tx, err := s.idempotency.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+
+	if err := s.repo.Upsert(ctx, tx, userID, StoredSettings{
 		SelectedChapterFood:  request.SelectedChapterFood,
 		SelectedChapterMoney: request.SelectedChapterMoney,
 		DarkTheme:            request.DarkTheme,
 		LiteVersion:          request.LiteVersion,
 		Height:               request.Height,
-	})
+	}); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit settings replace: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) GetMetricsSettings(ctx context.Context, userID int64) (json.RawMessage, error) {

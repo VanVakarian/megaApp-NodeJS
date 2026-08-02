@@ -81,7 +81,7 @@ func buildAuthModule(read *sql.DB, write sqlite.WriteDB, cfg config.Config) auth
 
 func buildSettingsModule(read *sql.DB, write sqlite.WriteDB) settingsModule {
 	repo := settings.NewRepository(read, write)
-	service := settings.NewService(repo)
+	service := settings.NewService(repo, idempotency.NewStore(write))
 	return settingsModule{service: service, handler: settings.NewHandler(service)}
 }
 

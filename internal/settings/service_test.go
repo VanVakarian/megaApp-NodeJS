@@ -5,14 +5,19 @@ import (
 	"database/sql"
 	"testing"
 
+	"megaapp-back/internal/platform/idempotency"
 	"megaapp-back/internal/platform/sqlite"
 
 	_ "modernc.org/sqlite"
 )
 
+func newTestService(db *sql.DB) *Service {
+	return NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
+}
+
 func TestGetCreatesDefaultsAndReturnsUserMetadata(t *testing.T) {
 	db := openSettingsTestDB(t)
-	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}))
+	service := newTestService(db)
 
 	userID := insertSettingsTestUser(t, db, "alice", true)
 
@@ -33,7 +38,7 @@ func TestGetCreatesDefaultsAndReturnsUserMetadata(t *testing.T) {
 		t.Fatalf("Height = %v, want nil", result.Height)
 	}
 
-	stored, err := NewRepository(db, sqlite.WriteDB{DB: db}).GetByUserID(context.Background(), userID)
+	stored, err := NewRepository(db, sqlite.WriteDB{DB: db}).GetByUserID(context.Background(), db, userID)
 	if err != nil {
 		t.Fatalf("GetByUserID() error = %v", err)
 	}
@@ -44,7 +49,7 @@ func TestGetCreatesDefaultsAndReturnsUserMetadata(t *testing.T) {
 
 func TestPutUpdatesSingleSetting(t *testing.T) {
 	db := openSettingsTestDB(t)
-	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}))
+	service := newTestService(db)
 	userID := insertSettingsTestUser(t, db, "alice", false)
 
 	input, err := ParseUpdateInput(map[string]any{"darkTheme": true})
@@ -52,8 +57,12 @@ func TestPutUpdatesSingleSetting(t *testing.T) {
 		t.Fatalf("ParseUpdateInput() error = %v", err)
 	}
 
-	if err := service.Put(context.Background(), userID, input); err != nil {
+	applied, err := service.Put(context.Background(), userID, "op-1", input)
+	if err != nil {
 		t.Fatalf("Put() error = %v", err)
+	}
+	if !applied {
+		t.Fatal("Put() applied = false, want true")
 	}
 
 	result, err := service.Get(context.Background(), userID, "alice")
@@ -62,6 +71,43 @@ func TestPutUpdatesSingleSetting(t *testing.T) {
 	}
 	if !result.DarkTheme {
 		t.Fatal("DarkTheme = false, want true")
+	}
+}
+
+func TestPutSameOperationIDReplaysWithoutReapplying(t *testing.T) {
+	db := openSettingsTestDB(t)
+	service := newTestService(db)
+	userID := insertSettingsTestUser(t, db, "alice", false)
+
+	darkThemeInput, err := ParseUpdateInput(map[string]any{"darkTheme": true})
+	if err != nil {
+		t.Fatalf("ParseUpdateInput() error = %v", err)
+	}
+	if applied, err := service.Put(context.Background(), userID, "op-retry", darkThemeInput); err != nil || !applied {
+		t.Fatalf("Put() first = (applied=%v, err=%v), want (true, nil)", applied, err)
+	}
+
+	liteVersionInput, err := ParseUpdateInput(map[string]any{"liteVersion": true})
+	if err != nil {
+		t.Fatalf("ParseUpdateInput() error = %v", err)
+	}
+	applied, err := service.Put(context.Background(), userID, "op-retry", liteVersionInput)
+	if err != nil {
+		t.Fatalf("Put() retry error = %v", err)
+	}
+	if applied {
+		t.Fatal("Put() retry applied = true, want false (replayed)")
+	}
+
+	result, err := service.Get(context.Background(), userID, "alice")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if !result.DarkTheme {
+		t.Fatal("DarkTheme = false, want true (from the first, actually-applied call)")
+	}
+	if result.LiteVersion {
+		t.Fatal("LiteVersion = true, want false (retry was replayed, not reapplied)")
 	}
 }
 
@@ -77,7 +123,7 @@ func TestPutRejectsInvalidField(t *testing.T) {
 
 func TestPostUpsertsSettings(t *testing.T) {
 	db := openSettingsTestDB(t)
-	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}))
+	service := newTestService(db)
 	userID := insertSettingsTestUser(t, db, "alice", false)
 	height := int64(185)
 
@@ -105,7 +151,7 @@ func TestPostUpsertsSettings(t *testing.T) {
 
 func TestGetMetricsSettingsReturnsEmptyObjectByDefault(t *testing.T) {
 	db := openSettingsTestDB(t)
-	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}))
+	service := newTestService(db)
 	userID := insertSettingsTestUser(t, db, "alice", false)
 
 	result, err := service.GetMetricsSettings(context.Background(), userID)
@@ -119,7 +165,7 @@ func TestGetMetricsSettingsReturnsEmptyObjectByDefault(t *testing.T) {
 
 func TestPutMetricsSettingsUpsertsRawValue(t *testing.T) {
 	db := openSettingsTestDB(t)
-	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}))
+	service := newTestService(db)
 	userID := insertSettingsTestUser(t, db, "alice", false)
 
 	value := []byte(`{"granularity":"hour"}`)
@@ -179,6 +225,8 @@ func openSettingsTestDB(t *testing.T) *sql.DB {
 			goal TEXT DEFAULT NULL,
 			metricsSettings TEXT
 		);
+
+		CREATE TABLE syncOperations (id TEXT PRIMARY KEY, userId INTEGER NOT NULL, createdAt TEXT NOT NULL, resultJSON TEXT NOT NULL);
 	`); err != nil {
 		_ = db.Close()
 		t.Fatalf("Exec() error = %v", err)

@@ -84,6 +84,13 @@ func (h *Handler) Put(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	operationID, _ := request["operationId"].(string)
+	delete(request, "operationId")
+	if operationID == "" {
+		legacy.WriteMessage(w, http.StatusBadRequest, "operationId is required")
+		return
+	}
+
 	input, err := ParseUpdateInput(request)
 	if err != nil {
 		switch {
@@ -95,7 +102,7 @@ func (h *Handler) Put(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.service.Put(r.Context(), claims.UserID, input); err != nil {
+	if _, err := h.service.Put(r.Context(), claims.UserID, operationID, input); err != nil {
 		switch {
 		case errors.Is(err, ErrInvalidSetting), errors.Is(err, ErrInvalidSettingPayload):
 			legacy.WriteAppMessageError(w, err, http.StatusBadRequest, err.Error())

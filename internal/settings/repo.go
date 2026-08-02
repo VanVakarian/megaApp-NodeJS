@@ -32,17 +32,26 @@ type Repository struct {
 	write sqlite.WriteDB
 }
 
+// txRunner is satisfied by both *sql.DB and *sql.Tx, so read/write methods below can run either
+// as a plain query or as part of an idempotency transaction without duplicating their SQL.
+type txRunner interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
 func NewRepository(read *sql.DB, write sqlite.WriteDB) *Repository {
 	return &Repository{db: read, write: write}
 }
 
-func (r *Repository) GetByUserID(ctx context.Context, userID int64) (*StoredSettings, error) {
-	row := r.db.QueryRowContext(ctx, `
+func (r *Repository) GetByUserID(ctx context.Context, tx txRunner, userID int64) (*StoredSettings, error) {
+	return scanStoredSettings(tx.QueryRowContext(ctx, `
 		SELECT darkTheme, selectedChapterFood, selectedChapterMoney, liteVersion, height
 		FROM settings
 		WHERE usersId = ?
-	`, userID)
+	`, userID))
+}
 
+func scanStoredSettings(row *sql.Row) (*StoredSettings, error) {
 	var darkTheme bool
 	var selectedChapterFood bool
 	var selectedChapterMoney bool
@@ -65,8 +74,8 @@ func (r *Repository) GetByUserID(ctx context.Context, userID int64) (*StoredSett
 	}, nil
 }
 
-func (r *Repository) Upsert(ctx context.Context, userID int64, settings StoredSettings) error {
-	result, err := r.write.ExecContext(ctx, `
+func (r *Repository) Upsert(ctx context.Context, tx txRunner, userID int64, settings StoredSettings) error {
+	result, err := tx.ExecContext(ctx, `
 		UPDATE settings
 		SET darkTheme = ?, selectedChapterFood = ?, selectedChapterMoney = ?, liteVersion = ?, height = ?
 		WHERE usersId = ?
@@ -83,7 +92,7 @@ func (r *Repository) Upsert(ctx context.Context, userID int64, settings StoredSe
 		return nil
 	}
 
-	if _, err := r.write.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO settings (usersId, darkTheme, selectedChapterFood, selectedChapterMoney, liteVersion, height)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`, userID, settings.DarkTheme, settings.SelectedChapterFood, settings.SelectedChapterMoney, settings.LiteVersion, settings.Height); err != nil {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"megaapp-back/internal/auth"
+	"megaapp-back/internal/platform/idempotency"
 	"megaapp-back/internal/platform/sqlite"
 
 	"github.com/go-chi/chi/v5"
@@ -45,6 +46,8 @@ func TestSettingsEndpoints(t *testing.T) {
 			goal TEXT DEFAULT NULL,
 			metricsSettings TEXT
 		);
+
+		CREATE TABLE syncOperations (id TEXT PRIMARY KEY, userId INTEGER NOT NULL, createdAt TEXT NOT NULL, resultJSON TEXT NOT NULL);
 	`); err != nil {
 		t.Fatalf("Exec() error = %v", err)
 	}
@@ -60,7 +63,7 @@ func TestSettingsEndpoints(t *testing.T) {
 		t.Fatalf("Exec() error = %v", err)
 	}
 
-	settingsService := NewService(NewRepository(db, sqlite.WriteDB{DB: db}))
+	settingsService := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 	settingsHandler := NewHandler(settingsService)
 
 	tokens, err := tokenManager.Issue(auth.TokenClaims{UserID: userID, Username: "alice"})
@@ -98,7 +101,7 @@ func TestSettingsEndpoints(t *testing.T) {
 		t.Fatal("IsUserAdmin = false, want true")
 	}
 
-	putBody, err := json.Marshal(map[string]any{"darkTheme": true})
+	putBody, err := json.Marshal(map[string]any{"darkTheme": true, "operationId": "op-1"})
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
 	}
@@ -117,7 +120,63 @@ func TestSettingsEndpoints(t *testing.T) {
 	}
 	_ = putResponse.Body.Close()
 
-	invalidBody, err := json.Marshal(map[string]any{"userName": "bob"})
+	retryBody, err := json.Marshal(map[string]any{"liteVersion": true, "operationId": "op-1"})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	retryRequest, err := http.NewRequest(http.MethodPut, server.URL+"/api/settings/", bytes.NewReader(retryBody))
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	retryRequest.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	retryRequest.Header.Set("Content-Type", "application/json")
+	retryResponse, err := http.DefaultClient.Do(retryRequest)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if retryResponse.StatusCode != http.StatusOK {
+		t.Fatalf("retry PUT status = %d, want 200", retryResponse.StatusCode)
+	}
+	_ = retryResponse.Body.Close()
+
+	afterRetryRequest, err := http.NewRequest(http.MethodGet, server.URL+"/api/settings/", nil)
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	afterRetryRequest.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	afterRetryResponse, err := http.DefaultClient.Do(afterRetryRequest)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	var afterRetrySettings UserSettings
+	if err := json.NewDecoder(afterRetryResponse.Body).Decode(&afterRetrySettings); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	_ = afterRetryResponse.Body.Close()
+	if afterRetrySettings.LiteVersion {
+		t.Fatal("LiteVersion = true, want false — retry with the same operationId must be replayed, not reapplied")
+	}
+
+	noOperationIDBody, err := json.Marshal(map[string]any{"darkTheme": true})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	noOperationIDRequest, err := http.NewRequest(http.MethodPut, server.URL+"/api/settings/", bytes.NewReader(noOperationIDBody))
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	noOperationIDRequest.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	noOperationIDRequest.Header.Set("Content-Type", "application/json")
+	noOperationIDResponse, err := http.DefaultClient.Do(noOperationIDRequest)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if noOperationIDResponse.StatusCode != http.StatusBadRequest {
+		t.Fatalf("PUT without operationId status = %d, want 400", noOperationIDResponse.StatusCode)
+	}
+	_ = noOperationIDResponse.Body.Close()
+
+	invalidBody, err := json.Marshal(map[string]any{"userName": "bob", "operationId": "op-2"})
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
 	}
