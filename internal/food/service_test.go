@@ -391,10 +391,7 @@ func TestStatsCacheInvalidatesAfterWrites(t *testing.T) {
 	if !ok {
 		t.Fatal("before stats missing 2026-06-17")
 	}
-	beforeKcals, ok := beforeValue[2].(float64)
-	if !ok {
-		t.Fatalf("before stats = %+v, want factual kcals", beforeValue)
-	}
+	beforeKcals := beforeValue.ConsumedKcal
 
 	if _, _, err := service.CreateDiaryEntry(context.Background(), 1, "op-1", "2026-06-17", 1, 100, []HistoryEntry{{Action: "init", Value: 100}}); err != nil {
 		t.Fatalf("CreateDiaryEntry() error = %v", err)
@@ -408,10 +405,7 @@ func TestStatsCacheInvalidatesAfterWrites(t *testing.T) {
 	if !ok {
 		t.Fatal("after stats missing 2026-06-17")
 	}
-	afterKcals, ok := afterValue[2].(float64)
-	if !ok {
-		t.Fatalf("after stats = %+v, want factual kcals", afterValue)
-	}
+	afterKcals := afterValue.ConsumedKcal
 	if afterKcals <= beforeKcals {
 		t.Fatalf("afterKcals = %v, want > %v", afterKcals, beforeKcals)
 	}

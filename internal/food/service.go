@@ -81,6 +81,14 @@ type DiaryDay struct {
 	Nutrients  DayNutrients         `json:"nutrients"`
 }
 
+type DayStats struct {
+	Weight           float64 `json:"weight"`
+	WeightAvg        float64 `json:"weightAvg"`
+	ConsumedKcal     float64 `json:"consumedKcal"`
+	TargetKcal       float64 `json:"targetKcal"`
+	IsVirtualKcalDay bool    `json:"isVirtualKcalDay"`
+}
+
 type CatalogueEntry struct {
 	ID           int64   `json:"id"`
 	Name         string  `json:"name"`
@@ -716,7 +724,7 @@ func (s *Service) InvalidateStats(userID int64) {
 	s.statsCache.Delete(userID)
 }
 
-func (s *Service) GetStats(ctx context.Context, userID int64) (map[string][5]any, error) {
+func (s *Service) GetStats(ctx context.Context, userID int64) (map[string]DayStats, error) {
 	if cached, ok := s.statsCache.Get(userID); ok {
 		return cached, nil
 	}
@@ -725,7 +733,7 @@ func (s *Service) GetStats(ctx context.Context, userID int64) (map[string][5]any
 		return nil, err
 	}
 	if firstDate == "" {
-		return map[string][5]any{}, nil
+		return map[string]DayStats{}, nil
 	}
 
 	lastDate := s.clock.Now().UTC().Format("2006-01-02")
@@ -747,7 +755,7 @@ func (s *Service) GetStats(ctx context.Context, userID int64) (map[string][5]any
 	weightsAvg := calculateCenteredAverage(weights, 10, true, 1)
 	diaryEntries := prepareDiaryEntries(diaryRows, allDates)
 
-	stats := make(map[string][5]any, len(allDates))
+	stats := make(map[string]DayStats, len(allDates))
 	for _, date := range allDates {
 		yearMonth := date[:7]
 		var consumed float64
@@ -755,7 +763,7 @@ func (s *Service) GetStats(ctx context.Context, userID int64) (map[string][5]any
 			consumed += resolver.AppliedKcal(row.FoodCatalogueID, yearMonth) * row.FoodWeight / 100
 		}
 		target := roundFloat(resolver.AppliedNorm(yearMonth), 0)
-		stats[date] = [5]any{weights[date], weightsAvg[date], consumed, target, false}
+		stats[date] = DayStats{Weight: weights[date], WeightAvg: weightsAvg[date], ConsumedKcal: consumed, TargetKcal: target, IsVirtualKcalDay: false}
 	}
 
 	s.statsCache.Set(userID, stats)
@@ -812,33 +820,27 @@ func getStartAndEndDates(dateISO string, offsetDays int) (string, string) {
 	return start.Format("2006-01-02"), end.Format("2006-01-02")
 }
 
-func buildTargetKcalsForRange(dates []string, stats map[string][5]any) map[string]*int64 {
+func buildTargetKcalsForRange(dates []string, stats map[string]DayStats) map[string]*int64 {
 	result := make(map[string]*int64, len(dates))
 	var lastKnown *int64
 	for _, date := range dates {
-		stat, ok := stats[date]
-		if ok {
-			if value, ok := toInt64Pointer(stat[3]); ok {
-				lastKnown = value
-				result[date] = value
-				continue
-			}
+		if stat, ok := stats[date]; ok {
+			value := int64(stat.TargetKcal)
+			lastKnown = &value
+			result[date] = &value
+			continue
 		}
 		result[date] = lastKnown
 	}
 	return result
 }
 
-func calculateTargetNutrientsForRange(dates []string, bodyWeights map[string]float64, stats map[string][5]any, goal string, targetKcals map[string]*int64) map[string]nutrientTargets {
+func calculateTargetNutrientsForRange(dates []string, bodyWeights map[string]float64, stats map[string]DayStats, goal string, targetKcals map[string]*int64) map[string]nutrientTargets {
 	result := make(map[string]nutrientTargets, len(dates))
 	for _, date := range dates {
 		weight := 75.0
-		if stat, ok := stats[date]; ok {
-			if value, ok := toFloat64(stat[1]); ok && value != 0 {
-				weight = value
-			} else if value, ok := bodyWeights[date]; ok && value != 0 {
-				weight = value
-			}
+		if stat, ok := stats[date]; ok && stat.WeightAvg != 0 {
+			weight = stat.WeightAvg
 		} else if value, ok := bodyWeights[date]; ok && value != 0 {
 			weight = value
 		}
@@ -1074,39 +1076,6 @@ func sum(values []float64) float64 {
 func roundFloat(value float64, places int) float64 {
 	multiplier := math.Pow(10, float64(places))
 	return math.Round(value*multiplier) / multiplier
-}
-
-func toInt64Pointer(value any) (*int64, bool) {
-	switch typed := value.(type) {
-	case int64:
-		result := typed
-		return &result, true
-	case float64:
-		result := int64(typed)
-		return &result, true
-	case int:
-		result := int64(typed)
-		return &result, true
-	case nil:
-		return nil, false
-	default:
-		return nil, false
-	}
-}
-
-func toFloat64(value any) (float64, bool) {
-	switch typed := value.(type) {
-	case float64:
-		return typed, true
-	case int64:
-		return float64(typed), true
-	case int:
-		return float64(typed), true
-	case nil:
-		return 0, false
-	default:
-		return 0, false
-	}
 }
 
 func min(a int, b int) int {
