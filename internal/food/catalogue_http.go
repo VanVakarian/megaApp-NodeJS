@@ -22,6 +22,7 @@ type generateProductPreviewRequest struct {
 }
 
 type saveProductRequest struct {
+	OperationID string  `json:"operationId"`
 	ID          *int64  `json:"id"`
 	Name        string  `json:"name"`
 	Kcals       int64   `json:"kcals"`
@@ -30,6 +31,10 @@ type saveProductRequest struct {
 	Carbs       float64 `json:"carbs"`
 	Fiber       float64 `json:"fiber"`
 	Description string  `json:"description"`
+}
+
+type deleteCatalogueEntryRequest struct {
+	OperationID string `json:"operationId"`
 }
 
 type analyzeVoiceRequest struct {
@@ -93,8 +98,12 @@ func (h *CatalogueHandler) SaveProduct(w http.ResponseWriter, r *http.Request) {
 		legacy.WriteAppResultError(w, err, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	if request.OperationID == "" {
+		legacy.WriteResultError(w, http.StatusBadRequest, "operationId is required")
+		return
+	}
 
-	entry, err := h.service.SaveProduct(r.Context(), request.ID, ProductInput{
+	entry, applied, err := h.service.SaveProduct(r.Context(), claims.UserID, request.OperationID, request.ID, ProductInput{
 		Name:        request.Name,
 		Kcals:       request.Kcals,
 		Protein:     request.Protein,
@@ -112,7 +121,7 @@ func (h *CatalogueHandler) SaveProduct(w http.ResponseWriter, r *http.Request) {
 	if request.ID != nil {
 		statusCode = http.StatusOK
 	}
-	if entry != nil {
+	if applied && entry != nil {
 		h.realtime.MarkUserUpdated(claims.UserID)
 		h.realtime.PublishCatalogueEntrySaved(claims.UserID, *entry, extractClientID(r))
 		if request.ID != nil {
@@ -141,22 +150,40 @@ func (h *CatalogueHandler) AnalyzeVoice(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *CatalogueHandler) DeleteCatalogueEntry(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.UserClaimsFromContext(r.Context())
+	if !ok {
+		legacy.WriteMessage(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
 	catalogueID, err := strconv.ParseInt(chi.URLParam(r, "catalogueId"), 10, 64)
 	if err != nil {
 		legacy.WriteResultError(w, http.StatusBadRequest, "Invalid catalogueId")
 		return
 	}
 
-	deleted, err := h.service.DeleteProduct(r.Context(), catalogueID)
+	var request deleteCatalogueEntryRequest
+	if err := legacy.DecodeJSON(r, &request); err != nil {
+		legacy.WriteAppResultError(w, err, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if request.OperationID == "" {
+		legacy.WriteResultError(w, http.StatusBadRequest, "operationId is required")
+		return
+	}
+
+	deleted, applied, err := h.service.DeleteProduct(r.Context(), claims.UserID, request.OperationID, catalogueID)
 	if err != nil {
 		legacy.WriteAppResultError(w, err, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 	if !deleted {
-		legacy.WriteResultError(w, http.StatusNotFound, "Product not found")
+		legacy.WriteResultError(w, http.StatusNotFound, "product not found")
 		return
 	}
 
-	h.metrics.Increment(MetricCatalogueEntryDeleted)
+	if applied {
+		h.metrics.Increment(MetricCatalogueEntryDeleted)
+	}
 	legacy.WriteJSON(w, http.StatusOK, map[string]any{"result": true, "data": map[string]any{"catalogueId": catalogueID}})
 }

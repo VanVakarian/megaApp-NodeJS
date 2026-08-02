@@ -3,6 +3,7 @@ package food
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -77,95 +78,182 @@ func (s *Service) GenerateProductPreview(ctx context.Context, query string) (Pro
 	return preview, nil
 }
 
-func (s *Service) SaveProduct(ctx context.Context, catalogueID *int64, input ProductInput) (*CatalogueEntry, error) {
-	input = normalizeProductInput(input)
-	if err := validateProductInput(input); err != nil {
-		return nil, legacy.WrapError(legacy.ErrorKindValidation, err.Error(), err)
-	}
-
-	existingByName, err := s.repo.GetCatalogueEntryByName(ctx, input.Name)
+// peekIdempotency reports whether operationID has already been applied, without holding a
+// transaction open across it. Checked first and unconditionally in SaveProduct/DeleteProduct —
+// on a replay, nothing else (name lookup, embeddings generation, usage check) should run at all.
+// Mirrors internal/money/service.go's helper of the same name and reasoning.
+func (s *Service) peekIdempotency(ctx context.Context, userID int64, operationID string) (string, bool, error) {
+	tx, err := s.idempotency.BeginTx(ctx)
 	if err != nil {
-		return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to look up product by name", err)
+		return "", false, err
 	}
-
-	nameVector, descriptionVector, err := s.generateProductEmbeddings(ctx, input)
-	if err != nil {
-		return nil, legacy.WrapError(legacy.ErrorKindExternal, "Failed to generate product embeddings", err)
-	}
-	input.NameVector = nameVector
-	input.DescriptionVec = descriptionVector
-
-	if catalogueID == nil {
-		if existingByName != nil {
-			return nil, legacy.NewError(legacy.ErrorKindValidation, "product with this name already exists")
-		}
-		id, err := s.repo.CreateCatalogueEntry(ctx, input)
-		if err != nil {
-			return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to create product", err)
-		}
-		s.searchCache.Clear()
-		entry, err := s.GetCatalogueEntry(ctx, id)
-		if err != nil {
-			return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to load created product", err)
-		}
-		if entry != nil && s.imageGenerationRequest != nil {
-			s.imageGenerationRequest.RequestProductImageGeneration(entry.ID, entry.Name, entry.Description)
-		}
-		return entry, nil
-	}
-
-	existingByID, err := s.repo.GetCatalogueEntry(ctx, *catalogueID)
-	if err != nil {
-		return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to load product", err)
-	}
-	if existingByID == nil {
-		return nil, legacy.NewError(legacy.ErrorKindNotFound, "product not found")
-	}
-	if existingByName != nil && existingByName.ID != *catalogueID {
-		return nil, legacy.NewError(legacy.ErrorKindValidation, "product with this name already exists")
-	}
-
-	updated, err := s.repo.UpdateCatalogueEntry(ctx, *catalogueID, input)
-	if err != nil {
-		return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to update product", err)
-	}
-	if !updated {
-		return nil, legacy.NewError(legacy.ErrorKindNotFound, "product not found")
-	}
-
-	s.searchCache.Clear()
-	entry, err := s.GetCatalogueEntry(ctx, *catalogueID)
-	if err != nil {
-		return nil, legacy.WrapError(legacy.ErrorKindInternal, "Failed to load updated product", err)
-	}
-	return entry, nil
+	cachedJSON, found, err := s.idempotency.Find(ctx, tx, userID, operationID)
+	_ = tx.Rollback()
+	return cachedJSON, found, err
 }
 
-func (s *Service) DeleteProduct(ctx context.Context, catalogueID int64) (bool, error) {
+func (s *Service) SaveProduct(ctx context.Context, userID int64, operationID string, catalogueID *int64, input ProductInput) (entry *CatalogueEntry, applied bool, err error) {
+	cachedJSON, found, err := s.peekIdempotency(ctx, userID, operationID)
+	if err != nil {
+		return nil, false, err
+	}
+	var resultID int64
+	if found {
+		var cached struct {
+			ID int64 `json:"id"`
+		}
+		if err := json.Unmarshal([]byte(cachedJSON), &cached); err != nil {
+			return nil, false, fmt.Errorf("decode cached catalogue save: %w", err)
+		}
+		resultID = cached.ID
+	} else {
+		input = normalizeProductInput(input)
+		if err := validateProductInput(input); err != nil {
+			return nil, false, legacy.WrapError(legacy.ErrorKindValidation, err.Error(), err)
+		}
+
+		existingByName, err := s.repo.GetCatalogueEntryByName(ctx, input.Name)
+		if err != nil {
+			return nil, false, legacy.WrapError(legacy.ErrorKindInternal, "Failed to look up product by name", err)
+		}
+
+		nameVector, descriptionVector, err := s.generateProductEmbeddings(ctx, input)
+		if err != nil {
+			return nil, false, legacy.WrapError(legacy.ErrorKindExternal, "Failed to generate product embeddings", err)
+		}
+		input.NameVector = nameVector
+		input.DescriptionVec = descriptionVector
+
+		tx, err := s.idempotency.BeginTx(ctx)
+		if err != nil {
+			return nil, false, err
+		}
+
+		if catalogueID == nil {
+			if existingByName != nil {
+				_ = tx.Rollback()
+				return nil, false, legacy.NewError(legacy.ErrorKindValidation, "product with this name already exists")
+			}
+			resultID, err = s.repo.CreateCatalogueEntry(ctx, tx, input)
+			if err != nil {
+				_ = tx.Rollback()
+				return nil, false, legacy.WrapError(legacy.ErrorKindInternal, "Failed to create product", err)
+			}
+		} else {
+			existingByID, err := s.repo.GetCatalogueEntry(ctx, *catalogueID)
+			if err != nil {
+				_ = tx.Rollback()
+				return nil, false, legacy.WrapError(legacy.ErrorKindInternal, "Failed to load product", err)
+			}
+			if existingByID == nil {
+				_ = tx.Rollback()
+				return nil, false, legacy.NewError(legacy.ErrorKindNotFound, "product not found")
+			}
+			if existingByName != nil && existingByName.ID != *catalogueID {
+				_ = tx.Rollback()
+				return nil, false, legacy.NewError(legacy.ErrorKindValidation, "product with this name already exists")
+			}
+			updated, err := s.repo.UpdateCatalogueEntry(ctx, tx, *catalogueID, input)
+			if err != nil {
+				_ = tx.Rollback()
+				return nil, false, legacy.WrapError(legacy.ErrorKindInternal, "Failed to update product", err)
+			}
+			if !updated {
+				_ = tx.Rollback()
+				return nil, false, legacy.NewError(legacy.ErrorKindNotFound, "product not found")
+			}
+			resultID = *catalogueID
+		}
+
+		payload, err := json.Marshal(struct {
+			ID int64 `json:"id"`
+		}{resultID})
+		if err != nil {
+			_ = tx.Rollback()
+			return nil, false, err
+		}
+		if err := s.idempotency.Record(ctx, tx, userID, operationID, string(payload)); err != nil {
+			_ = tx.Rollback()
+			return nil, false, err
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, false, fmt.Errorf("commit catalogue save: %w", err)
+		}
+		s.searchCache.Clear()
+		applied = true
+	}
+
+	entry, err = s.GetCatalogueEntry(ctx, resultID)
+	if err != nil {
+		return nil, false, legacy.WrapError(legacy.ErrorKindInternal, "Failed to load saved product", err)
+	}
+	if applied && entry != nil && catalogueID == nil && s.imageGenerationRequest != nil {
+		s.imageGenerationRequest.RequestProductImageGeneration(entry.ID, entry.Name, entry.Description)
+	}
+	return entry, applied, nil
+}
+
+func (s *Service) DeleteProduct(ctx context.Context, userID int64, operationID string, catalogueID int64) (deleted bool, applied bool, err error) {
+	cachedJSON, found, err := s.peekIdempotency(ctx, userID, operationID)
+	if err != nil {
+		return false, false, err
+	}
+	if found {
+		var cached struct {
+			Deleted bool `json:"deleted"`
+		}
+		if err := json.Unmarshal([]byte(cachedJSON), &cached); err != nil {
+			return false, false, fmt.Errorf("decode cached catalogue delete: %w", err)
+		}
+		return cached.Deleted, false, nil
+	}
+
 	entry, err := s.repo.GetCatalogueEntry(ctx, catalogueID)
 	if err != nil {
-		return false, legacy.WrapError(legacy.ErrorKindInternal, "Failed to load product", err)
+		return false, false, legacy.WrapError(legacy.ErrorKindInternal, "Failed to load product", err)
 	}
 	if entry == nil {
-		return false, legacy.NewError(legacy.ErrorKindNotFound, "product not found")
+		return false, false, legacy.NewError(legacy.ErrorKindNotFound, "product not found")
 	}
 
 	count, err := s.repo.CountDiaryEntriesByCatalogueID(ctx, catalogueID)
 	if err != nil {
-		return false, legacy.WrapError(legacy.ErrorKindInternal, "Failed to check product usage", err)
+		return false, false, legacy.WrapError(legacy.ErrorKindInternal, "Failed to check product usage", err)
 	}
 	if count > 0 {
-		return false, legacy.NewError(legacy.ErrorKindConflict, "product is used in diary entries")
+		return false, false, legacy.NewError(legacy.ErrorKindConflict, "product is used in diary entries")
 	}
 
-	deleted, err := s.repo.DeleteCatalogueEntry(ctx, catalogueID)
+	tx, err := s.idempotency.BeginTx(ctx)
 	if err != nil {
-		return false, legacy.WrapError(legacy.ErrorKindInternal, "Failed to delete product", err)
+		return false, false, err
 	}
+
+	deleted, err = s.repo.DeleteCatalogueEntry(ctx, tx, catalogueID)
+	if err != nil {
+		_ = tx.Rollback()
+		return false, false, legacy.WrapError(legacy.ErrorKindInternal, "Failed to delete product", err)
+	}
+
+	payload, err := json.Marshal(struct {
+		Deleted bool `json:"deleted"`
+	}{deleted})
+	if err != nil {
+		_ = tx.Rollback()
+		return false, false, err
+	}
+	if err := s.idempotency.Record(ctx, tx, userID, operationID, string(payload)); err != nil {
+		_ = tx.Rollback()
+		return false, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, false, fmt.Errorf("commit catalogue delete: %w", err)
+	}
+
 	if deleted {
 		s.searchCache.Clear()
 	}
-	return deleted, nil
+	return deleted, true, nil
 }
 
 func (s *Service) AnalyzeVoiceTranscript(ctx context.Context, transcript string) (*VoiceAnalysisData, error) {

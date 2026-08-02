@@ -253,6 +253,7 @@ func TestFoodSearchAndCatalogueMutationEndpoints(t *testing.T) {
 	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/analyze-voice", tokens.AccessToken, "tab-a", map[string]any{"transcript": "apple-semantic"}, http.StatusOK)
 	assertMultipartRequestStatus(t, server.URL+"/api/food/analyze-image", tokens.AccessToken, "tab-a", []byte("fake-image-bytes"), http.StatusOK)
 	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/save-product", tokens.AccessToken, "tab-a", map[string]any{
+		"operationId": "op-save-orange",
 		"name":        "Orange",
 		"kcals":       47,
 		"protein":     1,
@@ -269,7 +270,9 @@ func TestFoodSearchAndCatalogueMutationEndpoints(t *testing.T) {
 	if savedMessage["type"] != "CATALOGUE_ENTRY_SAVED" {
 		t.Fatalf("type = %v, want CATALOGUE_ENTRY_SAVED", savedMessage["type"])
 	}
-	assertJSONRequestStatus(t, http.MethodDelete, server.URL+"/api/food/catalogue/3", tokens.AccessToken, "tab-a", nil, http.StatusOK)
+	assertJSONRequestStatus(t, http.MethodDelete, server.URL+"/api/food/catalogue/3", tokens.AccessToken, "tab-a", map[string]any{
+		"operationId": "op-delete-orange",
+	}, http.StatusOK)
 }
 
 func TestFoodImageStaticRoutes(t *testing.T) {

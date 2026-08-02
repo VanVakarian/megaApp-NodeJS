@@ -439,7 +439,7 @@ func TestSearchPreviewAndSaveProduct(t *testing.T) {
 		t.Fatalf("preview = %+v", preview)
 	}
 
-	entry, err := service.SaveProduct(context.Background(), nil, ProductInput{
+	entry, applied, err := service.SaveProduct(context.Background(), 1, "op-save-orange", nil, ProductInput{
 		Name:        "Orange",
 		Kcals:       47,
 		Protein:     1,
@@ -451,16 +451,97 @@ func TestSearchPreviewAndSaveProduct(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveProduct() error = %v", err)
 	}
+	if !applied {
+		t.Fatal("SaveProduct() applied = false, want true")
+	}
 	if entry == nil || entry.ID <= 0 {
 		t.Fatalf("entry = %+v", entry)
 	}
 
-	deleted, err := service.DeleteProduct(context.Background(), entry.ID)
+	deleted, applied, err := service.DeleteProduct(context.Background(), 1, "op-delete-orange", entry.ID)
 	if err != nil {
 		t.Fatalf("DeleteProduct() error = %v", err)
 	}
+	if !applied {
+		t.Fatal("DeleteProduct() applied = false, want true")
+	}
 	if !deleted {
 		t.Fatal("DeleteProduct() = false, want true")
+	}
+}
+
+func TestSaveProductSameOperationIDReplaysWithoutDuplicate(t *testing.T) {
+	db := openFoodTestDB(t)
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
+	service.SetEmbeddingGenerator(fakeEmbeddingGenerator{})
+
+	input := ProductInput{Name: "Kiwi", Kcals: 61, Protein: 1, Fat: 1, Carbs: 15, Fiber: 3, Description: "Kiwi fruit"}
+
+	first, applied, err := service.SaveProduct(context.Background(), 1, "op-kiwi", nil, input)
+	if err != nil {
+		t.Fatalf("SaveProduct() first call error = %v", err)
+	}
+	if !applied {
+		t.Fatal("SaveProduct() first call applied = false, want true")
+	}
+
+	second, applied, err := service.SaveProduct(context.Background(), 1, "op-kiwi", nil, input)
+	if err != nil {
+		t.Fatalf("SaveProduct() retry error = %v", err)
+	}
+	if applied {
+		t.Fatal("SaveProduct() retry applied = true, want false (replay)")
+	}
+	if second.ID != first.ID {
+		t.Fatalf("SaveProduct() retry created a different entry: first.ID = %d, second.ID = %d", first.ID, second.ID)
+	}
+
+	all, err := service.GetCatalogue(context.Background())
+	if err != nil {
+		t.Fatalf("GetCatalogue() error = %v", err)
+	}
+	count := 0
+	for _, e := range all {
+		if e.Name == "Kiwi" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("catalogue has %d entries named Kiwi, want 1 (no duplicate from retry)", count)
+	}
+}
+
+func TestDeleteProductRetrySucceedsInsteadOfNotFound(t *testing.T) {
+	db := openFoodTestDB(t)
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
+	service.SetEmbeddingGenerator(fakeEmbeddingGenerator{})
+
+	entry, _, err := service.SaveProduct(context.Background(), 1, "op-mango-create", nil, ProductInput{
+		Name: "Mango", Kcals: 60, Protein: 1, Fat: 0, Carbs: 15, Fiber: 2, Description: "Mango fruit",
+	})
+	if err != nil {
+		t.Fatalf("SaveProduct() error = %v", err)
+	}
+
+	deleted, applied, err := service.DeleteProduct(context.Background(), 1, "op-mango-delete", entry.ID)
+	if err != nil {
+		t.Fatalf("DeleteProduct() first call error = %v", err)
+	}
+	if !deleted || !applied {
+		t.Fatalf("DeleteProduct() first call = (deleted=%v, applied=%v), want (true, true)", deleted, applied)
+	}
+
+	// Retry with the same operationId after the entry is already gone — must replay the
+	// original success, not report "not found" for an entry that was in fact deleted.
+	deleted, applied, err = service.DeleteProduct(context.Background(), 1, "op-mango-delete", entry.ID)
+	if err != nil {
+		t.Fatalf("DeleteProduct() retry error = %v", err)
+	}
+	if !deleted {
+		t.Fatal("DeleteProduct() retry deleted = false, want true (replay of prior success)")
+	}
+	if applied {
+		t.Fatal("DeleteProduct() retry applied = true, want false (replay)")
 	}
 }
 
