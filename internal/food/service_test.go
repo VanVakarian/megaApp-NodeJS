@@ -96,8 +96,8 @@ func TestGetCatalogueAndPersonalKcalsAndStats(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetStats() error = %v", err)
 	}
-	if len(stats) == 0 {
-		t.Fatal("stats is empty")
+	if len(stats.Days) == 0 {
+		t.Fatal("stats.Days is empty")
 	}
 }
 
@@ -387,7 +387,7 @@ func TestStatsCacheInvalidatesAfterWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetStats() error = %v", err)
 	}
-	beforeValue, ok := before["2026-06-17"]
+	beforeValue, ok := before.Days["2026-06-17"]
 	if !ok {
 		t.Fatal("before stats missing 2026-06-17")
 	}
@@ -401,13 +401,73 @@ func TestStatsCacheInvalidatesAfterWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetStats() error = %v", err)
 	}
-	afterValue, ok := after["2026-06-17"]
+	afterValue, ok := after.Days["2026-06-17"]
 	if !ok {
 		t.Fatal("after stats missing 2026-06-17")
 	}
 	afterKcals := afterValue.ConsumedKcal
 	if afterKcals <= beforeKcals {
 		t.Fatalf("afterKcals = %v, want > %v", afterKcals, beforeKcals)
+	}
+}
+
+func TestTopProductStatsSortsAndLimitsToFive(t *testing.T) {
+	productKcal := map[int64]float64{1: 100, 2: 400, 3: 250, 4: 50, 5: 300, 6: 600}
+	names := map[int64]string{1: "One", 2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six"}
+
+	result := topProductStats(productKcal, names)
+
+	if len(result) != 5 {
+		t.Fatalf("len(result) = %d, want 5", len(result))
+	}
+	wantOrder := []int64{6, 2, 5, 3, 1} // descending kcal: 600, 400, 300, 250, 100 (50 dropped)
+	for i, id := range wantOrder {
+		if result[i].CatalogueID != id {
+			t.Fatalf("result[%d].CatalogueID = %d, want %d (result=%+v)", i, result[i].CatalogueID, id, result)
+		}
+	}
+}
+
+func TestGetStatsTopProductsWindowAndTotalEntries(t *testing.T) {
+	db := openFoodTestDB(t)
+	// openFoodTestDB already seeds catalogue 1=Apple(50kcal/100g), 2=Bread(250kcal/100g) and one
+	// diary row (id 10) on 2026-06-17, well outside the 30-day window used below.
+	if _, err := db.Exec(`
+		INSERT INTO foodDiary(id, dateISO, foodCatalogueId, foodWeight, history, usersId, ver, del) VALUES
+			(20, '2026-07-10', 1, 200, '[{"action":"init","value":200}]', 1, 0, 0),
+			(21, '2026-07-15', 2, 100, '[{"action":"init","value":100}]', 1, 0, 0),
+			(22, '2026-07-24', 1, 300, '[{"action":"init","value":300}]', 1, 0, 0),
+			(23, '2026-07-25', 2, 1000, '[{"action":"init","value":1000}]', 1, 0, 0);
+	`); err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
+	service.SetClock(fixedFoodClock{now: time.Date(2026, time.July, 25, 12, 0, 0, 0, time.UTC)})
+
+	stats, err := service.GetStats(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("GetStats() error = %v", err)
+	}
+
+	// TotalEntries counts every diary row regardless of date: base row (10) + the four new ones.
+	if stats.TotalEntries != 5 {
+		t.Fatalf("TotalEntries = %d, want 5", stats.TotalEntries)
+	}
+
+	// Window is [2026-06-25, 2026-07-25): the base row on 2026-06-17 falls outside it (too old)
+	// and row 23 falls on "today" (2026-07-25) — both excluded from TopProducts even though both
+	// are still part of TotalEntries/Days. Within window: id20 Apple 200g=100kcal, id21 Bread
+	// 100g=250kcal, id22 Apple 300g=150kcal. Apple total=250, Bread total=250 (id23 excluded) —
+	// tie broken by ascending catalogueID, so Apple (id 1) ranks first.
+	if len(stats.TopProducts) != 2 {
+		t.Fatalf("len(TopProducts) = %d, want 2, got %+v", len(stats.TopProducts), stats.TopProducts)
+	}
+	if stats.TopProducts[0] != (ProductStat{CatalogueID: 1, Name: "Apple", Kcal: 250}) {
+		t.Fatalf("TopProducts[0] = %+v, want {1 Apple 250}", stats.TopProducts[0])
+	}
+	if stats.TopProducts[1] != (ProductStat{CatalogueID: 2, Name: "Bread", Kcal: 250}) {
+		t.Fatalf("TopProducts[1] = %+v, want {2 Bread 250}", stats.TopProducts[1])
 	}
 }
 

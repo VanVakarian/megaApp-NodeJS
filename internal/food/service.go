@@ -89,6 +89,21 @@ type DayStats struct {
 	IsVirtualKcalDay bool    `json:"isVirtualKcalDay"`
 }
 
+type ProductStat struct {
+	CatalogueID int64   `json:"catalogueId"`
+	Name        string  `json:"name"`
+	Kcal        float64 `json:"kcal"`
+}
+
+type StatsResponse struct {
+	Days         map[string]DayStats `json:"days"`
+	TopProducts  []ProductStat       `json:"topProducts"`
+	TotalEntries int                 `json:"totalEntries"`
+}
+
+const topProductsCount = 5
+const topProductsWindowDays = 30
+
 type CatalogueEntry struct {
 	ID           int64   `json:"id"`
 	Name         string  `json:"name"`
@@ -138,26 +153,28 @@ func (s *Service) SetClock(clk clockplatform.Clock) {
 // buildPersonalKcalResolver loads a user's full personal-kcal history (and the shared
 // catalogue) once and returns a resolver that can answer "applied value as of month X" for
 // any product/norm/X without further DB round-trips (§7.1, §7.3).
-func (s *Service) buildPersonalKcalResolver(ctx context.Context, userID int64) (*PersonalKcalResolver, error) {
+func (s *Service) buildPersonalKcalResolver(ctx context.Context, userID int64) (*PersonalKcalResolver, map[int64]string, error) {
 	firstDate, err := s.repo.GetUserFirstDate(ctx, userID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	catalogueRows, err := s.repo.GetCatalogue(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	catalogueKcals := make(map[int64]float64, len(catalogueRows))
+	catalogueNameByID := make(map[int64]string, len(catalogueRows))
 	for _, row := range catalogueRows {
 		catalogueKcals[row.ID] = float64(row.Kcals)
+		catalogueNameByID[row.ID] = row.Name
 	}
 	kcalHistoryRows, err := s.repo.GetPersonalKcalHistory(ctx, userID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	normHistoryRows, err := s.repo.GetPersonalNormHistory(ctx, userID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	currentYearMonth := s.clock.Now().UTC().Format("2006-01")
@@ -166,7 +183,8 @@ func (s *Service) buildPersonalKcalResolver(ctx context.Context, userID int64) (
 		firstYearMonth = firstDate[:7]
 	}
 	allMonths := sequentialYearMonths(firstYearMonth, currentYearMonth)
-	return NewPersonalKcalResolver(allMonths, catalogueKcals, kcalHistoryRows, normHistoryRows, s.personalKcalConfig), nil
+	resolver := NewPersonalKcalResolver(allMonths, catalogueKcals, kcalHistoryRows, normHistoryRows, s.personalKcalConfig)
+	return resolver, catalogueNameByID, nil
 }
 
 // GetPersonalKcalsNow is the direct replacement for GetCoefficients: a complete
@@ -174,7 +192,7 @@ func (s *Service) buildPersonalKcalResolver(ctx context.Context, userID int64) (
 // an unsaved diary entry (§7.3, §7.4) — every other consumer resolves "at the entry's own
 // month" through the resolver instead.
 func (s *Service) GetPersonalKcalsNow(ctx context.Context, userID int64) (map[int64]float64, error) {
-	resolver, err := s.buildPersonalKcalResolver(ctx, userID)
+	resolver, _, err := s.buildPersonalKcalResolver(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +231,7 @@ func (s *Service) GetDiaryFullUpdate(ctx context.Context, userID int64, dateISO 
 	if err != nil {
 		return nil, err
 	}
-	resolver, err := s.buildPersonalKcalResolver(ctx, userID)
+	resolver, _, err := s.buildPersonalKcalResolver(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -255,8 +273,8 @@ func (s *Service) GetDiaryFullUpdate(ctx context.Context, userID int64, dateISO 
 		result[row.DateISO] = day
 	}
 
-	targetKcals := buildTargetKcalsForRange(dates, stats)
-	targetNutrients := calculateTargetNutrientsForRange(dates, bodyWeightMap, stats, goal, targetKcals)
+	targetKcals := buildTargetKcalsForRange(dates, stats.Days)
+	targetNutrients := calculateTargetNutrientsForRange(dates, bodyWeightMap, stats.Days, goal, targetKcals)
 	consumedNutrients := calculateConsumedNutrientsForRange(dates, result, catalogueMap)
 	consumedKcals := calculateConsumedKcalsForRange(dates, result)
 
@@ -489,7 +507,7 @@ func buildHistoryEntry(requestedAction string, targetFoodWeight int64, delta int
 }
 
 func (s *Service) resolvePersonalKcalsForCurrentMonth(ctx context.Context, userID int64, foodCatalogueID int64, foodWeight int64) (int64, error) {
-	resolver, err := s.buildPersonalKcalResolver(ctx, userID)
+	resolver, _, err := s.buildPersonalKcalResolver(ctx, userID)
 	if err != nil {
 		return 0, err
 	}
@@ -645,7 +663,7 @@ func (s *Service) RestoreDiaryEntriesForDay(ctx context.Context, userID int64, o
 		applied = true
 	}
 
-	resolver, err := s.buildPersonalKcalResolver(ctx, userID)
+	resolver, _, err := s.buildPersonalKcalResolver(ctx, userID)
 	if err != nil {
 		return nil, false, err
 	}
@@ -724,50 +742,82 @@ func (s *Service) InvalidateStats(userID int64) {
 	s.statsCache.Delete(userID)
 }
 
-func (s *Service) GetStats(ctx context.Context, userID int64) (map[string]DayStats, error) {
+func (s *Service) GetStats(ctx context.Context, userID int64) (StatsResponse, error) {
 	if cached, ok := s.statsCache.Get(userID); ok {
 		return cached, nil
 	}
 	firstDate, err := s.repo.GetUserFirstDate(ctx, userID)
 	if err != nil {
-		return nil, err
+		return StatsResponse{}, err
 	}
 	if firstDate == "" {
-		return map[string]DayStats{}, nil
+		return StatsResponse{Days: map[string]DayStats{}, TopProducts: []ProductStat{}}, nil
 	}
 
 	lastDate := s.clock.Now().UTC().Format("2006-01-02")
 	allDates := getDatesList(firstDate, lastDate)
 	weightRows, err := s.repo.GetWeightRange(ctx, userID, firstDate, lastDate)
 	if err != nil {
-		return nil, err
+		return StatsResponse{}, err
 	}
 	diaryRows, err := s.repo.GetStatsDiaryHistory(ctx, userID, firstDate, lastDate)
 	if err != nil {
-		return nil, err
+		return StatsResponse{}, err
 	}
-	resolver, err := s.buildPersonalKcalResolver(ctx, userID)
+	resolver, catalogueNameByID, err := s.buildPersonalKcalResolver(ctx, userID)
 	if err != nil {
-		return nil, err
+		return StatsResponse{}, err
 	}
 
 	weights := prepareWeights(weightRows, allDates)
 	weightsAvg := calculateCenteredAverage(weights, 10, true, 1)
 	diaryEntries := prepareDiaryEntries(diaryRows, allDates)
 
+	// Top-products window ends the day before lastDate (today) — today's diary entries
+	// are still incomplete, same reasoning as excluding today from the frontend streak/ribbon.
+	topProductsWindowStart := createUTCDate(lastDate).AddDate(0, 0, -topProductsWindowDays).Format("2006-01-02")
+
 	stats := make(map[string]DayStats, len(allDates))
+	productKcal := make(map[int64]float64)
 	for _, date := range allDates {
 		yearMonth := date[:7]
+		inTopProductsWindow := date >= topProductsWindowStart && date < lastDate
 		var consumed float64
 		for _, row := range diaryEntries[date] {
-			consumed += resolver.AppliedKcal(row.FoodCatalogueID, yearMonth) * row.FoodWeight / 100
+			kcal := resolver.AppliedKcal(row.FoodCatalogueID, yearMonth) * row.FoodWeight / 100
+			consumed += kcal
+			if inTopProductsWindow {
+				productKcal[row.FoodCatalogueID] += kcal
+			}
 		}
 		target := roundFloat(resolver.AppliedNorm(yearMonth), 0)
 		stats[date] = DayStats{Weight: weights[date], WeightAvg: weightsAvg[date], ConsumedKcal: consumed, TargetKcal: target, IsVirtualKcalDay: false}
 	}
 
-	s.statsCache.Set(userID, stats)
-	return stats, nil
+	response := StatsResponse{
+		Days:         stats,
+		TopProducts:  topProductStats(productKcal, catalogueNameByID),
+		TotalEntries: len(diaryRows),
+	}
+	s.statsCache.Set(userID, response)
+	return response, nil
+}
+
+func topProductStats(productKcal map[int64]float64, catalogueNameByID map[int64]string) []ProductStat {
+	products := make([]ProductStat, 0, len(productKcal))
+	for catalogueID, kcal := range productKcal {
+		products = append(products, ProductStat{CatalogueID: catalogueID, Name: catalogueNameByID[catalogueID], Kcal: kcal})
+	}
+	sort.Slice(products, func(i, j int) bool {
+		if products[i].Kcal != products[j].Kcal {
+			return products[i].Kcal > products[j].Kcal
+		}
+		return products[i].CatalogueID < products[j].CatalogueID
+	})
+	if len(products) > topProductsCount {
+		products = products[:topProductsCount]
+	}
+	return products
 }
 
 type nutrientTotals struct {
