@@ -82,26 +82,30 @@ type DiaryDay struct {
 }
 
 type DayStats struct {
-	Weight           float64 `json:"weight"`
-	WeightAvg        float64 `json:"weightAvg"`
-	ConsumedKcal     float64 `json:"consumedKcal"`
-	TargetKcal       float64 `json:"targetKcal"`
-	IsVirtualKcalDay bool    `json:"isVirtualKcalDay"`
+	Weight       float64 `json:"weight"`
+	WeightAvg    float64 `json:"weightAvg"`
+	ConsumedKcal float64 `json:"consumedKcal"`
+	TargetKcal   float64 `json:"targetKcal"`
+	HasNoData    bool    `json:"hasNoData"`
 }
 
 type ProductStat struct {
 	CatalogueID int64   `json:"catalogueId"`
 	Name        string  `json:"name"`
 	Kcal        float64 `json:"kcal"`
+	Weight      float64 `json:"weight"`
 }
 
 type StatsResponse struct {
-	Days         map[string]DayStats `json:"days"`
-	TopProducts  []ProductStat       `json:"topProducts"`
-	TotalEntries int                 `json:"totalEntries"`
+	Days                         map[string]DayStats `json:"days"`
+	TopProductsByKcal            []ProductStat       `json:"topProductsByKcal"`
+	TopProductsByWeight          []ProductStat       `json:"topProductsByWeight"`
+	TopProductsWindowTotalKcal   float64             `json:"topProductsWindowTotalKcal"`
+	TopProductsWindowTotalWeight float64             `json:"topProductsWindowTotalWeight"`
+	TotalEntries                 int                 `json:"totalEntries"`
 }
 
-const topProductsCount = 5
+const topProductsCount = 10
 const topProductsWindowDays = 30
 
 type CatalogueEntry struct {
@@ -751,7 +755,7 @@ func (s *Service) GetStats(ctx context.Context, userID int64) (StatsResponse, er
 		return StatsResponse{}, err
 	}
 	if firstDate == "" {
-		return StatsResponse{Days: map[string]DayStats{}, TopProducts: []ProductStat{}}, nil
+		return StatsResponse{Days: map[string]DayStats{}, TopProductsByKcal: []ProductStat{}, TopProductsByWeight: []ProductStat{}}, nil
 	}
 
 	lastDate := s.clock.Now().UTC().Format("2006-01-02")
@@ -779,6 +783,8 @@ func (s *Service) GetStats(ctx context.Context, userID int64) (StatsResponse, er
 
 	stats := make(map[string]DayStats, len(allDates))
 	productKcal := make(map[int64]float64)
+	productWeight := make(map[int64]float64)
+	var windowTotalKcal, windowTotalWeight float64
 	for _, date := range allDates {
 		yearMonth := date[:7]
 		inTopProductsWindow := date >= topProductsWindowStart && date < lastDate
@@ -788,36 +794,66 @@ func (s *Service) GetStats(ctx context.Context, userID int64) (StatsResponse, er
 			consumed += kcal
 			if inTopProductsWindow {
 				productKcal[row.FoodCatalogueID] += kcal
+				productWeight[row.FoodCatalogueID] += row.FoodWeight
+				windowTotalKcal += kcal
+				windowTotalWeight += row.FoodWeight
 			}
 		}
 		target := roundFloat(resolver.AppliedNorm(yearMonth), 0)
-		stats[date] = DayStats{Weight: weights[date], WeightAvg: weightsAvg[date], ConsumedKcal: consumed, TargetKcal: target, IsVirtualKcalDay: false}
+		stats[date] = DayStats{Weight: weights[date], WeightAvg: weightsAvg[date], ConsumedKcal: consumed, TargetKcal: target, HasNoData: diaryEntries[date] == nil}
 	}
 
+	products := buildProductStats(productKcal, productWeight, catalogueNameByID)
 	response := StatsResponse{
-		Days:         stats,
-		TopProducts:  topProductStats(productKcal, catalogueNameByID),
-		TotalEntries: len(diaryRows),
+		Days:                         stats,
+		TopProductsByKcal:            rankProducts(products, func(p ProductStat) float64 { return p.Kcal }),
+		TopProductsByWeight:          rankProducts(products, func(p ProductStat) float64 { return p.Weight }),
+		TopProductsWindowTotalKcal:   windowTotalKcal,
+		TopProductsWindowTotalWeight: windowTotalWeight,
+		TotalEntries:                 len(diaryRows),
 	}
 	s.statsCache.Set(userID, response)
 	return response, nil
 }
 
-func topProductStats(productKcal map[int64]float64, catalogueNameByID map[int64]string) []ProductStat {
-	products := make([]ProductStat, 0, len(productKcal))
-	for catalogueID, kcal := range productKcal {
-		products = append(products, ProductStat{CatalogueID: catalogueID, Name: catalogueNameByID[catalogueID], Kcal: kcal})
+func buildProductStats(productKcal map[int64]float64, productWeight map[int64]float64, catalogueNameByID map[int64]string) []ProductStat {
+	catalogueIDs := make(map[int64]struct{}, len(productKcal))
+	for catalogueID := range productKcal {
+		catalogueIDs[catalogueID] = struct{}{}
 	}
-	sort.Slice(products, func(i, j int) bool {
-		if products[i].Kcal != products[j].Kcal {
-			return products[i].Kcal > products[j].Kcal
-		}
-		return products[i].CatalogueID < products[j].CatalogueID
-	})
-	if len(products) > topProductsCount {
-		products = products[:topProductsCount]
+	for catalogueID := range productWeight {
+		catalogueIDs[catalogueID] = struct{}{}
+	}
+
+	products := make([]ProductStat, 0, len(catalogueIDs))
+	for catalogueID := range catalogueIDs {
+		products = append(products, ProductStat{
+			CatalogueID: catalogueID,
+			Name:        catalogueNameByID[catalogueID],
+			Kcal:        productKcal[catalogueID],
+			Weight:      productWeight[catalogueID],
+		})
 	}
 	return products
+}
+
+// rankProducts sorts a copy of products descending by keyFn (ties broken by CatalogueID ascending,
+// for a stable order) and limits it to topProductsCount — used once per metric (kcal, weight) so
+// each ranking gets its own top-N slice without the two orders disturbing each other.
+func rankProducts(products []ProductStat, keyFn func(ProductStat) float64) []ProductStat {
+	sorted := make([]ProductStat, len(products))
+	copy(sorted, products)
+	sort.Slice(sorted, func(i, j int) bool {
+		ki, kj := keyFn(sorted[i]), keyFn(sorted[j])
+		if ki != kj {
+			return ki > kj
+		}
+		return sorted[i].CatalogueID < sorted[j].CatalogueID
+	})
+	if len(sorted) > topProductsCount {
+		sorted = sorted[:topProductsCount]
+	}
+	return sorted
 }
 
 type nutrientTotals struct {

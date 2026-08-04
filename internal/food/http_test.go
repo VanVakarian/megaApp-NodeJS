@@ -433,22 +433,41 @@ func TestGetStatsHTTPResponseShape(t *testing.T) {
 	if !ok {
 		t.Fatalf("days missing 2026-06-17: %+v", days)
 	}
-	for _, key := range []string{"weight", "weightAvg", "consumedKcal", "targetKcal", "isVirtualKcalDay"} {
+	for _, key := range []string{"weight", "weightAvg", "consumedKcal", "targetKcal", "hasNoData"} {
 		if _, ok := dayEntry[key]; !ok {
 			t.Fatalf("day entry missing %q: %+v", key, dayEntry)
 		}
 	}
 
-	topProducts, ok := decoded["topProducts"].([]any)
-	if !ok || len(topProducts) != 1 {
-		t.Fatalf("topProducts = %v, want single-element array", decoded["topProducts"])
+	topProductsByKcal, ok := decoded["topProductsByKcal"].([]any)
+	if !ok || len(topProductsByKcal) != 1 {
+		t.Fatalf("topProductsByKcal = %v, want single-element array", decoded["topProductsByKcal"])
 	}
-	product, ok := topProducts[0].(map[string]any)
+	product, ok := topProductsByKcal[0].(map[string]any)
 	if !ok {
-		t.Fatalf("topProducts[0] not an object: %+v", topProducts[0])
+		t.Fatalf("topProductsByKcal[0] not an object: %+v", topProductsByKcal[0])
 	}
-	if product["catalogueId"] != float64(2) || product["name"] != "Bread" || product["kcal"] != float64(250) {
-		t.Fatalf("topProducts[0] = %+v, want {catalogueId:2 name:Bread kcal:250}", product)
+	if product["catalogueId"] != float64(2) || product["name"] != "Bread" || product["kcal"] != float64(250) || product["weight"] != float64(100) {
+		t.Fatalf("topProductsByKcal[0] = %+v, want {catalogueId:2 name:Bread kcal:250 weight:100}", product)
+	}
+
+	topProductsByWeight, ok := decoded["topProductsByWeight"].([]any)
+	if !ok || len(topProductsByWeight) != 1 {
+		t.Fatalf("topProductsByWeight = %v, want single-element array", decoded["topProductsByWeight"])
+	}
+	weightProduct, ok := topProductsByWeight[0].(map[string]any)
+	if !ok {
+		t.Fatalf("topProductsByWeight[0] not an object: %+v", topProductsByWeight[0])
+	}
+	if weightProduct["catalogueId"] != float64(2) || weightProduct["name"] != "Bread" || weightProduct["kcal"] != float64(250) || weightProduct["weight"] != float64(100) {
+		t.Fatalf("topProductsByWeight[0] = %+v, want {catalogueId:2 name:Bread kcal:250 weight:100}", weightProduct)
+	}
+
+	if decoded["topProductsWindowTotalKcal"] != float64(250) {
+		t.Fatalf("topProductsWindowTotalKcal = %v, want 250", decoded["topProductsWindowTotalKcal"])
+	}
+	if decoded["topProductsWindowTotalWeight"] != float64(100) {
+		t.Fatalf("topProductsWindowTotalWeight = %v, want 100", decoded["topProductsWindowTotalWeight"])
 	}
 
 	if decoded["totalEntries"] != float64(1) {

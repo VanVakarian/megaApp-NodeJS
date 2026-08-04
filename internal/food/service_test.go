@@ -411,19 +411,45 @@ func TestStatsCacheInvalidatesAfterWrites(t *testing.T) {
 	}
 }
 
-func TestTopProductStatsSortsAndLimitsToFive(t *testing.T) {
-	productKcal := map[int64]float64{1: 100, 2: 400, 3: 250, 4: 50, 5: 300, 6: 600}
-	names := map[int64]string{1: "One", 2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six"}
-
-	result := topProductStats(productKcal, names)
-
-	if len(result) != 5 {
-		t.Fatalf("len(result) = %d, want 5", len(result))
+func TestRankProductsSortsAndLimitsToTenPerMetric(t *testing.T) {
+	productKcal := map[int64]float64{
+		1: 100, 2: 400, 3: 250, 4: 50, 5: 300, 6: 600,
+		7: 700, 8: 800, 9: 900, 10: 1000, 11: 1100,
 	}
-	wantOrder := []int64{6, 2, 5, 3, 1} // descending kcal: 600, 400, 300, 250, 100 (50 dropped)
-	for i, id := range wantOrder {
-		if result[i].CatalogueID != id {
-			t.Fatalf("result[%d].CatalogueID = %d, want %d (result=%+v)", i, result[i].CatalogueID, id, result)
+	// Weight order deliberately differs from kcal order (e.g. low-kcal veggies weigh more than
+	// calorie-dense products) to prove the two rankings are computed independently.
+	productWeight := map[int64]float64{
+		1: 1100, 2: 1000, 3: 900, 4: 800, 5: 700, 6: 600,
+		7: 500, 8: 400, 9: 300, 10: 250, 11: 100,
+	}
+	names := map[int64]string{
+		1: "One", 2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six",
+		7: "Seven", 8: "Eight", 9: "Nine", 10: "Ten", 11: "Eleven",
+	}
+
+	products := buildProductStats(productKcal, productWeight, names)
+
+	byKcal := rankProducts(products, func(p ProductStat) float64 { return p.Kcal })
+	if len(byKcal) != 10 {
+		t.Fatalf("len(byKcal) = %d, want 10", len(byKcal))
+	}
+	// descending kcal: 1100, 1000, 900, 800, 700, 600, 400, 300, 250, 100 (50 dropped)
+	wantKcalOrder := []int64{11, 10, 9, 8, 7, 6, 2, 5, 3, 1}
+	for i, id := range wantKcalOrder {
+		if byKcal[i].CatalogueID != id {
+			t.Fatalf("byKcal[%d].CatalogueID = %d, want %d (byKcal=%+v)", i, byKcal[i].CatalogueID, id, byKcal)
+		}
+	}
+
+	byWeight := rankProducts(products, func(p ProductStat) float64 { return p.Weight })
+	if len(byWeight) != 10 {
+		t.Fatalf("len(byWeight) = %d, want 10", len(byWeight))
+	}
+	// descending weight: 1100, 1000, 900, 800, 700, 600, 500, 400, 300, 250 (100 dropped)
+	wantWeightOrder := []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+	for i, id := range wantWeightOrder {
+		if byWeight[i].CatalogueID != id {
+			t.Fatalf("byWeight[%d].CatalogueID = %d, want %d (byWeight=%+v)", i, byWeight[i].CatalogueID, id, byWeight)
 		}
 	}
 }
@@ -456,18 +482,34 @@ func TestGetStatsTopProductsWindowAndTotalEntries(t *testing.T) {
 	}
 
 	// Window is [2026-06-25, 2026-07-25): the base row on 2026-06-17 falls outside it (too old)
-	// and row 23 falls on "today" (2026-07-25) — both excluded from TopProducts even though both
-	// are still part of TotalEntries/Days. Within window: id20 Apple 200g=100kcal, id21 Bread
-	// 100g=250kcal, id22 Apple 300g=150kcal. Apple total=250, Bread total=250 (id23 excluded) —
-	// tie broken by ascending catalogueID, so Apple (id 1) ranks first.
-	if len(stats.TopProducts) != 2 {
-		t.Fatalf("len(TopProducts) = %d, want 2, got %+v", len(stats.TopProducts), stats.TopProducts)
+	// and row 23 falls on "today" (2026-07-25) — both excluded from top-products/window-totals even
+	// though both are still part of TotalEntries/Days. Within window: id20 Apple 200g=100kcal,
+	// id21 Bread 100g=250kcal, id22 Apple 300g=150kcal. Apple totals 250kcal/500g, Bread totals
+	// 250kcal/100g — kcal ties broken by ascending catalogueID (Apple first), weight has Apple
+	// first outright (500 > 100).
+	if stats.TopProductsWindowTotalKcal != 500 {
+		t.Fatalf("TopProductsWindowTotalKcal = %v, want 500", stats.TopProductsWindowTotalKcal)
 	}
-	if stats.TopProducts[0] != (ProductStat{CatalogueID: 1, Name: "Apple", Kcal: 250}) {
-		t.Fatalf("TopProducts[0] = %+v, want {1 Apple 250}", stats.TopProducts[0])
+	if stats.TopProductsWindowTotalWeight != 600 {
+		t.Fatalf("TopProductsWindowTotalWeight = %v, want 600", stats.TopProductsWindowTotalWeight)
 	}
-	if stats.TopProducts[1] != (ProductStat{CatalogueID: 2, Name: "Bread", Kcal: 250}) {
-		t.Fatalf("TopProducts[1] = %+v, want {2 Bread 250}", stats.TopProducts[1])
+	if len(stats.TopProductsByKcal) != 2 {
+		t.Fatalf("len(TopProductsByKcal) = %d, want 2, got %+v", len(stats.TopProductsByKcal), stats.TopProductsByKcal)
+	}
+	if stats.TopProductsByKcal[0] != (ProductStat{CatalogueID: 1, Name: "Apple", Kcal: 250, Weight: 500}) {
+		t.Fatalf("TopProductsByKcal[0] = %+v, want {1 Apple 250 500}", stats.TopProductsByKcal[0])
+	}
+	if stats.TopProductsByKcal[1] != (ProductStat{CatalogueID: 2, Name: "Bread", Kcal: 250, Weight: 100}) {
+		t.Fatalf("TopProductsByKcal[1] = %+v, want {2 Bread 250 100}", stats.TopProductsByKcal[1])
+	}
+	if len(stats.TopProductsByWeight) != 2 {
+		t.Fatalf("len(TopProductsByWeight) = %d, want 2, got %+v", len(stats.TopProductsByWeight), stats.TopProductsByWeight)
+	}
+	if stats.TopProductsByWeight[0] != (ProductStat{CatalogueID: 1, Name: "Apple", Kcal: 250, Weight: 500}) {
+		t.Fatalf("TopProductsByWeight[0] = %+v, want {1 Apple 250 500}", stats.TopProductsByWeight[0])
+	}
+	if stats.TopProductsByWeight[1] != (ProductStat{CatalogueID: 2, Name: "Bread", Kcal: 250, Weight: 100}) {
+		t.Fatalf("TopProductsByWeight[1] = %+v, want {2 Bread 250 100}", stats.TopProductsByWeight[1])
 	}
 }
 

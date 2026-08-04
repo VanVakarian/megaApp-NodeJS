@@ -42,8 +42,17 @@ func cloneStatsResponse(input StatsResponse) StatsResponse {
 	for key, value := range input.Days {
 		days[key] = value
 	}
-	topProducts := make([]ProductStat, len(input.TopProducts))
-	copy(topProducts, input.TopProducts)
+	topProductsByKcal := make([]ProductStat, len(input.TopProductsByKcal))
+	copy(topProductsByKcal, input.TopProductsByKcal)
+	topProductsByWeight := make([]ProductStat, len(input.TopProductsByWeight))
+	copy(topProductsByWeight, input.TopProductsByWeight)
 
-	return StatsResponse{Days: days, TopProducts: topProducts, TotalEntries: input.TotalEntries}
+	return StatsResponse{
+		Days:                         days,
+		TopProductsByKcal:            topProductsByKcal,
+		TopProductsByWeight:          topProductsByWeight,
+		TopProductsWindowTotalKcal:   input.TopProductsWindowTotalKcal,
+		TopProductsWindowTotalWeight: input.TopProductsWindowTotalWeight,
+		TotalEntries:                 input.TotalEntries,
+	}
 }
