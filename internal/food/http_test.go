@@ -404,6 +404,77 @@ func TestFoodReadEndpoints(t *testing.T) {
 	}
 }
 
+func TestGetStatsHTTPResponseShape(t *testing.T) {
+	db := openFoodTestDB(t)
+	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
+	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
+	authService := auth.NewService(authRepo, tokenManager)
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
+	service.SetClock(fixedFoodClock{now: time.Date(2026, time.June, 18, 12, 0, 0, 0, time.UTC)})
+	handler := NewHandler(service, nil)
+
+	router := chi.NewRouter()
+	RegisterRoutes(router, authService, handler)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	tokens, err := tokenManager.Issue(auth.TokenClaims{UserID: 1, Username: "alice"})
+	if err != nil {
+		t.Fatalf("Issue() error = %v", err)
+	}
+
+	decoded := decodeJSONRequest(t, http.MethodGet, server.URL+"/api/food/stats", tokens.AccessToken, "tab-a", nil, http.StatusOK)
+
+	days, ok := decoded["days"].(map[string]any)
+	if !ok || len(days) == 0 {
+		t.Fatalf("days = %v, want non-empty object", decoded["days"])
+	}
+	dayEntry, ok := days["2026-06-17"].(map[string]any)
+	if !ok {
+		t.Fatalf("days missing 2026-06-17: %+v", days)
+	}
+	for _, key := range []string{"weight", "weightAvg", "consumedKcal", "targetKcal", "hasNoData"} {
+		if _, ok := dayEntry[key]; !ok {
+			t.Fatalf("day entry missing %q: %+v", key, dayEntry)
+		}
+	}
+
+	topProductsByKcal, ok := decoded["topProductsByKcal"].([]any)
+	if !ok || len(topProductsByKcal) != 1 {
+		t.Fatalf("topProductsByKcal = %v, want single-element array", decoded["topProductsByKcal"])
+	}
+	product, ok := topProductsByKcal[0].(map[string]any)
+	if !ok {
+		t.Fatalf("topProductsByKcal[0] not an object: %+v", topProductsByKcal[0])
+	}
+	if product["catalogueId"] != float64(2) || product["name"] != "Bread" || product["kcal"] != float64(250) || product["weight"] != float64(100) {
+		t.Fatalf("topProductsByKcal[0] = %+v, want {catalogueId:2 name:Bread kcal:250 weight:100}", product)
+	}
+
+	topProductsByWeight, ok := decoded["topProductsByWeight"].([]any)
+	if !ok || len(topProductsByWeight) != 1 {
+		t.Fatalf("topProductsByWeight = %v, want single-element array", decoded["topProductsByWeight"])
+	}
+	weightProduct, ok := topProductsByWeight[0].(map[string]any)
+	if !ok {
+		t.Fatalf("topProductsByWeight[0] not an object: %+v", topProductsByWeight[0])
+	}
+	if weightProduct["catalogueId"] != float64(2) || weightProduct["name"] != "Bread" || weightProduct["kcal"] != float64(250) || weightProduct["weight"] != float64(100) {
+		t.Fatalf("topProductsByWeight[0] = %+v, want {catalogueId:2 name:Bread kcal:250 weight:100}", weightProduct)
+	}
+
+	if decoded["topProductsWindowTotalKcal"] != float64(250) {
+		t.Fatalf("topProductsWindowTotalKcal = %v, want 250", decoded["topProductsWindowTotalKcal"])
+	}
+	if decoded["topProductsWindowTotalWeight"] != float64(100) {
+		t.Fatalf("topProductsWindowTotalWeight = %v, want 100", decoded["topProductsWindowTotalWeight"])
+	}
+
+	if decoded["totalEntries"] != float64(1) {
+		t.Fatalf("totalEntries = %v, want 1", decoded["totalEntries"])
+	}
+}
+
 func assertJSONRequestStatus(t *testing.T, method string, url string, accessToken string, clientID string, payload any, wantStatus int) {
 	t.Helper()
 
