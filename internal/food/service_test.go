@@ -699,6 +699,53 @@ func TestGetDiaryFullUpdateIgnoresRowsOutsideRequestedRange(t *testing.T) {
 	}
 }
 
+func TestGetDiaryFullUpdateHandlesLargeOffset(t *testing.T) {
+	db := openFoodTestDB(t)
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
+
+	result, err := service.GetDiaryFullUpdate(context.Background(), 1, "2026-06-17", 30)
+	if err != nil {
+		t.Fatalf("GetDiaryFullUpdate() error = %v", err)
+	}
+
+	if len(result) != 61 {
+		t.Fatalf("len(result) = %d, want 61 (30 days either side of the center, inclusive)", len(result))
+	}
+	if len(result["2026-06-17"].Food) != 1 {
+		t.Fatalf("len(result[2026-06-17].Food) = %d, want 1", len(result["2026-06-17"].Food))
+	}
+	if len(result["2026-05-18"].Food) != 0 {
+		t.Fatalf("len(result[2026-05-18].Food) = %d, want 0 (start of window, no seeded data)", len(result["2026-05-18"].Food))
+	}
+	if len(result["2026-07-17"].Food) != 0 {
+		t.Fatalf("len(result[2026-07-17].Food) = %d, want 0 (end of window, no seeded data)", len(result["2026-07-17"].Food))
+	}
+}
+
+// The frontend no longer clamps its request window to "today" — a segment centered near today
+// legitimately asks for a few days past it too, expecting nothing there rather than an error.
+func TestGetDiaryFullUpdateHandlesOffsetPastLatestData(t *testing.T) {
+	db := openFoodTestDB(t)
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
+
+	result, err := service.GetDiaryFullUpdate(context.Background(), 1, "2026-07-01", 7)
+	if err != nil {
+		t.Fatalf("GetDiaryFullUpdate() error = %v", err)
+	}
+
+	if len(result) != 15 {
+		t.Fatalf("len(result) = %d, want 15", len(result))
+	}
+	for dateISO, day := range result {
+		if len(day.Food) != 0 {
+			t.Fatalf("result[%s].Food = %v, want empty (window entirely past any seeded data)", dateISO, day.Food)
+		}
+		if day.BodyWeight != nil {
+			t.Fatalf("result[%s].BodyWeight = %v, want nil", dateISO, day.BodyWeight)
+		}
+	}
+}
+
 func seedFoodDiaryAndWeightHistory(t *testing.T, db *sql.DB, userID int64) {
 	t.Helper()
 	if _, err := db.Exec(`
