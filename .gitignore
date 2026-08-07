@@ -13,3 +13,5 @@ metrics-outbox.*.ndjson
 metrics-outbox.ack.json
 bin/
 frontend-performance.ndjson
+frontend-performance-*.ndjson
+logs-archive/

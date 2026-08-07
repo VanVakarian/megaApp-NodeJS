@@ -3,6 +3,7 @@
 ## Реализовано
 
 - Временный handler принимает batch, доверенно добавляет user/client/receive fields, одним append пишет NDJSON, делает `Sync` и отвечает ACK.
+- Active NDJSON ротируется перед 1 GB: timestamped имя, `logs-archive`, асинхронный ZIP и удаление закрытого файла повторяют механизм Spread Capture Bot.
 - При выключенном флаге batch подтверждается как discarded без операций с файлом.
 
 ## Цель
@@ -15,7 +16,7 @@
 PERFORMANCE_METRICS_BATCH
   → текущий WebSocket Hub
   → временный handler
-  → один append всего batch в DATA_DIR/frontend-performance.ndjson
+  → один append всего batch в timestamped active NDJSON в DATA_DIR
   → fsync + close
   → PERFORMANCE_METRICS_ACK
 ```
@@ -48,11 +49,12 @@ PERFORMANCE_METRICS_BATCH
 
 ## NDJSON
 
-- Путь: `DATA_DIR/frontend-performance.ndjson`.
+- Active: `DATA_DIR/frontend-performance-YYYY-MM-DDTHH-MM-SS.ndjson`.
+- Перед первым новым append legacy `DATA_DIR/frontend-performance.ndjson` переименовывается в active-файл; строки сохраняются.
 - Одна строка — одно событие, не batch. Сервер добавляет `receivedAt`, authenticated `userId` и текущий connection `clientId`; остальные поля — уже нормализованный фронтенд-замер.
 - Запись batch собирается в память и выполняется одним append под mutex. Одновременные WebSocket clients не перемешают строки.
 - После append выполняются `Sync` и `Close`; только затем ACK. Частота — максимум один небольшой batch на активного пользователя за 10 минут, поэтому цена durability пренебрежима.
-- Файл не ротируется и не читается runtime-приложением. Ожидаемый недельный объём в сотни MB укладывается в цель исследования.
+- Перед переполнением 1 GB active-файл переименовывается в `frontend-performance-<openedAt>--<closedAt>.ndjson`, асинхронно упаковывается в `DATA_DIR/logs-archive/*.ndjson.zip`, затем закрытый NDJSON удаляется. Алгоритм и timestamp format повторяют Spread Capture Bot.
 - Повтор batch после потерянного ACK может создать дубль. NDJSON сохраняет стабильный `eventId`, экспорт/анализ дедуплицирует его. Это простая at-least-once доставка без серверного состояния.
 
 ## Ограничения входа
@@ -88,6 +90,7 @@ Handler не пытается понять доменную операцию и 
 - ✅ Зарегистрировать один handler рядом с текущими WebSocket handlers.
 - ✅ Добавить `PERFORMANCE_METRICS_ENABLED=false` в config/env examples.
 - ✅ Добавить unit tests декодирования и append NDJSON.
+- ✅ Перенести ротацию 1 GB и ZIP-архивацию из Spread Capture Bot, включая legacy migration.
 - ✅ Запустить Go tests и build.
 - ⭕ Проверить WebSocket integration: ACK после записи, reconnect без ACK, disabled discard и лимит batch.
 - ⭕ Проверить путь/права production `DATA_DIR`, включить флаг на неделю.

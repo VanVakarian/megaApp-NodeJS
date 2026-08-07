@@ -1,20 +1,35 @@
 package ws
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"sync"
 	"time"
 )
 
-const maxPerformanceMetricEvents = 100
+const (
+	maxPerformanceMetricEvents   = 100
+	maxPerformanceMetricsBytes   = 1_000_000_000
+	performanceMetricsArchiveDir = "logs-archive"
+	performanceMetricsTimeLayout = "2006-01-02T15-04-05"
+	performanceMetricsPrefix     = "frontend-performance"
+	legacyPerformanceMetricsName = "frontend-performance.ndjson"
+)
+
+var activePerformanceMetricsPattern = regexp.MustCompile(`^frontend-performance-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.ndjson$`)
 
 type PerformanceMetricsWriter struct {
-	mu   sync.Mutex
-	path string
+	mu       sync.Mutex
+	dir      string
+	maxBytes int64
 }
 
 type performanceMetricsBatch struct {
@@ -32,8 +47,8 @@ type performanceMetricsAck struct {
 	} `json:"payload"`
 }
 
-func NewPerformanceMetricsHandler(enabled bool, path string) MessageHandler {
-	writer := &PerformanceMetricsWriter{path: path}
+func NewPerformanceMetricsHandler(enabled bool, dir string) MessageHandler {
+	writer := &PerformanceMetricsWriter{dir: dir, maxBytes: maxPerformanceMetricsBytes}
 	return func(client *Client, message map[string]any) error {
 		batch, eventIDs, lines, err := decodePerformanceMetricsBatch(message, client.UserID(), client.clientID)
 		if err != nil {
@@ -56,10 +71,31 @@ func (w *PerformanceMetricsWriter) Append(lines []byte) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if err := os.MkdirAll(filepath.Dir(w.path), 0o755); err != nil {
+	if err := os.MkdirAll(w.dir, 0o755); err != nil {
 		return fmt.Errorf("create performance metrics dir: %w", err)
 	}
-	file, err := os.OpenFile(w.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err := w.migrateLegacyFile(); err != nil {
+		return err
+	}
+
+	openedAt, size, err := findResumablePerformanceMetrics(w.dir)
+	if err != nil {
+		return err
+	}
+	if openedAt != "" && size >= w.maxBytes {
+		closeAndArchivePerformanceMetricsAsync(w.dir, openedAt)
+		openedAt = ""
+		size = 0
+	}
+	if openedAt == "" {
+		openedAt = time.Now().Format(performanceMetricsTimeLayout)
+	}
+	if size > 0 && size+int64(len(lines)) > w.maxBytes {
+		closeAndArchivePerformanceMetricsAsync(w.dir, openedAt)
+		openedAt = time.Now().Format(performanceMetricsTimeLayout)
+	}
+
+	file, err := os.OpenFile(filepath.Join(w.dir, activePerformanceMetricsName(openedAt)), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("open performance metrics: %w", err)
 	}
@@ -73,6 +109,109 @@ func (w *PerformanceMetricsWriter) Append(lines []byte) error {
 		return fmt.Errorf("close performance metrics: %w", err)
 	}
 	return nil
+}
+
+func (w *PerformanceMetricsWriter) migrateLegacyFile() error {
+	legacyPath := filepath.Join(w.dir, legacyPerformanceMetricsName)
+	if _, err := os.Stat(legacyPath); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("stat legacy performance metrics: %w", err)
+	}
+	newPath := filepath.Join(w.dir, activePerformanceMetricsName(time.Now().Format(performanceMetricsTimeLayout)))
+	if err := os.Rename(legacyPath, newPath); err != nil {
+		return fmt.Errorf("migrate legacy performance metrics: %w", err)
+	}
+	return nil
+}
+
+func activePerformanceMetricsName(openedAt string) string {
+	return performanceMetricsPrefix + "-" + openedAt + ".ndjson"
+}
+
+func findResumablePerformanceMetrics(dir string) (openedAt string, size int64, err error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", 0, fmt.Errorf("read performance metrics dir: %w", err)
+	}
+	var candidates []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if match := activePerformanceMetricsPattern.FindStringSubmatch(entry.Name()); match != nil {
+			candidates = append(candidates, match[1])
+		}
+	}
+	if len(candidates) == 0 {
+		return "", 0, nil
+	}
+	sort.Strings(candidates)
+	openedAt = candidates[len(candidates)-1]
+	info, err := os.Stat(filepath.Join(dir, activePerformanceMetricsName(openedAt)))
+	if err != nil {
+		return "", 0, fmt.Errorf("stat performance metrics: %w", err)
+	}
+	return openedAt, info.Size(), nil
+}
+
+func closeAndArchivePerformanceMetricsAsync(dir, openedAt string) {
+	closedPath, err := closeActivePerformanceMetrics(dir, openedAt)
+	if err != nil {
+		slog.Error("performance_metrics_archive_rename_failed", "err", err)
+		return
+	}
+	go compressAndCleanupPerformanceMetrics(closedPath)
+}
+
+func closeActivePerformanceMetrics(dir, openedAt string) (string, error) {
+	closedAt := time.Now().Format(performanceMetricsTimeLayout)
+	activePath := filepath.Join(dir, activePerformanceMetricsName(openedAt))
+	closedPath := filepath.Join(dir, fmt.Sprintf("%s-%s--%s.ndjson", performanceMetricsPrefix, openedAt, closedAt))
+	if err := os.Rename(activePath, closedPath); err != nil {
+		return "", fmt.Errorf("rename performance metrics: %w", err)
+	}
+	return closedPath, nil
+}
+
+func compressAndCleanupPerformanceMetrics(closedPath string) {
+	archiveDirPath := filepath.Join(filepath.Dir(closedPath), performanceMetricsArchiveDir)
+	if err := os.MkdirAll(archiveDirPath, 0o755); err != nil {
+		slog.Error("performance_metrics_archive_mkdir_failed", "err", err, "dir", archiveDirPath)
+		return
+	}
+	zipPath := filepath.Join(archiveDirPath, filepath.Base(closedPath)+".zip")
+	if err := zipPerformanceMetricsFile(closedPath, zipPath); err != nil {
+		slog.Error("performance_metrics_archive_zip_failed", "err", err, "path", closedPath)
+		return
+	}
+	if err := os.Remove(closedPath); err != nil {
+		slog.Error("performance_metrics_archive_cleanup_failed", "err", err, "path", closedPath)
+	}
+}
+
+func zipPerformanceMetricsFile(srcPath, zipPath string) error {
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return fmt.Errorf("open performance metrics: %w", err)
+	}
+	defer src.Close()
+	dst, err := os.Create(zipPath)
+	if err != nil {
+		return fmt.Errorf("create performance metrics archive: %w", err)
+	}
+	defer dst.Close()
+	zw := zip.NewWriter(dst)
+	entry, err := zw.CreateHeader(&zip.FileHeader{Name: filepath.Base(srcPath), Method: zip.Deflate, Modified: time.Now()})
+	if err != nil {
+		_ = zw.Close()
+		return fmt.Errorf("create performance metrics archive entry: %w", err)
+	}
+	if _, err := io.Copy(entry, src); err != nil {
+		_ = zw.Close()
+		return fmt.Errorf("write performance metrics archive: %w", err)
+	}
+	return zw.Close()
 }
 
 func decodePerformanceMetricsBatch(message map[string]any, userID int64, clientID string) (performanceMetricsBatch, []string, []byte, error) {
