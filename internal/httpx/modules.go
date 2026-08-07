@@ -89,6 +89,7 @@ func buildWSModule(cfg config.Config, authService *auth.Service) wsModule {
 	hub := ws.NewHub(30*time.Second, ws.NewSyncState())
 	hub.SetReadLimitBytes(cfg.WSReadLimitBytes)
 	hub.SetWriteTimeout(cfg.WSWriteTimeout)
+	hub.RegisterHandler("PERFORMANCE_METRICS_BATCH", ws.NewPerformanceMetricsHandler(cfg.PerformanceMetricsEnabled, filepath.Join(cfg.DataDir, "frontend-performance.ndjson")))
 	return wsModule{hub: hub, handler: ws.NewHandler(authService, hub)}
 }
 
