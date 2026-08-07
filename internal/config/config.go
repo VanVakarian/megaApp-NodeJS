@@ -21,7 +21,8 @@ type Config struct {
 	MigrationsDir                       string
 	PublicDir                           string
 	BackupsDir                          string
-	JWTSecret                           string
+	SessionTTL                          time.Duration
+	SessionRenewWindow                  time.Duration
 	OpenRouterAPIKey                    string
 	OpenRouterModel                     string
 	OpenRouterVisionModel               string
@@ -104,7 +105,6 @@ func Load() (Config, error) {
 		MigrationsDir:                getString("MIGRATIONS_DIR", "./migrations"),
 		PublicDir:                    getString("PUBLIC_DIR", "./public"),
 		BackupsDir:                   getString("BACKUPS_DIR", "./backups"),
-		JWTSecret:                    getString("JWT_SECRET", "test-insecure-jwt-secret"),
 		OpenRouterAPIKey:             getString("OPENROUTER_API_KEY", ""),
 		OpenRouterModel:              getString("OPENROUTER_MODEL", "google/gemini-2.5-pro"),
 		OpenRouterVisionModel:        getString("OPENROUTER_VISION_MODEL", "google/gemini-2.5-flash"),
@@ -138,6 +138,18 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("load config: %w", err)
 	}
 	cfg.AppPort = port
+
+	sessionTTLHours, err := getInt("SESSION_TTL_HOURS", 720)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.SessionTTL = time.Duration(sessionTTLHours) * time.Hour
+
+	sessionRenewWindowHours, err := getInt("SESSION_RENEW_WINDOW_HOURS", 168)
+	if err != nil {
+		return Config{}, fmt.Errorf("load config: %w", err)
+	}
+	cfg.SessionRenewWindow = time.Duration(sessionRenewWindowHours) * time.Hour
 
 	httpReadTimeoutSeconds, err := getInt("HTTP_READ_TIMEOUT_SECONDS", 15)
 	if err != nil {
@@ -361,8 +373,11 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.BackupsDir) == "" {
 		return fmt.Errorf("validate config: BACKUPS_DIR is required")
 	}
-	if strings.TrimSpace(c.JWTSecret) == "" {
-		return fmt.Errorf("validate config: JWT_SECRET is required")
+	if c.SessionTTL < 0 {
+		return fmt.Errorf("validate config: SESSION_TTL_HOURS must not be negative")
+	}
+	if c.SessionRenewWindow < 0 || (c.SessionTTL > 0 && c.SessionRenewWindow >= c.SessionTTL) {
+		return fmt.Errorf("validate config: SESSION_RENEW_WINDOW_HOURS must not be negative or reach SESSION_TTL_HOURS")
 	}
 	if c.OpenRouterTimeout <= 0 {
 		return fmt.Errorf("validate config: OPENROUTER_TIMEOUT_SECONDS must be greater than 0")
@@ -501,9 +516,6 @@ func (c Config) Validate() error {
 	default:
 		return fmt.Errorf("validate config: LOG_LEVEL must be one of debug, info, warn, error")
 	}
-	if c.usesInsecureJWTSecret() && !c.isTestLike() {
-		return fmt.Errorf("validate config: JWT_SECRET insecure default is allowed only in test-like environments")
-	}
 	if strings.TrimSpace(c.OpenRouterAPIKey) != "" && strings.TrimSpace(c.OpenRouterModel) == "" {
 		return fmt.Errorf("validate config: OPENROUTER_MODEL is required when OPENROUTER_API_KEY is set")
 	}
@@ -532,20 +544,6 @@ func getString(key string, fallback string) string {
 		return fallback
 	}
 	return value
-}
-
-func (c Config) isTestLike() bool {
-	switch strings.ToLower(strings.TrimSpace(c.AppEnv)) {
-	case "test", "local":
-		return true
-	default:
-		return false
-	}
-}
-
-func (c Config) usesInsecureJWTSecret() bool {
-	secret := strings.TrimSpace(c.JWTSecret)
-	return secret == "test-insecure-jwt-secret" || secret == "dev-insecure-jwt-secret"
 }
 
 func getBool(key string, fallback bool) bool {

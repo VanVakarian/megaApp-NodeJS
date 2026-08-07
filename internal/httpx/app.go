@@ -60,6 +60,12 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 	settingsModule := buildSettingsModule(db.Read(), db.Write())
 	moneyModule := buildMoneyModule(db.Read(), db.Write())
 	wsModule := buildWSModule(cfg, authModule.service)
+	authModule.handler.SetSessionRevoker(func(sessionID string) {
+		wsModule.hub.CloseSession(sessionID, 4001, "Session revoked")
+	})
+	authModule.handler.SetSessionRenewer(func(sessionID string) {
+		wsModule.hub.CloseSession(sessionID, 4003, "Session renewed")
+	})
 	metricsModule, err := buildMetricsModule(cfg, logger, wsModule.hub, authModule.service, clk, jobRuntime)
 	if err != nil {
 		_ = wsModule.hub.Close()

@@ -74,8 +74,7 @@ type foodModule struct {
 
 func buildAuthModule(read *sql.DB, write sqlite.WriteDB, cfg config.Config) authModule {
 	repo := auth.NewRepository(read, write)
-	tokenManager := auth.NewTokenManager(cfg.JWTSecret, auth.AccessTokenTTL(), auth.RefreshTokenTTL())
-	service := auth.NewService(repo, tokenManager)
+	service := auth.NewService(repo, auth.SessionConfig{TTL: cfg.SessionTTL, RenewWindow: cfg.SessionRenewWindow})
 	return authModule{service: service, handler: auth.NewHandler(service)}
 }
 
@@ -157,6 +156,7 @@ func buildBackupModule(db sqlite.WriteDB, cfg config.Config, logger *slog.Logger
 func buildMetricsModule(cfg config.Config, logger *slog.Logger, hub *ws.Hub, authService *auth.Service, clk clockplatform.Clock, runtime *jobs.Runtime) (metricsModule, error) {
 	service := metrics.NewService(cfg.MetricsServiceKey, clk, authService)
 	realtime := metrics.NewRealtime(hub)
+	hub.RegisterDisconnectHandler(realtime.Unsubscribe)
 	flatlineClient := metrics.NewFlatlineClient(cfg.FlatlineBaseURL, cfg.FlatlinePushTimeout)
 	historyClient := metrics.NewFlatlineClient(cfg.FlatlineBaseURL, cfg.HTTPWriteTimeout)
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -20,26 +21,20 @@ import (
 )
 
 func TestSubscribeHandlerOnlyAcceptsAdmins(t *testing.T) {
-	authService, tokenManager, realtime, server, authDB := newMetricsTestEnv(t)
+	authService, realtime, server, authDB := newMetricsTestEnv(t)
 	defer server.Close()
 
 	adminUserID := registerAdminUser(t, authService, authDB, "admin")
 	plainUserID := registerUser(t, authService, "plain")
 
-	adminTokens, err := tokenManager.Issue(auth.TokenClaims{UserID: adminUserID, Username: "admin", IsAdmin: true})
-	if err != nil {
-		t.Fatalf("Issue() error = %v", err)
-	}
-	plainTokens, err := tokenManager.Issue(auth.TokenClaims{UserID: plainUserID, Username: "plain", IsAdmin: false})
-	if err != nil {
-		t.Fatalf("Issue() error = %v", err)
-	}
+	adminCookie := issueMetricsSession(t, authService, adminUserID)
+	plainCookie := issueMetricsSession(t, authService, plainUserID)
 
-	adminConn := dialMetricsWS(t, server.URL+"/api/ws?token="+adminTokens.AccessToken+"&clientId=admin-tab")
+	adminConn := dialMetricsWS(t, server.URL+"/api/ws?clientId=admin-tab", adminCookie)
 	defer func() { _ = adminConn.Close() }()
 	drainMetricsMessage(t, adminConn)
 
-	plainConn := dialMetricsWS(t, server.URL+"/api/ws?token="+plainTokens.AccessToken+"&clientId=plain-tab")
+	plainConn := dialMetricsWS(t, server.URL+"/api/ws?clientId=plain-tab", plainCookie)
 	defer func() { _ = plainConn.Close() }()
 	drainMetricsMessage(t, plainConn)
 
@@ -76,16 +71,13 @@ func TestSubscribeHandlerOnlyAcceptsAdmins(t *testing.T) {
 }
 
 func TestUnsubscribeStopsDetailBroadcast(t *testing.T) {
-	authService, tokenManager, realtime, server, authDB := newMetricsTestEnv(t)
+	authService, realtime, server, authDB := newMetricsTestEnv(t)
 	defer server.Close()
 
 	adminUserID := registerAdminUser(t, authService, authDB, "admin")
-	adminTokens, err := tokenManager.Issue(auth.TokenClaims{UserID: adminUserID, Username: "admin", IsAdmin: true})
-	if err != nil {
-		t.Fatalf("Issue() error = %v", err)
-	}
+	adminCookie := issueMetricsSession(t, authService, adminUserID)
 
-	conn := dialMetricsWS(t, server.URL+"/api/ws?token="+adminTokens.AccessToken+"&clientId=admin-tab")
+	conn := dialMetricsWS(t, server.URL+"/api/ws?clientId=admin-tab", adminCookie)
 	defer func() { _ = conn.Close() }()
 	drainMetricsMessage(t, conn)
 
@@ -109,26 +101,20 @@ func TestUnsubscribeStopsDetailBroadcast(t *testing.T) {
 }
 
 func TestBroadcastLatestReachesOnlyAdmins(t *testing.T) {
-	authService, tokenManager, realtime, server, authDB := newMetricsTestEnv(t)
+	authService, realtime, server, authDB := newMetricsTestEnv(t)
 	defer server.Close()
 
 	adminUserID := registerAdminUser(t, authService, authDB, "admin")
 	plainUserID := registerUser(t, authService, "plain")
 
-	adminTokens, err := tokenManager.Issue(auth.TokenClaims{UserID: adminUserID, Username: "admin", IsAdmin: true})
-	if err != nil {
-		t.Fatalf("Issue() error = %v", err)
-	}
-	plainTokens, err := tokenManager.Issue(auth.TokenClaims{UserID: plainUserID, Username: "plain", IsAdmin: false})
-	if err != nil {
-		t.Fatalf("Issue() error = %v", err)
-	}
+	adminCookie := issueMetricsSession(t, authService, adminUserID)
+	plainCookie := issueMetricsSession(t, authService, plainUserID)
 
-	adminConn := dialMetricsWS(t, server.URL+"/api/ws?token="+adminTokens.AccessToken+"&clientId=admin-tab")
+	adminConn := dialMetricsWS(t, server.URL+"/api/ws?clientId=admin-tab", adminCookie)
 	defer func() { _ = adminConn.Close() }()
 	drainMetricsMessage(t, adminConn)
 
-	plainConn := dialMetricsWS(t, server.URL+"/api/ws?token="+plainTokens.AccessToken+"&clientId=plain-tab")
+	plainConn := dialMetricsWS(t, server.URL+"/api/ws?clientId=plain-tab", plainCookie)
 	defer func() { _ = plainConn.Close() }()
 	drainMetricsMessage(t, plainConn)
 
@@ -151,14 +137,11 @@ func TestBroadcastLatestReachesOnlyAdmins(t *testing.T) {
 }
 
 func TestHistoryHandlerReturnsGlobalHistoryWithOneFlatlineRequest(t *testing.T) {
-	authService, tokenManager, _, wsServer, authDB := newMetricsTestEnv(t)
+	authService, _, wsServer, authDB := newMetricsTestEnv(t)
 	defer wsServer.Close()
 
 	adminUserID := registerAdminUser(t, authService, authDB, "admin")
-	tokens, err := tokenManager.Issue(auth.TokenClaims{UserID: adminUserID, Username: "admin", IsAdmin: true})
-	if err != nil {
-		t.Fatalf("Issue() error = %v", err)
-	}
+	adminCookie := issueMetricsSession(t, authService, adminUserID)
 
 	requests := 0
 	flatlineServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -184,7 +167,7 @@ func TestHistoryHandlerReturnsGlobalHistoryWithOneFlatlineRequest(t *testing.T) 
 	RegisterRoutes(router, authService, NewHistoryHandler(service, NewFlatlineClient(flatlineServer.URL, time.Second)))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/metrics/history?minuteSince=60&hourSince=3600&daySince=86400", nil)
-	req.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: adminCookie})
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, req)
 
@@ -234,7 +217,7 @@ func TestParseHistorySince(t *testing.T) {
 	}
 }
 
-func newMetricsTestEnv(t *testing.T) (*auth.Service, *auth.TokenManager, *Realtime, *httptest.Server, *sql.DB) {
+func newMetricsTestEnv(t *testing.T) (*auth.Service, *Realtime, *httptest.Server, *sql.DB) {
 	t.Helper()
 
 	authDB, err := sql.Open("sqlite", ":memory:")
@@ -250,12 +233,12 @@ func newMetricsTestEnv(t *testing.T) (*auth.Service, *auth.TokenManager, *Realti
 			hashedPassword TEXT,
 			isAdmin BOOLEAN
 		);
+		CREATE TABLE auth_sessions (id TEXT PRIMARY KEY, secretHash BLOB NOT NULL, userId INTEGER NOT NULL, createdAt TEXT NOT NULL, expiresAt TEXT NOT NULL, renewedAt TEXT NOT NULL, revokedAt TEXT);
 	`); err != nil {
 		t.Fatalf("Exec() error = %v", err)
 	}
 
-	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
-	authService := auth.NewService(auth.NewRepository(authDB, sqlite.WriteDB{DB: authDB}), tokenManager)
+	authService := auth.NewService(auth.NewRepository(authDB, sqlite.WriteDB{DB: authDB}), auth.SessionConfig{})
 
 	service := NewService(MainServiceName, fixedMetricsClock{now: time.Now()}, authService)
 
@@ -271,7 +254,7 @@ func newMetricsTestEnv(t *testing.T) (*auth.Service, *auth.TokenManager, *Realti
 	ws.RegisterRoutes(router, wsHandler)
 	server := httptest.NewServer(router)
 
-	return authService, tokenManager, realtime, server, authDB
+	return authService, realtime, server, authDB
 }
 
 func registerUser(t *testing.T, authService *auth.Service, username string) int64 {
@@ -296,11 +279,29 @@ func registerAdminUser(t *testing.T, authService *auth.Service, authDB *sql.DB, 
 	return userID
 }
 
-func dialMetricsWS(t *testing.T, httpURL string) *websocket.Conn {
+func issueMetricsSession(t *testing.T, service *auth.Service, userID int64) string {
+	t.Helper()
+
+	session, err := service.CreateSession(t.Context(), userID)
+	if err != nil {
+		t.Fatalf("CreateSession() error = %v", err)
+	}
+	return session.Cookie
+}
+
+func dialMetricsWS(t *testing.T, httpURL string, sessionCookie string) *websocket.Conn {
 	t.Helper()
 
 	wsURL := "ws" + httpURL[len("http"):]
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	parsed, err := url.Parse(httpURL)
+	if err != nil {
+		t.Fatalf("url.Parse() error = %v", err)
+	}
+	headers := http.Header{
+		"Cookie": {auth.SessionCookieName + "=" + sessionCookie},
+		"Origin": {"http://" + parsed.Host},
+	}
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, headers)
 	if err != nil {
 		t.Fatalf("Dial() error = %v", err)
 	}

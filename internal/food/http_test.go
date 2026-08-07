@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -37,8 +38,7 @@ func (f *fakeMetricsRecorder) Increment(name string) {
 func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 	db := openFoodTestDB(t)
 	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
-	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
-	authService := auth.NewService(authRepo, tokenManager)
+	authService := auth.NewService(authRepo, auth.SessionConfig{})
 	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 	service.SetProductGenerator(fakeProductGenerator{})
 	service.SetClock(fixedFoodClock{now: time.Date(2026, time.June, 20, 12, 0, 0, 0, time.UTC)})
@@ -61,14 +61,14 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	tokens, err := tokenManager.Issue(auth.TokenClaims{UserID: 1, Username: "alice"})
+	session, err := authService.CreateSession(t.Context(), 1)
 	if err != nil {
-		t.Fatalf("Issue() error = %v", err)
+		t.Fatalf("CreateSession() error = %v", err)
 	}
 
-	connA := dialFoodWS(t, server.URL+"/api/ws?token="+tokens.AccessToken+"&clientId=tab-a")
+	connA := dialFoodWS(t, server.URL+"/api/ws?clientId=tab-a", session.Cookie)
 	defer func() { _ = connA.Close() }()
-	connB := dialFoodWS(t, server.URL+"/api/ws?token="+tokens.AccessToken+"&clientId=tab-b")
+	connB := dialFoodWS(t, server.URL+"/api/ws?clientId=tab-b", session.Cookie)
 	defer func() { _ = connB.Close() }()
 	drainFoodWSMessage(t, connA)
 	drainFoodWSMessage(t, connB)
@@ -80,7 +80,7 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 		"foodWeight":      120,
 		"history":         []map[string]any{{"action": "init", "value": 120}},
 	}
-	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/diary/", tokens.AccessToken, "tab-a", createBody, http.StatusCreated)
+	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/diary/", session.Cookie, "tab-a", createBody, http.StatusCreated)
 
 	_ = connA.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
 	var senderMessage map[string]any
@@ -97,7 +97,7 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 		t.Fatalf("ws type = %v, want DIARY_ENTRY_CREATED", receiverMessage["type"])
 	}
 
-	assertJSONRequestStatus(t, http.MethodPut, server.URL+"/api/food/diary", tokens.AccessToken, "tab-a", map[string]any{
+	assertJSONRequestStatus(t, http.MethodPut, server.URL+"/api/food/diary", session.Cookie, "tab-a", map[string]any{
 		"operationId":     "op-edit",
 		"id":              10,
 		"foodCatalogueId": 2,
@@ -116,14 +116,14 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 		t.Fatalf("updatedMessage payload version = %v, want 1", updatedMessage["payload"])
 	}
 
-	assertJSONRequestStatus(t, http.MethodDelete, server.URL+"/api/food/diary/10", tokens.AccessToken, "tab-a", map[string]any{"operationId": "op-delete"}, http.StatusOK)
-	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/body-weight", tokens.AccessToken, "tab-a", map[string]any{
+	assertJSONRequestStatus(t, http.MethodDelete, server.URL+"/api/food/diary/10", session.Cookie, "tab-a", map[string]any{"operationId": "op-delete"}, http.StatusOK)
+	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/body-weight", session.Cookie, "tab-a", map[string]any{
 		"operationId": "op-weight",
 		"dateISO":     "2026-06-18",
 		"bodyWeight":  "81.0",
 	}, http.StatusCreated)
-	assertJSONRequestStatus(t, http.MethodDelete, server.URL+"/api/food/diary/day/2026-06-18", tokens.AccessToken, "tab-a", map[string]any{"operationId": "op-day-delete"}, http.StatusOK)
-	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/diary/day/2026-06-18/restore", tokens.AccessToken, "tab-a", map[string]any{
+	assertJSONRequestStatus(t, http.MethodDelete, server.URL+"/api/food/diary/day/2026-06-18", session.Cookie, "tab-a", map[string]any{"operationId": "op-day-delete"}, http.StatusOK)
+	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/diary/day/2026-06-18/restore", session.Cookie, "tab-a", map[string]any{
 		"operationId": "op-restore",
 		"entries": []map[string]any{{
 			"foodCatalogueId": 1,
@@ -131,14 +131,13 @@ func TestFoodWriteEndpointsAndWebSocketBroadcasts(t *testing.T) {
 			"history":         []map[string]any{{"action": "init", "value": 120}},
 		}},
 	}, http.StatusCreated)
-	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/personal-kcals", tokens.AccessToken, "tab-a", nil, http.StatusOK)
+	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/personal-kcals", session.Cookie, "tab-a", nil, http.StatusOK)
 }
 
 func TestFoodDiaryEditRetryIsIdempotentOverHTTPAndWS(t *testing.T) {
 	db := openFoodTestDB(t)
 	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
-	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
-	authService := auth.NewService(authRepo, tokenManager)
+	authService := auth.NewService(authRepo, auth.SessionConfig{})
 	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 	hub := wspkg.NewHub(time.Second, wspkg.NewSyncState())
 	defer func() { _ = hub.Close() }()
@@ -153,12 +152,12 @@ func TestFoodDiaryEditRetryIsIdempotentOverHTTPAndWS(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	tokens, err := tokenManager.Issue(auth.TokenClaims{UserID: 1, Username: "alice"})
+	session, err := authService.CreateSession(t.Context(), 1)
 	if err != nil {
-		t.Fatalf("Issue() error = %v", err)
+		t.Fatalf("CreateSession() error = %v", err)
 	}
 
-	connB := dialFoodWS(t, server.URL+"/api/ws?token="+tokens.AccessToken+"&clientId=tab-b")
+	connB := dialFoodWS(t, server.URL+"/api/ws?clientId=tab-b", session.Cookie)
 	defer func() { _ = connB.Close() }()
 	drainFoodWSMessage(t, connB)
 
@@ -170,7 +169,7 @@ func TestFoodDiaryEditRetryIsIdempotentOverHTTPAndWS(t *testing.T) {
 		"historyAction":   "subtract",
 	}
 
-	first := decodeJSONRequest(t, http.MethodPut, server.URL+"/api/food/diary", tokens.AccessToken, "tab-a", editBody, http.StatusOK)
+	first := decodeJSONRequest(t, http.MethodPut, server.URL+"/api/food/diary", session.Cookie, "tab-a", editBody, http.StatusOK)
 	if first["appliedHistoryEntry"] == nil {
 		t.Fatalf("first response appliedHistoryEntry = %v, want a real entry", first["appliedHistoryEntry"])
 	}
@@ -186,7 +185,7 @@ func TestFoodDiaryEditRetryIsIdempotentOverHTTPAndWS(t *testing.T) {
 		t.Fatalf("ws type = %v, want DIARY_ENTRY_UPDATED", updatedMessage["type"])
 	}
 
-	retry := decodeJSONRequest(t, http.MethodPut, server.URL+"/api/food/diary", tokens.AccessToken, "tab-a", editBody, http.StatusOK)
+	retry := decodeJSONRequest(t, http.MethodPut, server.URL+"/api/food/diary", session.Cookie, "tab-a", editBody, http.StatusOK)
 	if retry["appliedHistoryEntry"] == nil {
 		t.Fatalf("retry response appliedHistoryEntry = %v, want the original applied entry echoed back (same operationId)", retry["appliedHistoryEntry"])
 	}
@@ -203,8 +202,7 @@ func TestFoodDiaryEditRetryIsIdempotentOverHTTPAndWS(t *testing.T) {
 func TestFoodSearchAndCatalogueMutationEndpoints(t *testing.T) {
 	db := openFoodTestDB(t)
 	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
-	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
-	authService := auth.NewService(authRepo, tokenManager)
+	authService := auth.NewService(authRepo, auth.SessionConfig{})
 	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 	service.SetProductGenerator(fakeProductGenerator{})
 	service.SetImageAnalyzer(fakeImageAnalyzer{name: "Apple"})
@@ -224,14 +222,14 @@ func TestFoodSearchAndCatalogueMutationEndpoints(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	tokens, err := tokenManager.Issue(auth.TokenClaims{UserID: 1, Username: "alice"})
+	session, err := authService.CreateSession(t.Context(), 1)
 	if err != nil {
-		t.Fatalf("Issue() error = %v", err)
+		t.Fatalf("CreateSession() error = %v", err)
 	}
 
-	connA := dialFoodWS(t, server.URL+"/api/ws?token="+tokens.AccessToken+"&clientId=tab-a")
+	connA := dialFoodWS(t, server.URL+"/api/ws?clientId=tab-a", session.Cookie)
 	defer func() { _ = connA.Close() }()
-	connB := dialFoodWS(t, server.URL+"/api/ws?token="+tokens.AccessToken+"&clientId=tab-b")
+	connB := dialFoodWS(t, server.URL+"/api/ws?clientId=tab-b", session.Cookie)
 	defer func() { _ = connB.Close() }()
 	drainFoodWSMessage(t, connA)
 	drainFoodWSMessage(t, connB)
@@ -248,11 +246,11 @@ func TestFoodSearchAndCatalogueMutationEndpoints(t *testing.T) {
 		t.Fatalf("type = %v, want SEARCH_RESULTS", searchMessage["type"])
 	}
 
-	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/search?query=apple-semantic", tokens.AccessToken, "tab-a", nil, http.StatusOK)
-	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/generate-product-preview", tokens.AccessToken, "tab-a", map[string]any{"description": "apple-semantic"}, http.StatusOK)
-	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/analyze-voice", tokens.AccessToken, "tab-a", map[string]any{"transcript": "apple-semantic"}, http.StatusOK)
-	assertMultipartRequestStatus(t, server.URL+"/api/food/analyze-image", tokens.AccessToken, "tab-a", []byte("fake-image-bytes"), http.StatusOK)
-	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/save-product", tokens.AccessToken, "tab-a", map[string]any{
+	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/search?query=apple-semantic", session.Cookie, "tab-a", nil, http.StatusOK)
+	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/generate-product-preview", session.Cookie, "tab-a", map[string]any{"description": "apple-semantic"}, http.StatusOK)
+	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/analyze-voice", session.Cookie, "tab-a", map[string]any{"transcript": "apple-semantic"}, http.StatusOK)
+	assertMultipartRequestStatus(t, server.URL+"/api/food/analyze-image", session.Cookie, "tab-a", []byte("fake-image-bytes"), http.StatusOK)
+	assertJSONRequestStatus(t, http.MethodPost, server.URL+"/api/food/save-product", session.Cookie, "tab-a", map[string]any{
 		"operationId": "op-save-orange",
 		"name":        "Orange",
 		"kcals":       47,
@@ -270,7 +268,7 @@ func TestFoodSearchAndCatalogueMutationEndpoints(t *testing.T) {
 	if savedMessage["type"] != "CATALOGUE_ENTRY_SAVED" {
 		t.Fatalf("type = %v, want CATALOGUE_ENTRY_SAVED", savedMessage["type"])
 	}
-	assertJSONRequestStatus(t, http.MethodDelete, server.URL+"/api/food/catalogue/3", tokens.AccessToken, "tab-a", map[string]any{
+	assertJSONRequestStatus(t, http.MethodDelete, server.URL+"/api/food/catalogue/3", session.Cookie, "tab-a", map[string]any{
 		"operationId": "op-delete-orange",
 	}, http.StatusOK)
 }
@@ -353,8 +351,7 @@ func TestFoodDebugRunPersonalKcalJobRoute(t *testing.T) {
 func TestFoodReadEndpoints(t *testing.T) {
 	db := openFoodTestDB(t)
 	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
-	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
-	authService := auth.NewService(authRepo, tokenManager)
+	authService := auth.NewService(authRepo, auth.SessionConfig{})
 	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 	service.SetProductGenerator(fakeProductGenerator{})
 	handler := NewHandler(service, nil)
@@ -370,22 +367,22 @@ func TestFoodReadEndpoints(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	tokens, err := tokenManager.Issue(auth.TokenClaims{UserID: 1, Username: "alice"})
+	session, err := authService.CreateSession(t.Context(), 1)
 	if err != nil {
-		t.Fatalf("Issue() error = %v", err)
+		t.Fatalf("CreateSession() error = %v", err)
 	}
 
-	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/catalogue", tokens.AccessToken, "tab-a", nil, http.StatusOK)
-	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/personal-kcals", tokens.AccessToken, "tab-a", nil, http.StatusOK)
-	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/stats", tokens.AccessToken, "tab-a", nil, http.StatusOK)
-	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/search?query=apple-semantic", tokens.AccessToken, "tab-a", nil, http.StatusOK)
-	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/diary-full-update?date=2026-06-17&offset=1", tokens.AccessToken, "tab-a", nil, http.StatusOK)
+	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/catalogue", session.Cookie, "tab-a", nil, http.StatusOK)
+	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/personal-kcals", session.Cookie, "tab-a", nil, http.StatusOK)
+	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/stats", session.Cookie, "tab-a", nil, http.StatusOK)
+	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/search?query=apple-semantic", session.Cookie, "tab-a", nil, http.StatusOK)
+	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/diary-full-update?date=2026-06-17&offset=1", session.Cookie, "tab-a", nil, http.StatusOK)
 
 	request, err := http.NewRequest(http.MethodGet, server.URL+"/api/food/catalogue/1", nil)
 	if err != nil {
 		t.Fatalf("http.NewRequest() error = %v", err)
 	}
-	request.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	request.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: session.Cookie})
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
@@ -407,8 +404,7 @@ func TestFoodReadEndpoints(t *testing.T) {
 func TestGetStatsHTTPResponseShape(t *testing.T) {
 	db := openFoodTestDB(t)
 	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
-	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
-	authService := auth.NewService(authRepo, tokenManager)
+	authService := auth.NewService(authRepo, auth.SessionConfig{})
 	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 	service.SetClock(fixedFoodClock{now: time.Date(2026, time.June, 18, 12, 0, 0, 0, time.UTC)})
 	handler := NewHandler(service, nil)
@@ -418,12 +414,12 @@ func TestGetStatsHTTPResponseShape(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	tokens, err := tokenManager.Issue(auth.TokenClaims{UserID: 1, Username: "alice"})
+	session, err := authService.CreateSession(t.Context(), 1)
 	if err != nil {
-		t.Fatalf("Issue() error = %v", err)
+		t.Fatalf("CreateSession() error = %v", err)
 	}
 
-	decoded := decodeJSONRequest(t, http.MethodGet, server.URL+"/api/food/stats", tokens.AccessToken, "tab-a", nil, http.StatusOK)
+	decoded := decodeJSONRequest(t, http.MethodGet, server.URL+"/api/food/stats", session.Cookie, "tab-a", nil, http.StatusOK)
 
 	days, ok := decoded["days"].(map[string]any)
 	if !ok || len(days) == 0 {
@@ -475,7 +471,7 @@ func TestGetStatsHTTPResponseShape(t *testing.T) {
 	}
 }
 
-func assertJSONRequestStatus(t *testing.T, method string, url string, accessToken string, clientID string, payload any, wantStatus int) {
+func assertJSONRequestStatus(t *testing.T, method string, url string, sessionCookie string, clientID string, payload any, wantStatus int) {
 	t.Helper()
 
 	var body *bytes.Reader
@@ -493,7 +489,7 @@ func assertJSONRequestStatus(t *testing.T, method string, url string, accessToke
 	if err != nil {
 		t.Fatalf("http.NewRequest() error = %v", err)
 	}
-	request.Header.Set("Authorization", "Bearer "+accessToken)
+	request.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: sessionCookie})
 	request.Header.Set("X-Client-ID", clientID)
 	if payload != nil {
 		request.Header.Set("Content-Type", "application/json")
@@ -508,7 +504,7 @@ func assertJSONRequestStatus(t *testing.T, method string, url string, accessToke
 	}
 }
 
-func decodeJSONRequest(t *testing.T, method string, url string, accessToken string, clientID string, payload any, wantStatus int) map[string]any {
+func decodeJSONRequest(t *testing.T, method string, url string, sessionCookie string, clientID string, payload any, wantStatus int) map[string]any {
 	t.Helper()
 
 	jsonBody, err := json.Marshal(payload)
@@ -520,7 +516,7 @@ func decodeJSONRequest(t *testing.T, method string, url string, accessToken stri
 	if err != nil {
 		t.Fatalf("http.NewRequest() error = %v", err)
 	}
-	request.Header.Set("Authorization", "Bearer "+accessToken)
+	request.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: sessionCookie})
 	request.Header.Set("X-Client-ID", clientID)
 	request.Header.Set("Content-Type", "application/json")
 
@@ -540,7 +536,7 @@ func decodeJSONRequest(t *testing.T, method string, url string, accessToken stri
 	return decoded
 }
 
-func assertMultipartRequestStatus(t *testing.T, url string, accessToken string, clientID string, fileData []byte, wantStatus int) {
+func assertMultipartRequestStatus(t *testing.T, url string, sessionCookie string, clientID string, fileData []byte, wantStatus int) {
 	t.Helper()
 
 	var body bytes.Buffer
@@ -563,7 +559,7 @@ func assertMultipartRequestStatus(t *testing.T, url string, accessToken string, 
 	if err != nil {
 		t.Fatalf("http.NewRequest() error = %v", err)
 	}
-	request.Header.Set("Authorization", "Bearer "+accessToken)
+	request.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: sessionCookie})
 	request.Header.Set("X-Client-ID", clientID)
 	request.Header.Set("Content-Type", writer.FormDataContentType())
 	response, err := http.DefaultClient.Do(request)
@@ -584,11 +580,19 @@ func (f fakeImageAnalyzer) AnalyzeFoodImage(_ context.Context, _ []byte, _ strin
 	return f.name, nil
 }
 
-func dialFoodWS(t *testing.T, httpURL string) *websocket.Conn {
+func dialFoodWS(t *testing.T, httpURL string, sessionCookie string) *websocket.Conn {
 	t.Helper()
 
 	wsURL := "ws" + httpURL[len("http"):]
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	parsed, err := url.Parse(httpURL)
+	if err != nil {
+		t.Fatalf("url.Parse() error = %v", err)
+	}
+	headers := http.Header{
+		"Cookie": {auth.SessionCookieName + "=" + sessionCookie},
+		"Origin": {"http://" + parsed.Host},
+	}
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, headers)
 	if err != nil {
 		t.Fatalf("Dial() error = %v", err)
 	}

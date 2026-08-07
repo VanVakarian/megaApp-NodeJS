@@ -62,15 +62,23 @@ func TestAppWebSocketUpgradeWorksThroughMiddleware(t *testing.T) {
 		t.Fatalf("login status = %d, want 200", loginResponse.StatusCode)
 	}
 
-	var tokens struct {
-		AccessToken string `json:"accessToken"`
+	var session struct {
+		Authenticated bool `json:"authenticated"`
 	}
-	if err := json.NewDecoder(loginResponse.Body).Decode(&tokens); err != nil {
+	if err := json.NewDecoder(loginResponse.Body).Decode(&session); err != nil {
 		t.Fatalf("Decode() error = %v", err)
 	}
+	if !session.Authenticated {
+		t.Fatal("login response is not authenticated")
+	}
+	cookies := loginResponse.Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("session cookies = %d, want 1", len(cookies))
+	}
 
-	wsURL := "ws" + server.URL[len("http"):] + "/api/ws?token=" + tokens.AccessToken + "&clientId=tab-a"
-	conn, response, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	wsURL := "ws" + server.URL[len("http"):] + "/api/ws?clientId=tab-a"
+	headers := http.Header{"Cookie": {cookies[0].Name + "=" + cookies[0].Value}, "Origin": {server.URL}}
+	conn, response, err := websocket.DefaultDialer.Dial(wsURL, headers)
 	if err != nil {
 		statusCode := 0
 		if response != nil {
@@ -167,7 +175,6 @@ func appTestConfig(tempDir string) config.Config {
 		MigrationsDir:                       filepath.Join(tempDir, "migrations"),
 		PublicDir:                           filepath.Join(tempDir, "public"),
 		BackupsDir:                          filepath.Join(tempDir, "backups"),
-		JWTSecret:                           "test-secret",
 		FlatlineBaseURL:                     "http://127.0.0.1:1",
 		FlatlinePushTimeout:                 time.Second,
 		FlatlinePollInterval:                time.Hour,
@@ -228,6 +235,19 @@ func prepareAppTestFiles(t *testing.T, cfg config.Config) {
 			selectedChapterMoney BOOLEAN,
 			liteVersion BOOLEAN,
 			height INTEGER
+		);
+	`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.MigrationsDir, "000008_server_sessions.sql"), []byte(`
+		CREATE TABLE auth_sessions (
+			id TEXT PRIMARY KEY,
+			secretHash BLOB NOT NULL,
+			userId INTEGER NOT NULL,
+			createdAt TEXT NOT NULL,
+			expiresAt TEXT NOT NULL,
+			renewedAt TEXT NOT NULL,
+			revokedAt TEXT
 		);
 	`), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)

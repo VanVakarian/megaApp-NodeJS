@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"megaapp-back/internal/platform/sqlite"
 )
@@ -14,6 +15,16 @@ type User struct {
 	Username       string
 	HashedPassword string
 	IsAdmin        bool
+}
+
+type Session struct {
+	ID         string
+	SecretHash []byte
+	UserID     int64
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
+	RenewedAt  time.Time
+	RevokedAt  *time.Time
 }
 
 type Repository struct {
@@ -70,6 +81,65 @@ func (r *Repository) ListAdminUserIDs(ctx context.Context) ([]int64, error) {
 	return userIDs, nil
 }
 
+func (r *Repository) CreateSession(ctx context.Context, session Session) error {
+	_, err := r.write.ExecContext(ctx, `
+		INSERT INTO auth_sessions (id, secretHash, userId, createdAt, expiresAt, renewedAt)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, session.ID, session.SecretHash, session.UserID, session.CreatedAt.Unix(), session.ExpiresAt.Unix(), session.RenewedAt.Unix())
+	if err != nil {
+		return fmt.Errorf("create auth session: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) GetSession(ctx context.Context, sessionID string) (*Session, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, secretHash, userId, createdAt, expiresAt, renewedAt, revokedAt
+		FROM auth_sessions
+		WHERE id = ?
+	`, sessionID)
+	return scanSession(row)
+}
+
+func (r *Repository) RenewSession(ctx context.Context, sessionID string, expiresAt time.Time, renewedAt time.Time) error {
+	result, err := r.write.ExecContext(ctx, `
+		UPDATE auth_sessions
+		SET expiresAt = ?, renewedAt = ?
+		WHERE id = ? AND revokedAt IS NULL
+	`, expiresAt.Unix(), renewedAt.Unix(), sessionID)
+	if err != nil {
+		return fmt.Errorf("renew auth session: %w", err)
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("renew auth session rows affected: %w", err)
+	}
+	if changed != 1 {
+		return ErrInvalidSession
+	}
+	return nil
+}
+
+func (r *Repository) RevokeSession(ctx context.Context, sessionID string, revokedAt time.Time) error {
+	_, err := r.write.ExecContext(ctx, `
+		UPDATE auth_sessions
+		SET revokedAt = COALESCE(revokedAt, ?)
+		WHERE id = ?
+	`, revokedAt.Unix(), sessionID)
+	if err != nil {
+		return fmt.Errorf("revoke auth session: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) DeleteExpiredSessions(ctx context.Context, now time.Time) error {
+	_, err := r.write.ExecContext(ctx, `DELETE FROM auth_sessions WHERE expiresAt < ?`, now.Unix())
+	if err != nil {
+		return fmt.Errorf("delete expired auth sessions: %w", err)
+	}
+	return nil
+}
+
 func scanUser(row *sql.Row) (*User, error) {
 	var user User
 	var isAdmin sql.NullBool
@@ -82,4 +152,24 @@ func scanUser(row *sql.Row) (*User, error) {
 	user.IsAdmin = isAdmin.Valid && isAdmin.Bool
 
 	return &user, nil
+}
+
+func scanSession(row *sql.Row) (*Session, error) {
+	var session Session
+	var createdAt, expiresAt, renewedAt int64
+	var revokedAt sql.NullInt64
+	if err := row.Scan(&session.ID, &session.SecretHash, &session.UserID, &createdAt, &expiresAt, &renewedAt, &revokedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get auth session: %w", err)
+	}
+	session.CreatedAt = time.Unix(createdAt, 0)
+	session.ExpiresAt = time.Unix(expiresAt, 0)
+	session.RenewedAt = time.Unix(renewedAt, 0)
+	if revokedAt.Valid {
+		value := time.Unix(revokedAt.Int64, 0)
+		session.RevokedAt = &value
+	}
+	return &session, nil
 }

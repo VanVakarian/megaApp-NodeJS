@@ -762,6 +762,16 @@ func openMoneyTestDB(t *testing.T) *sql.DB {
 			isAdmin BOOLEAN
 		);
 
+		CREATE TABLE auth_sessions (
+			id TEXT PRIMARY KEY,
+			secretHash BLOB NOT NULL,
+			userId INTEGER NOT NULL,
+			createdAt TEXT NOT NULL,
+			expiresAt TEXT NOT NULL,
+			renewedAt TEXT NOT NULL,
+			revokedAt TEXT
+		);
+
 		CREATE TABLE moneyCurrency (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			userId INTEGER NOT NULL,

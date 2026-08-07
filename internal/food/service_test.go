@@ -780,6 +780,7 @@ func openFoodTestDB(t *testing.T) *sql.DB {
 
 	if _, err := db.Exec(`
 		CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, hashedPassword TEXT, isAdmin BOOLEAN);
+		CREATE TABLE auth_sessions (id TEXT PRIMARY KEY, secretHash BLOB NOT NULL, userId INTEGER NOT NULL, createdAt TEXT NOT NULL, expiresAt TEXT NOT NULL, renewedAt TEXT NOT NULL, revokedAt TEXT);
 		CREATE TABLE settings (id INTEGER PRIMARY KEY AUTOINCREMENT, usersId INTEGER, goal TEXT, darkTheme BOOLEAN, selectedChapterFood BOOLEAN, selectedChapterMoney BOOLEAN, liteVersion BOOLEAN, height INTEGER);
 		CREATE TABLE foodSettings (id INTEGER PRIMARY KEY AUTOINCREMENT, height INTEGER, useCoeffs BOOLEAN, coefficients TEXT, usersId INTEGER);
 		CREATE TABLE foodCatalogue (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, kcals INTEGER, protein REAL, fat REAL, carbs REAL, fiber REAL, description TEXT, legacyName TEXT, nameVec BLOB, descriptionVec BLOB);
@@ -790,7 +791,7 @@ func openFoodTestDB(t *testing.T) *sql.DB {
 		CREATE TABLE foodPersonalNormHistory (id INTEGER PRIMARY KEY AUTOINCREMENT, usersId INTEGER NOT NULL, yearMonth TEXT NOT NULL, normKcals REAL NOT NULL, kcalPerKg REAL NOT NULL, createdAt TEXT NOT NULL, UNIQUE(usersId, yearMonth));
 		CREATE TABLE syncOperations (id TEXT PRIMARY KEY, userId INTEGER NOT NULL, createdAt TEXT NOT NULL, resultJSON TEXT NOT NULL);
 
-		INSERT INTO users(id, username, isAdmin) VALUES (1, 'alice', 0);
+		INSERT INTO users(id, username, hashedPassword, isAdmin) VALUES (1, 'alice', '', 0);
 		INSERT INTO settings(usersId, goal, darkTheme, selectedChapterFood, selectedChapterMoney, liteVersion, height) VALUES (1, 'lose', 0, 1, 0, 0, 180);
 		INSERT INTO foodCatalogue(id, name, kcals, protein, fat, carbs, fiber, description, legacyName, nameVec, descriptionVec) VALUES
 			(1, 'Apple', 50, 1, 0, 10, 2, 'Fruit', 'Apple', X'0000803F00000000', X'0000803F00000000'),

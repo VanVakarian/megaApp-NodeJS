@@ -35,7 +35,7 @@ func TestLegacyFixtureCriticalRoutesMatchRecordedParity(t *testing.T) {
 	server := httptest.NewServer(app.Handler)
 	defer server.Close()
 
-	token := legacyFixtureToken(t, cfg.JWTSecret)
+	token := legacyFixtureSession(t, app)
 
 	statsData := assertLegacyFixtureJSON(t, http.MethodGet, server.URL+"/api/food/stats", token)
 	statsDates := make([]string, 0, len(statsData))
@@ -120,7 +120,6 @@ func TestLegacyFixtureProdLikeStartupWorks(t *testing.T) {
 	tempDir := t.TempDir()
 	cfg := legacyFixtureConfig(t, tempDir)
 	cfg.AppEnv = "prod"
-	cfg.JWTSecret = "prod-fixture-secret"
 
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
@@ -161,7 +160,7 @@ func TestLegacyFixtureCriticalRoutesHandleLowConcurrency(t *testing.T) {
 	server := httptest.NewServer(app.Handler)
 	defer server.Close()
 
-	token := legacyFixtureToken(t, cfg.JWTSecret)
+	token := legacyFixtureSession(t, app)
 	urls := []string{
 		server.URL + "/api/food/stats",
 		server.URL + "/api/money/snapshot",
@@ -181,7 +180,7 @@ func TestLegacyFixtureCriticalRoutesHandleLowConcurrency(t *testing.T) {
 					errCh <- err
 					return
 				}
-				request.Header.Set("Authorization", "Bearer "+token)
+				request.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token})
 				response, err := http.DefaultClient.Do(request)
 				if err != nil {
 					errCh <- err
@@ -248,7 +247,6 @@ func legacyFixtureConfig(t *testing.T, tempDir string) config.Config {
 		MigrationsDir:                       filepath.Join("..", "..", "migrations"),
 		PublicDir:                           filepath.Join(tempDir, "public"),
 		BackupsDir:                          filepath.Join(tempDir, "backups"),
-		JWTSecret:                           "legacy-fixture-secret",
 		FlatlineBaseURL:                     "http://127.0.0.1:1",
 		FlatlinePushTimeout:                 time.Second,
 		FlatlinePollInterval:                time.Hour,
@@ -328,13 +326,14 @@ func copyLegacyFixtureDB(t *testing.T, from string, to string) {
 	}
 }
 
-func legacyFixtureToken(t *testing.T, secret string) string {
+func legacyFixtureSession(t *testing.T, app *App) string {
 	t.Helper()
-	tokens, err := auth.NewTokenManager(secret, time.Hour, 24*time.Hour).Issue(auth.TokenClaims{UserID: 1, Username: "vld1211"})
+	service := auth.NewService(auth.NewRepository(app.DB.Read(), app.DB.Write()), auth.SessionConfig{})
+	session, err := service.CreateSession(t.Context(), 1)
 	if err != nil {
-		t.Fatalf("Issue() error = %v", err)
+		t.Fatalf("CreateSession() error = %v", err)
 	}
-	return tokens.AccessToken
+	return session.Cookie
 }
 
 func assertLegacyFixtureJSON(t *testing.T, method string, url string, token string) map[string]any {
@@ -343,7 +342,7 @@ func assertLegacyFixtureJSON(t *testing.T, method string, url string, token stri
 	if err != nil {
 		t.Fatalf("NewRequest() error = %v", err)
 	}
-	request.Header.Set("Authorization", "Bearer "+token)
+	request.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token})
 
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {

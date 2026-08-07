@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"megaapp-back/internal/auth"
 	"megaapp-back/internal/platform/idempotency"
@@ -32,6 +31,8 @@ func TestSettingsEndpoints(t *testing.T) {
 			isAdmin BOOLEAN
 		);
 
+		CREATE TABLE auth_sessions (id TEXT PRIMARY KEY, secretHash BLOB NOT NULL, userId INTEGER NOT NULL, createdAt TEXT NOT NULL, expiresAt TEXT NOT NULL, renewedAt TEXT NOT NULL, revokedAt TEXT);
+
 		CREATE TABLE settings (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			usersId INTEGER,
@@ -53,8 +54,7 @@ func TestSettingsEndpoints(t *testing.T) {
 	}
 
 	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
-	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
-	authService := auth.NewService(authRepo, tokenManager)
+	authService := auth.NewService(authRepo, auth.SessionConfig{})
 	userID, err := authService.Register(t.Context(), "alice", "password123")
 	if err != nil {
 		t.Fatalf("Register() error = %v", err)
@@ -66,9 +66,9 @@ func TestSettingsEndpoints(t *testing.T) {
 	settingsService := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
 	settingsHandler := NewHandler(settingsService)
 
-	tokens, err := tokenManager.Issue(auth.TokenClaims{UserID: userID, Username: "alice"})
+	session, err := authService.CreateSession(t.Context(), userID)
 	if err != nil {
-		t.Fatalf("Issue() error = %v", err)
+		t.Fatalf("CreateSession() error = %v", err)
 	}
 
 	router := chi.NewRouter()
@@ -80,7 +80,7 @@ func TestSettingsEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("http.NewRequest() error = %v", err)
 	}
-	getRequest.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	getRequest.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: session.Cookie})
 	getResponse, err := http.DefaultClient.Do(getRequest)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
@@ -109,7 +109,7 @@ func TestSettingsEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("http.NewRequest() error = %v", err)
 	}
-	putRequest.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	putRequest.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: session.Cookie})
 	putRequest.Header.Set("Content-Type", "application/json")
 	putResponse, err := http.DefaultClient.Do(putRequest)
 	if err != nil {
@@ -128,7 +128,7 @@ func TestSettingsEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("http.NewRequest() error = %v", err)
 	}
-	retryRequest.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	retryRequest.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: session.Cookie})
 	retryRequest.Header.Set("Content-Type", "application/json")
 	retryResponse, err := http.DefaultClient.Do(retryRequest)
 	if err != nil {
@@ -143,7 +143,7 @@ func TestSettingsEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("http.NewRequest() error = %v", err)
 	}
-	afterRetryRequest.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	afterRetryRequest.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: session.Cookie})
 	afterRetryResponse, err := http.DefaultClient.Do(afterRetryRequest)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
@@ -165,7 +165,7 @@ func TestSettingsEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("http.NewRequest() error = %v", err)
 	}
-	noOperationIDRequest.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	noOperationIDRequest.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: session.Cookie})
 	noOperationIDRequest.Header.Set("Content-Type", "application/json")
 	noOperationIDResponse, err := http.DefaultClient.Do(noOperationIDRequest)
 	if err != nil {
@@ -184,7 +184,7 @@ func TestSettingsEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("http.NewRequest() error = %v", err)
 	}
-	invalidRequest.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	invalidRequest.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: session.Cookie})
 	invalidRequest.Header.Set("Content-Type", "application/json")
 	invalidResponse, err := http.DefaultClient.Do(invalidRequest)
 	if err != nil {
@@ -199,7 +199,7 @@ func TestSettingsEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("http.NewRequest() error = %v", err)
 	}
-	metricsGetRequest.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	metricsGetRequest.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: session.Cookie})
 	metricsGetResponse, err := http.DefaultClient.Do(metricsGetRequest)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
@@ -224,7 +224,7 @@ func TestSettingsEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("http.NewRequest() error = %v", err)
 	}
-	metricsPutRequest.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	metricsPutRequest.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: session.Cookie})
 	metricsPutRequest.Header.Set("Content-Type", "application/json")
 	metricsPutResponse, err := http.DefaultClient.Do(metricsPutRequest)
 	if err != nil {
@@ -239,7 +239,7 @@ func TestSettingsEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("http.NewRequest() error = %v", err)
 	}
-	metricsGetAfterPutRequest.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	metricsGetAfterPutRequest.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: session.Cookie})
 	metricsGetAfterPutResponse, err := http.DefaultClient.Do(metricsGetAfterPutRequest)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
@@ -257,7 +257,7 @@ func TestSettingsEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("http.NewRequest() error = %v", err)
 	}
-	invalidMetricsRequest.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	invalidMetricsRequest.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: session.Cookie})
 	invalidMetricsRequest.Header.Set("Content-Type", "application/json")
 	invalidMetricsResponse, err := http.DefaultClient.Do(invalidMetricsRequest)
 	if err != nil {

@@ -25,8 +25,7 @@ func TestMoneyRoutesSnapshotAndReferenceCrud(t *testing.T) {
 	insertMoneyBrokerageAccount(t, db, 1, 2, "Brokerage", AccountKindBrokerage)
 
 	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
-	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
-	authService := auth.NewService(authRepo, tokenManager)
+	authService := auth.NewService(authRepo, auth.SessionConfig{})
 	handler := NewHandler(NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db})))
 
 	router := chi.NewRouter()
@@ -34,10 +33,7 @@ func TestMoneyRoutesSnapshotAndReferenceCrud(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	tokens, err := tokenManager.Issue(auth.TokenClaims{UserID: 1, Username: "alice"})
-	if err != nil {
-		t.Fatalf("Issue() error = %v", err)
-	}
+	tokens := issueMoneySession(t, authService, 1)
 
 	assertMoneyStatus(t, http.MethodGet, server.URL+"/api/money/snapshot", tokens.AccessToken, nil, http.StatusOK)
 	assertMoneyStatus(t, http.MethodGet, server.URL+"/api/money/organizations", tokens.AccessToken, nil, http.StatusOK)
@@ -128,8 +124,7 @@ func TestMoneyRoutesTransactionsCrud(t *testing.T) {
 	insertMoneyCategory(t, db, 1, 3, "Salary", nil, CategoryTypeIncome)
 
 	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
-	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
-	authService := auth.NewService(authRepo, tokenManager)
+	authService := auth.NewService(authRepo, auth.SessionConfig{})
 	handler := NewHandler(NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db})))
 
 	router := chi.NewRouter()
@@ -137,10 +132,7 @@ func TestMoneyRoutesTransactionsCrud(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	tokens, err := tokenManager.Issue(auth.TokenClaims{UserID: 1, Username: "alice"})
-	if err != nil {
-		t.Fatalf("Issue() error = %v", err)
-	}
+	tokens := issueMoneySession(t, authService, 1)
 
 	assertMoneyStatus(t, http.MethodGet, server.URL+"/api/money/transactions", tokens.AccessToken, nil, http.StatusOK)
 
@@ -219,8 +211,7 @@ func TestMoneyRoutesInvestTransactions(t *testing.T) {
 	insertMoneyAsset(t, db, 1, 2, "Bond", "OFZ", AssetTypeBond, []int64{2})
 
 	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
-	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
-	authService := auth.NewService(authRepo, tokenManager)
+	authService := auth.NewService(authRepo, auth.SessionConfig{})
 	handler := NewHandler(NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db})))
 
 	router := chi.NewRouter()
@@ -228,10 +219,7 @@ func TestMoneyRoutesInvestTransactions(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	tokens, err := tokenManager.Issue(auth.TokenClaims{UserID: 1, Username: "alice"})
-	if err != nil {
-		t.Fatalf("Issue() error = %v", err)
-	}
+	tokens := issueMoneySession(t, authService, 1)
 
 	buyResponse := assertMoneyJSON(t, http.MethodPost, server.URL+"/api/money/transactions", tokens.AccessToken, map[string]any{
 		"operationId": "op-buy",
@@ -331,18 +319,14 @@ func TestMoneyRoutesTradesAndRateHistory(t *testing.T) {
 
 	handler := NewHandler(NewServiceWithClock(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}), fixedMoneyClock{now: time.Date(2026, time.June, 30, 12, 0, 0, 0, time.UTC)}))
 	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
-	tokenManager := auth.NewTokenManager("test-secret", time.Hour, 24*time.Hour)
-	authService := auth.NewService(authRepo, tokenManager)
+	authService := auth.NewService(authRepo, auth.SessionConfig{})
 
 	router := chi.NewRouter()
 	RegisterRoutes(router, authService, handler)
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	tokens, err := tokenManager.Issue(auth.TokenClaims{UserID: 1, Username: "alice"})
-	if err != nil {
-		t.Fatalf("Issue() error = %v", err)
-	}
+	tokens := issueMoneySession(t, authService, 1)
 
 	if _, _, err := handler.service.CreateTransaction(context.Background(), 1, "op-trade-buy", TransactionInput{
 		DateISO:   "2026-06-15",
@@ -389,7 +373,21 @@ func TestMoneyRoutesTradesAndRateHistory(t *testing.T) {
 	}
 }
 
-func assertMoneyStatus(t *testing.T, method string, url string, accessToken string, body any, wantStatus int) {
+type moneySession struct {
+	AccessToken string
+}
+
+func issueMoneySession(t *testing.T, service *auth.Service, userID int64) moneySession {
+	t.Helper()
+
+	session, err := service.CreateSession(t.Context(), userID)
+	if err != nil {
+		t.Fatalf("CreateSession() error = %v", err)
+	}
+	return moneySession{AccessToken: session.Cookie}
+}
+
+func assertMoneyStatus(t *testing.T, method string, url string, sessionCookie string, body any, wantStatus int) {
 	t.Helper()
 
 	var requestBody *bytes.Reader
@@ -407,7 +405,7 @@ func assertMoneyStatus(t *testing.T, method string, url string, accessToken stri
 	if err != nil {
 		t.Fatalf("http.NewRequest() error = %v", err)
 	}
-	request.Header.Set("Authorization", "Bearer "+accessToken)
+	request.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: sessionCookie})
 	request.Header.Set("Content-Type", "application/json")
 
 	response, err := http.DefaultClient.Do(request)
@@ -423,7 +421,7 @@ func assertMoneyStatus(t *testing.T, method string, url string, accessToken stri
 	}
 }
 
-func assertMoneyJSON(t *testing.T, method string, url string, accessToken string, body any, wantStatus int) map[string]any {
+func assertMoneyJSON(t *testing.T, method string, url string, sessionCookie string, body any, wantStatus int) map[string]any {
 	t.Helper()
 
 	var requestBody *bytes.Reader
@@ -441,7 +439,7 @@ func assertMoneyJSON(t *testing.T, method string, url string, accessToken string
 	if err != nil {
 		t.Fatalf("http.NewRequest() error = %v", err)
 	}
-	request.Header.Set("Authorization", "Bearer "+accessToken)
+	request.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: sessionCookie})
 	request.Header.Set("Content-Type", "application/json")
 
 	response, err := http.DefaultClient.Do(request)

@@ -16,7 +16,6 @@ func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("MIGRATIONS_DIR", "")
 	t.Setenv("PUBLIC_DIR", "")
 	t.Setenv("BACKUPS_DIR", "")
-	t.Setenv("JWT_SECRET", "")
 	t.Setenv("OPENROUTER_API_KEY", "")
 	t.Setenv("OPENROUTER_MODEL", "")
 	t.Setenv("OPENROUTER_VISION_MODEL", "")
@@ -98,9 +97,6 @@ func TestLoadUsesDefaults(t *testing.T) {
 	}
 	if cfg.BackupsDir != "./backups" {
 		t.Fatalf("BackupsDir = %q, want ./backups", cfg.BackupsDir)
-	}
-	if cfg.JWTSecret != "test-insecure-jwt-secret" {
-		t.Fatalf("JWTSecret = %q, want test-insecure-jwt-secret", cfg.JWTSecret)
 	}
 	if cfg.OpenRouterAPIKey != "" {
 		t.Fatalf("OpenRouterAPIKey = %q, want empty", cfg.OpenRouterAPIKey)
@@ -266,10 +262,10 @@ func TestValidateRejectsInvalidLogLevel(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsInsecureJWTSecretOutsideTestLikeEnv(t *testing.T) {
+func TestValidateRejectsInvalidSessionRenewWindow(t *testing.T) {
 	cfg := validTestConfig()
-	cfg.AppEnv = "prod"
-	cfg.JWTSecret = "test-insecure-jwt-secret"
+	cfg.SessionTTL = time.Hour
+	cfg.SessionRenewWindow = time.Hour
 
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("Validate() error = nil, want error")
@@ -307,7 +303,6 @@ func TestValidateRejectsInvalidBackupConfig(t *testing.T) {
 func TestValidateAcceptsProdLikeConfig(t *testing.T) {
 	cfg := validTestConfig()
 	cfg.AppEnv = "prod"
-	cfg.JWTSecret = "prod-secret"
 
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
@@ -326,7 +321,6 @@ func validTestConfig() Config {
 		MigrationsDir:                       "./migrations",
 		PublicDir:                           "./public",
 		BackupsDir:                          "./backups",
-		JWTSecret:                           "secret",
 		OpenRouterTimeout:                   time.Second,
 		ImageGenerationMaxAttempts:          3,
 		OpenAIEmbeddingDims:                 768,
