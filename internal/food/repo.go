@@ -166,20 +166,6 @@ func (r *Repository) CountDiaryEntriesByCatalogueID(ctx context.Context, catalog
 	return count, nil
 }
 
-func (r *Repository) GetUserGoal(ctx context.Context, userID int64) (string, error) {
-	row := r.db.QueryRowContext(ctx, `SELECT goal FROM settings WHERE usersId = ?`, userID)
-
-	var goal sql.NullString
-	if err := row.Scan(&goal); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return "", nil
-		}
-		return "", fmt.Errorf("get user goal: %w", err)
-	}
-
-	return goal.String, nil
-}
-
 func (r *Repository) GetUserFirstDate(ctx context.Context, userID int64) (string, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT MIN(date) as firstDate

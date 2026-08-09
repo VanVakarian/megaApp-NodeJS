@@ -224,13 +224,8 @@ func (s *Service) GetDiaryFullUpdate(ctx context.Context, userID int64, dateISO 
 	if err != nil {
 		return nil, err
 	}
-	goal, err := s.repo.GetUserGoal(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	if goal == "" {
-		goal = "lose"
-	}
+	// The "goal" concept never got a UI or write path — always the same default.
+	goal := "lose"
 	catalogue, err := s.GetCatalogue(ctx)
 	if err != nil {
 		return nil, err

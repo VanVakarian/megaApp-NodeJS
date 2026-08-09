@@ -227,14 +227,12 @@ func prepareAppTestFiles(t *testing.T, cfg config.Config) {
 			hashedPassword TEXT,
 			isAdmin BOOLEAN
 		);
-		CREATE TABLE IF NOT EXISTS settings (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			usersId INTEGER,
-			darkTheme BOOLEAN,
-			selectedChapterFood BOOLEAN,
-			selectedChapterMoney BOOLEAN,
-			liteVersion BOOLEAN,
-			height INTEGER
+		CREATE TABLE IF NOT EXISTS userSettings (
+			usersId INTEGER NOT NULL,
+			namespace TEXT NOT NULL,
+			payload TEXT NOT NULL,
+			updatedAt TEXT NOT NULL,
+			PRIMARY KEY (usersId, namespace)
 		);
 	`), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)

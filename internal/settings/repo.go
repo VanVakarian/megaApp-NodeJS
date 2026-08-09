@@ -3,39 +3,22 @@ package settings
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"megaapp-back/internal/platform/sqlite"
 )
-
-type UserSettings struct {
-	SelectedChapterFood  bool   `json:"selectedChapterFood"`
-	SelectedChapterMoney bool   `json:"selectedChapterMoney"`
-	DarkTheme            bool   `json:"darkTheme"`
-	LiteVersion          bool   `json:"liteVersion"`
-	Height               *int64 `json:"height"`
-	UserName             string `json:"userName"`
-	IsUserAdmin          bool   `json:"isUserAdmin"`
-}
-
-type StoredSettings struct {
-	SelectedChapterFood  bool
-	SelectedChapterMoney bool
-	DarkTheme            bool
-	LiteVersion          bool
-	Height               *int64
-}
 
 type Repository struct {
 	db    *sql.DB
 	write sqlite.WriteDB
 }
 
-// txRunner is satisfied by both *sql.DB and *sql.Tx, so read/write methods below can run either
-// as a plain query or as part of an idempotency transaction without duplicating their SQL.
+// txRunner is satisfied by both *sql.DB and *sql.Tx, so the read below can run either as a plain
+// query or as part of an idempotency transaction without duplicating its SQL.
 type txRunner interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
@@ -43,105 +26,89 @@ func NewRepository(read *sql.DB, write sqlite.WriteDB) *Repository {
 	return &Repository{db: read, write: write}
 }
 
-func (r *Repository) GetByUserID(ctx context.Context, tx txRunner, userID int64) (*StoredSettings, error) {
-	return scanStoredSettings(tx.QueryRowContext(ctx, `
-		SELECT darkTheme, selectedChapterFood, selectedChapterMoney, liteVersion, height
-		FROM settings
-		WHERE usersId = ?
-	`, userID))
+// Get returns the raw stored JSON payload for a namespace, or "" if the user has never saved
+// anything in it yet — callers merge that onto the namespace's defaults.
+func (r *Repository) Get(ctx context.Context, userID int64, namespace string) (string, error) {
+	return r.get(ctx, r.db, userID, namespace)
 }
 
-func scanStoredSettings(row *sql.Row) (*StoredSettings, error) {
-	var darkTheme bool
-	var selectedChapterFood bool
-	var selectedChapterMoney bool
-	var liteVersion bool
-	var height sql.NullInt64
+func (r *Repository) get(ctx context.Context, tx txRunner, userID int64, namespace string) (string, error) {
+	row := tx.QueryRowContext(ctx, `SELECT payload FROM userSettings WHERE usersId = ? AND namespace = ?`, userID, namespace)
 
-	if err := row.Scan(&darkTheme, &selectedChapterFood, &selectedChapterMoney, &liteVersion, &height); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("get settings by user id: %w", err)
-	}
-
-	return &StoredSettings{
-		DarkTheme:            darkTheme,
-		SelectedChapterFood:  selectedChapterFood,
-		SelectedChapterMoney: selectedChapterMoney,
-		LiteVersion:          liteVersion,
-		Height:               nullableInt64Ptr(height),
-	}, nil
-}
-
-func (r *Repository) Upsert(ctx context.Context, tx txRunner, userID int64, settings StoredSettings) error {
-	result, err := tx.ExecContext(ctx, `
-		UPDATE settings
-		SET darkTheme = ?, selectedChapterFood = ?, selectedChapterMoney = ?, liteVersion = ?, height = ?
-		WHERE usersId = ?
-	`, settings.DarkTheme, settings.SelectedChapterFood, settings.SelectedChapterMoney, settings.LiteVersion, settings.Height, userID)
-	if err != nil {
-		return fmt.Errorf("update settings: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("update settings rows affected: %w", err)
-	}
-	if rowsAffected > 0 {
-		return nil
-	}
-
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO settings (usersId, darkTheme, selectedChapterFood, selectedChapterMoney, liteVersion, height)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, userID, settings.DarkTheme, settings.SelectedChapterFood, settings.SelectedChapterMoney, settings.LiteVersion, settings.Height); err != nil {
-		return fmt.Errorf("insert settings: %w", err)
-	}
-
-	return nil
-}
-
-func (r *Repository) GetMetricsSettingsByUserID(ctx context.Context, userID int64) (string, error) {
-	row := r.db.QueryRowContext(ctx, `SELECT metricsSettings FROM settings WHERE usersId = ?`, userID)
-
-	var value sql.NullString
-	if err := row.Scan(&value); err != nil {
+	var payload string
+	if err := row.Scan(&payload); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", nil
 		}
-		return "", fmt.Errorf("get metrics settings by user id: %w", err)
+		return "", fmt.Errorf("get settings namespace: %w", err)
 	}
 
-	return value.String, nil
+	return payload, nil
 }
 
-func (r *Repository) UpsertMetricsSettings(ctx context.Context, userID int64, value string) error {
-	result, err := r.write.ExecContext(ctx, `
-		UPDATE settings
-		SET metricsSettings = ?
-		WHERE usersId = ?
-	`, value, userID)
+// MergeFields reads the namespace's current payload inside tx, merges the given top-level fields
+// into it (each field replaces the whole value under its key, never merging deeper), and upserts
+// the result back. Returns the merged payload plus the write's timestamp (millisecond precision,
+// so two PUTs committed moments apart from the same user get distinguishable values — the caller
+// forwards it to WS broadcast so recipients can drop an out-of-order message) so the caller can
+// round-trip validate the payload before committing. The same method serves both a single-field
+// auto-save PUT and a multi-field batched PUT — merging N≥1 fields covering every field of a
+// namespace is equivalent to a full replace.
+func (r *Repository) MergeFields(ctx context.Context, tx *sql.Tx, userID int64, namespace string, fields map[string]json.RawMessage) (string, int64, error) {
+	current, err := r.get(ctx, tx, userID, namespace)
 	if err != nil {
-		return fmt.Errorf("update metrics settings: %w", err)
+		return "", 0, err
+	}
+
+	merged := map[string]json.RawMessage{}
+	if current != "" {
+		if err := json.Unmarshal([]byte(current), &merged); err != nil {
+			return "", 0, fmt.Errorf("unmarshal stored settings namespace: %w", err)
+		}
+	}
+	for key, value := range fields {
+		merged[key] = value
+	}
+
+	mergedJSON, err := json.Marshal(merged)
+	if err != nil {
+		return "", 0, fmt.Errorf("marshal merged settings namespace: %w", err)
+	}
+
+	updatedAtMillis, err := r.upsert(ctx, tx, userID, namespace, string(mergedJSON))
+	if err != nil {
+		return "", 0, err
+	}
+
+	return string(mergedJSON), updatedAtMillis, nil
+}
+
+func (r *Repository) upsert(ctx context.Context, tx *sql.Tx, userID int64, namespace string, payload string) (int64, error) {
+	now := time.Now().UTC()
+	nowText := now.Format(time.RFC3339Nano)
+
+	result, err := tx.ExecContext(ctx, `
+		UPDATE userSettings SET payload = ?, updatedAt = ? WHERE usersId = ? AND namespace = ?
+	`, payload, nowText, userID, namespace)
+	if err != nil {
+		return 0, fmt.Errorf("update settings namespace: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("update metrics settings rows affected: %w", err)
+		return 0, fmt.Errorf("update settings namespace rows affected: %w", err)
 	}
 	if rowsAffected > 0 {
-		return nil
+		return now.UnixMilli(), nil
 	}
 
-	if _, err := r.write.ExecContext(ctx, `
-		INSERT INTO settings (usersId, metricsSettings)
-		VALUES (?, ?)
-	`, userID, value); err != nil {
-		return fmt.Errorf("insert metrics settings: %w", err)
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO userSettings (usersId, namespace, payload, updatedAt) VALUES (?, ?, ?, ?)
+	`, userID, namespace, payload, nowText); err != nil {
+		return 0, fmt.Errorf("insert settings namespace: %w", err)
 	}
 
-	return nil
+	return now.UnixMilli(), nil
 }
 
 func (r *Repository) GetUserAdminAndName(ctx context.Context, userID int64) (bool, string, error) {
@@ -157,13 +124,4 @@ func (r *Repository) GetUserAdminAndName(ctx context.Context, userID int64) (boo
 	}
 
 	return isAdmin, username, nil
-}
-
-func nullableInt64Ptr(value sql.NullInt64) *int64 {
-	if !value.Valid {
-		return nil
-	}
-
-	result := value.Int64
-	return &result
 }

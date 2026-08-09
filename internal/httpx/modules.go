@@ -78,10 +78,11 @@ func buildAuthModule(read *sql.DB, write sqlite.WriteDB, cfg config.Config) auth
 	return authModule{service: service, handler: auth.NewHandler(service)}
 }
 
-func buildSettingsModule(read *sql.DB, write sqlite.WriteDB) settingsModule {
+func buildSettingsModule(read *sql.DB, write sqlite.WriteDB, hub *ws.Hub) settingsModule {
 	repo := settings.NewRepository(read, write)
 	service := settings.NewService(repo, idempotency.NewStore(write))
-	return settingsModule{service: service, handler: settings.NewHandler(service)}
+	realtime := settings.NewWSRealtimePublisher(hub)
+	return settingsModule{service: service, handler: settings.NewHandler(service, realtime)}
 }
 
 func buildWSModule(cfg config.Config, authService *auth.Service) wsModule {
