@@ -103,12 +103,6 @@ type CompositeMetricDefinition struct {
 	TreatMissingAsZero *bool  `json:"treatMissingAsZero,omitempty"`
 }
 
-type AnomalyFilterParams struct {
-	WindowRadius           int     `json:"windowRadius"`
-	Sensitivity            float64 `json:"sensitivity"`
-	MinRelativeJumpPercent float64 `json:"minRelativeJumpPercent"`
-}
-
 type MetricsSettings struct {
 	CardSize                  CardSize                      `json:"cardSize"`
 	SyncCrosshairEnabled      bool                          `json:"syncCrosshairEnabled"`
@@ -119,7 +113,7 @@ type MetricsSettings struct {
 	ServiceHeaderVisibility   map[string]bool               `json:"serviceHeaderVisibility"`
 	ServiceCustomLabels       map[string]string             `json:"serviceCustomLabels"`
 	CompositeMetrics          []CompositeMetricDefinition   `json:"compositeMetrics"`
-	AnomalyFilterParams       AnomalyFilterParams           `json:"anomalyFilterParams"`
+	AnomalyCorridorPercent    float64                       `json:"anomalyCorridorPercent"`
 }
 
 func defaultMetricsSettings() *MetricsSettings {
@@ -132,7 +126,7 @@ func defaultMetricsSettings() *MetricsSettings {
 		ServiceHeaderVisibility:   map[string]bool{},
 		ServiceCustomLabels:       map[string]string{},
 		CompositeMetrics:          []CompositeMetricDefinition{},
-		AnomalyFilterParams:       AnomalyFilterParams{WindowRadius: 4, Sensitivity: 4, MinRelativeJumpPercent: 10},
+		AnomalyCorridorPercent:    95,
 	}
 }
 
