@@ -103,6 +103,32 @@ type CompositeMetricDefinition struct {
 	TreatMissingAsZero *bool  `json:"treatMissingAsZero,omitempty"`
 }
 
+type ServiceCustomLabel struct {
+	Short string `json:"short"`
+	Long  string `json:"long"`
+}
+
+// UnmarshalJSON also accepts the pre-existing plain-string shape ({"svc": "Label"}), which is
+// what every already-stored row has today — there's real production data in this exact shape.
+// A bare string becomes both Short and Long; the next time this namespace is saved it's
+// persisted back out in the new {short, long} shape via the default struct marshaling.
+func (l *ServiceCustomLabel) UnmarshalJSON(data []byte) error {
+	var legacy string
+	if err := json.Unmarshal(data, &legacy); err == nil {
+		l.Short = legacy
+		l.Long = legacy
+		return nil
+	}
+
+	type shape ServiceCustomLabel
+	var v shape
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	*l = ServiceCustomLabel(v)
+	return nil
+}
+
 type MetricsSettings struct {
 	CardSize                  CardSize                      `json:"cardSize"`
 	SyncCrosshairEnabled      bool                          `json:"syncCrosshairEnabled"`
@@ -111,7 +137,7 @@ type MetricsSettings struct {
 	MetricChartModeOverrides  map[string]map[string]string  `json:"metricChartModeOverrides"`
 	SeverityThresholds        map[string]SeverityThresholds `json:"severityThresholds"`
 	ServiceHeaderVisibility   map[string]bool               `json:"serviceHeaderVisibility"`
-	ServiceCustomLabels       map[string]string             `json:"serviceCustomLabels"`
+	ServiceCustomLabels       map[string]ServiceCustomLabel `json:"serviceCustomLabels"`
 	CompositeMetrics          []CompositeMetricDefinition   `json:"compositeMetrics"`
 	AnomalyCorridorPercent    float64                       `json:"anomalyCorridorPercent"`
 }
@@ -124,7 +150,7 @@ func defaultMetricsSettings() *MetricsSettings {
 		MetricChartModeOverrides:  map[string]map[string]string{},
 		SeverityThresholds:        map[string]SeverityThresholds{},
 		ServiceHeaderVisibility:   map[string]bool{},
-		ServiceCustomLabels:       map[string]string{},
+		ServiceCustomLabels:       map[string]ServiceCustomLabel{},
 		CompositeMetrics:          []CompositeMetricDefinition{},
 		AnomalyCorridorPercent:    95,
 	}

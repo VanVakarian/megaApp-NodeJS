@@ -15,3 +15,4 @@ bin/
 frontend-performance.ndjson
 frontend-performance-*.ndjson
 logs-archive/
+*.zip

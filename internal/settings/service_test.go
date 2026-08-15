@@ -495,6 +495,53 @@ func TestMetricsSettingsDefaultsAndRoundTrip(t *testing.T) {
 	}
 }
 
+func TestServiceCustomLabelsAcceptsLegacyStringAndNewObjectShape(t *testing.T) {
+	db := openSettingsTestDB(t)
+	service := newTestService(db)
+	userID := insertSettingsTestUser(t, db, "alice", false)
+
+	if _, err := db.Exec(
+		`INSERT INTO userSettings (usersId, namespace, payload, updatedAt) VALUES (?, ?, ?, datetime('now'))`,
+		userID, NamespaceMetrics, `{"serviceCustomLabels":{"legacy-svc":"Old Label"}}`,
+	); err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+
+	raw, err := service.Get(context.Background(), userID, NamespaceMetrics)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	var metrics MetricsSettings
+	if err := json.Unmarshal(raw, &metrics); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if got := metrics.ServiceCustomLabels["legacy-svc"]; got.Short != "Old Label" || got.Long != "Old Label" {
+		t.Fatalf("ServiceCustomLabels[legacy-svc] = %+v, want {Old Label, Old Label}", got)
+	}
+
+	if _, _, err := service.Put(context.Background(), userID, NamespaceMetrics, "op-1", rawFields(t, map[string]any{
+		"serviceCustomLabels": map[string]any{
+			"new-svc": map[string]any{"short": "N", "long": "New Service"},
+		},
+	})); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+
+	raw, err = service.Get(context.Background(), userID, NamespaceMetrics)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if err := json.Unmarshal(raw, &metrics); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if got := metrics.ServiceCustomLabels["new-svc"]; got.Short != "N" || got.Long != "New Service" {
+		t.Fatalf("ServiceCustomLabels[new-svc] = %+v, want {N, New Service}", got)
+	}
+	if got := metrics.ServiceCustomLabels["legacy-svc"]; got.Short != "Old Label" || got.Long != "Old Label" {
+		t.Fatalf("legacy-svc should survive the merge, got %+v", got)
+	}
+}
+
 func openSettingsTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 
