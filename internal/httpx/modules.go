@@ -85,8 +85,9 @@ func buildSettingsModule(read *sql.DB, write sqlite.WriteDB, hub *ws.Hub) settin
 	return settingsModule{service: service, handler: settings.NewHandler(service, realtime)}
 }
 
-func buildWSModule(cfg config.Config, authService *auth.Service) wsModule {
+func buildWSModule(cfg config.Config, authService *auth.Service, logger *slog.Logger) wsModule {
 	hub := ws.NewHub(30*time.Second, ws.NewSyncState())
+	hub.SetLogger(logger)
 	hub.SetReadLimitBytes(cfg.WSReadLimitBytes)
 	hub.SetWriteTimeout(cfg.WSWriteTimeout)
 	hub.RegisterHandler("PERFORMANCE_METRICS_BATCH", ws.NewPerformanceMetricsHandler(cfg.PerformanceMetricsEnabled, cfg.DataDir))

@@ -57,7 +57,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 	jobRuntime := jobs.NewRuntime(logger)
 
 	authModule := buildAuthModule(db.Read(), db.Write(), cfg)
-	wsModule := buildWSModule(cfg, authModule.service)
+	wsModule := buildWSModule(cfg, authModule.service, logger)
 	settingsModule := buildSettingsModule(db.Read(), db.Write(), wsModule.hub)
 	moneyModule := buildMoneyModule(db.Read(), db.Write())
 	authModule.handler.SetSessionRevoker(func(sessionID string) {

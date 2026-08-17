@@ -21,6 +21,7 @@ type Service struct {
 	repo                   *Repository
 	idempotency            *idempotency.Store
 	statsCache             *StatsCache
+	catalogueCache         *CatalogueCache
 	searchCache            *SearchCache
 	productGenerator       ProductGenerator
 	embeddingGenerator     EmbeddingGenerator
@@ -123,7 +124,7 @@ type CatalogueEntry struct {
 }
 
 func NewService(repo *Repository, idempotencyStore *idempotency.Store) *Service {
-	return &Service{repo: repo, idempotency: idempotencyStore, statsCache: NewStatsCache(), searchCache: NewSearchCache(), clock: clockplatform.NewRealClock(), personalKcalConfig: DefaultPersonalKcalConfig()}
+	return &Service{repo: repo, idempotency: idempotencyStore, statsCache: NewStatsCache(), catalogueCache: NewCatalogueCache(), searchCache: NewSearchCache(), clock: clockplatform.NewRealClock(), personalKcalConfig: DefaultPersonalKcalConfig()}
 }
 
 func (s *Service) SetProductGenerator(generator ProductGenerator) {
@@ -300,6 +301,27 @@ func (s *Service) GetDiaryFullUpdate(ctx context.Context, userID int64, dateISO 
 }
 
 func (s *Service) GetCatalogue(ctx context.Context) (map[int64]CatalogueEntry, error) {
+	base, err := s.getCachedCatalogueBase(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[int64]CatalogueEntry, len(base))
+	for id, entry := range base {
+		entry.ImageVersion = s.imageVersion(id)
+		result[id] = entry
+	}
+	return result, nil
+}
+
+// getCachedCatalogueBase returns every catalogue entry without ImageVersion resolved — the part
+// that's expensive to (re)build (a full-table read) and changes only on an explicit product
+// write, unlike ImageVersion which is a cheap in-memory lookup applied fresh in GetCatalogue.
+func (s *Service) getCachedCatalogueBase(ctx context.Context) (map[int64]CatalogueEntry, error) {
+	if cached, ok := s.catalogueCache.Get(); ok {
+		return cached, nil
+	}
+
 	rows, err := s.repo.GetCatalogue(ctx)
 	if err != nil {
 		return nil, err
@@ -308,20 +330,25 @@ func (s *Service) GetCatalogue(ctx context.Context) (map[int64]CatalogueEntry, e
 	result := make(map[int64]CatalogueEntry, len(rows))
 	for _, row := range rows {
 		result[row.ID] = CatalogueEntry{
-			ID:           row.ID,
-			Name:         row.Name,
-			LegacyName:   nullableStringPtr(row.LegacyName),
-			Kcals:        row.Kcals,
-			Protein:      nullableFloat64Value(row.Protein),
-			Fat:          nullableFloat64Value(row.Fat),
-			Carbs:        nullableFloat64Value(row.Carbs),
-			Fiber:        nullableFloat64Value(row.Fiber),
-			Description:  nullableStringValue(row.Description),
-			ImageVersion: s.imageVersion(row.ID),
+			ID:          row.ID,
+			Name:        row.Name,
+			LegacyName:  nullableStringPtr(row.LegacyName),
+			Kcals:       row.Kcals,
+			Protein:     nullableFloat64Value(row.Protein),
+			Fat:         nullableFloat64Value(row.Fat),
+			Carbs:       nullableFloat64Value(row.Carbs),
+			Fiber:       nullableFloat64Value(row.Fiber),
+			Description: nullableStringValue(row.Description),
 		}
 	}
-
+	s.catalogueCache.Set(result)
 	return result, nil
+}
+
+// CatalogueVersion is a cheap "did the shared catalogue change" signal for reconnect catch-up —
+// see GET /api/food/catalogue/version.
+func (s *Service) CatalogueVersion() int64 {
+	return s.catalogueCache.Version()
 }
 
 func (s *Service) GetCatalogueEntry(ctx context.Context, catalogueID int64) (*CatalogueEntry, error) {
@@ -739,6 +766,31 @@ func (s *Service) SetBodyWeight(ctx context.Context, userID int64, operationID s
 
 func (s *Service) InvalidateStats(userID int64) {
 	s.statsCache.Delete(userID)
+}
+
+// defaultStatsWindowDays bounds the day-level detail returned by the public stats endpoint to a
+// recent, cheap-to-transfer window — the full-history computation behind it (GetStats) is
+// untouched and still cached/used as-is by GetDiaryFullUpdate, which needs targetKcal/weightAvg
+// for arbitrary historical dates. Trimming happens only at the HTTP response boundary (see
+// TrimStatsToRecentWindow), so this constant affects network payload size only, never correctness.
+const defaultStatsWindowDays = 90
+
+// TrimStatsToRecentWindow keeps only the last defaultStatsWindowDays of response.Days (today
+// inclusive) — used by the HTTP handler for the common case where the client hasn't asked for
+// full history (see GetStatsQueryParamFull). TopProducts/TotalEntries are already
+// independently windowed/aggregated and are left untouched.
+func (s *Service) TrimStatsToRecentWindow(response StatsResponse) StatsResponse {
+	today := s.clock.Now().UTC().Format("2006-01-02")
+	windowStart := createUTCDate(today).AddDate(0, 0, -(defaultStatsWindowDays - 1)).Format("2006-01-02")
+
+	trimmedDays := make(map[string]DayStats, defaultStatsWindowDays)
+	for date, stat := range response.Days {
+		if date >= windowStart {
+			trimmedDays[date] = stat
+		}
+	}
+	response.Days = trimmedDays
+	return response
 }
 
 func (s *Service) GetStats(ctx context.Context, userID int64) (StatsResponse, error) {

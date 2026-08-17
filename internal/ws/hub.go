@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -22,15 +23,17 @@ type Hub struct {
 	writeTimeout       time.Duration
 	done               chan struct{}
 	closed             bool
+	logger             *slog.Logger
 }
 
 type Client struct {
-	hub       *Hub
-	conn      *websocket.Conn
-	userID    int64
-	clientID  string
-	sessionID string
-	expiresAt time.Time
+	hub         *Hub
+	conn        *websocket.Conn
+	userID      int64
+	clientID    string
+	sessionID   string
+	expiresAt   time.Time
+	connectedAt time.Time
 
 	mu    sync.Mutex
 	alive bool
@@ -63,11 +66,23 @@ func NewHub(heartbeatInterval time.Duration, syncState *SyncState) *Hub {
 		readLimitBytes:     64 << 10,
 		writeTimeout:       5 * time.Second,
 		done:               make(chan struct{}),
+		logger:             slog.Default(),
 	}
 
 	go h.runHeartbeat()
 
 	return h
+}
+
+// SetLogger overrides the default logger (slog.Default()) — used so Hub logs go through the
+// app's configured JSON handler/level instead of the process-wide default.
+func (h *Hub) SetLogger(logger *slog.Logger) {
+	if logger == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.logger = logger
 }
 
 func (h *Hub) RegisterHandler(messageType string, handler MessageHandler) {
@@ -107,7 +122,7 @@ func (h *Hub) SetWriteTimeout(timeout time.Duration) {
 
 func (h *Hub) AddClient(conn *websocket.Conn, userID int64, sessionID string, expiresAt time.Time, clientID string) (*Client, error) {
 	conn.SetReadLimit(h.ReadLimitBytes())
-	client := &Client{hub: h, conn: conn, userID: userID, sessionID: sessionID, expiresAt: expiresAt, clientID: clientID, alive: true}
+	client := &Client{hub: h, conn: conn, userID: userID, sessionID: sessionID, expiresAt: expiresAt, clientID: clientID, connectedAt: time.Now(), alive: true}
 	client.extendReadDeadline()
 
 	h.mu.Lock()
@@ -119,7 +134,10 @@ func (h *Hub) AddClient(conn *websocket.Conn, userID int64, sessionID string, ex
 		h.clientsBySessionID[sessionID] = make(map[*Client]struct{})
 	}
 	h.clientsBySessionID[sessionID][client] = struct{}{}
+	connectionCount := len(h.clientsByUserID[userID])
 	h.mu.Unlock()
+
+	h.logger.Info("ws client connected", "userId", userID, "clientId", clientID, "userConnections", connectionCount)
 
 	if err := client.writeJSON(syncStatusMessage{
 		Type: "SYNC_STATUS",
@@ -162,6 +180,8 @@ func (h *Hub) RemoveClient(client *Client) {
 	handlers := append([]func(*Client){}, h.disconnectHandlers...)
 	h.mu.Unlock()
 
+	h.logger.Info("ws client disconnected", "userId", client.userID, "clientId", client.clientID, "connectedFor", time.Since(client.connectedAt).Round(time.Second).String())
+
 	_ = client.close()
 	for _, handler := range handlers {
 		handler(client)
@@ -175,6 +195,9 @@ func (h *Hub) CloseSession(sessionID string, code int, reason string) {
 		clients = append(clients, client)
 	}
 	h.mu.RUnlock()
+	if len(clients) > 0 {
+		h.logger.Info("ws session closed", "sessionId", sessionID, "code", code, "reason", reason, "clients", len(clients))
+	}
 	for _, client := range clients {
 		_ = client.closeWithCode(code, reason)
 		h.RemoveClient(client)
@@ -327,6 +350,7 @@ func (c *Client) readLoop() {
 
 		var message map[string]any
 		if err := json.Unmarshal(data, &message); err != nil {
+			c.hub.logger.Warn("ws message rejected: invalid JSON", "userId", c.userID, "clientId", c.clientID)
 			_ = c.writeJSON(map[string]string{"type": "PROTOCOL_ERROR", "message": "Invalid message"})
 			continue
 		}
@@ -339,11 +363,13 @@ func (c *Client) readLoop() {
 
 		handler := c.hub.getHandler(typeValue)
 		if handler == nil {
+			c.hub.logger.Warn("ws message rejected: unsupported type", "userId", c.userID, "clientId", c.clientID, "type", typeValue)
 			_ = c.writeJSON(map[string]string{"type": "PROTOCOL_ERROR", "message": "Unsupported message type"})
 			continue
 		}
 
 		if err := handler(c, message); err != nil {
+			c.hub.logger.Warn("ws message rejected: invalid payload", "userId", c.userID, "clientId", c.clientID, "type", typeValue)
 			_ = c.writeJSON(map[string]string{"type": "PROTOCOL_ERROR", "message": "Invalid message payload"})
 			continue
 		}

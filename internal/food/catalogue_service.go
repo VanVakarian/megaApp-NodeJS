@@ -180,6 +180,7 @@ func (s *Service) SaveProduct(ctx context.Context, userID int64, operationID str
 			return nil, false, fmt.Errorf("commit catalogue save: %w", err)
 		}
 		s.searchCache.Clear()
+		s.catalogueCache.Invalidate()
 		applied = true
 	}
 
@@ -252,6 +253,7 @@ func (s *Service) DeleteProduct(ctx context.Context, userID int64, operationID s
 
 	if deleted {
 		s.searchCache.Clear()
+		s.catalogueCache.Invalidate()
 	}
 	return deleted, true, nil
 }

@@ -25,6 +25,7 @@ func RegisterRoutes(router chi.Router, authService *auth.Service, handler *Handl
 		r.Use(auth.Middleware(authService))
 		r.Get("/diary-full-update", handler.GetDiaryFullUpdate)
 		r.Get("/catalogue", handler.GetCatalogue)
+		r.Get("/catalogue/version", handler.GetCatalogueVersion)
 		r.Get("/catalogue/{catalogueId}", handler.GetCatalogueEntry)
 		r.Get("/personal-kcals", handler.GetPersonalKcals)
 		r.Get("/stats", handler.GetStats)
@@ -65,7 +66,13 @@ func (h *Handler) GetCatalogue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, response)
+	writeJSON(w, http.StatusOK, map[string]any{"version": h.service.CatalogueVersion(), "entries": response})
+}
+
+// GetCatalogueVersion is a cheap "did the catalogue change" check for reconnect catch-up — the
+// coordinator calls this instead of re-downloading the whole catalogue on every reconnect.
+func (h *Handler) GetCatalogueVersion(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"version": h.service.CatalogueVersion()})
 }
 
 func (h *Handler) GetCatalogueEntry(w http.ResponseWriter, r *http.Request) {
@@ -115,6 +122,12 @@ func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to get stats"})
 		return
+	}
+
+	// Default response is windowed to a recent range — full history is a deliberate opt-in
+	// (?from=all), same principle as diary segments: the wide, rare request stays explicit.
+	if strings.TrimSpace(r.URL.Query().Get("from")) != "all" {
+		response = h.service.TrimStatsToRecentWindow(response)
 	}
 
 	writeJSON(w, http.StatusOK, response)

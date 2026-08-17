@@ -183,6 +183,8 @@ func (h *CatalogueHandler) DeleteCatalogueEntry(w http.ResponseWriter, r *http.R
 	}
 
 	if applied {
+		h.realtime.MarkUserUpdated(claims.UserID)
+		h.realtime.PublishCatalogueEntryDeleted(catalogueID, extractClientID(r))
 		h.metrics.Increment(MetricCatalogueEntryDeleted)
 	}
 	legacy.WriteJSON(w, http.StatusOK, map[string]any{"result": true, "data": map[string]any{"catalogueId": catalogueID}})
