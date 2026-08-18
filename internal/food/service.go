@@ -97,8 +97,41 @@ type ProductStat struct {
 	Weight      float64 `json:"weight"`
 }
 
+type WeightRecord struct {
+	Weight  float64 `json:"weight"`
+	DateISO string  `json:"dateISO"`
+}
+
+type CaloricDayRecord struct {
+	Percent float64 `json:"percent"`
+	DateISO string  `json:"dateISO"`
+}
+
+type YearAgoRecord struct {
+	DateISO    string  `json:"dateISO"`
+	WeightThen float64 `json:"weightThen"`
+	WeightNow  float64 `json:"weightNow"`
+	DeltaKg    float64 `json:"deltaKg"`
+}
+
+// StatsSummary holds all-time scalar aggregates (records, "since start" delta, year-ago
+// comparison) computed once over the account's full history — unlike Days, it is never trimmed
+// by TrimStatsToRecentWindow, so it's correct in every response regardless of the requested
+// window. Exists so the frontend's "milestones" UI doesn't need the full day-level history loaded
+// client-side just to derive seven scalars.
+type StatsSummary struct {
+	DaysInDiary              int               `json:"daysInDiary"`
+	MinWeight                *WeightRecord     `json:"minWeight"`
+	MaxWeight                *WeightRecord     `json:"maxWeight"`
+	MostCaloricDay           *CaloricDayRecord `json:"mostCaloricDay"`
+	LeastCaloricDay          *CaloricDayRecord `json:"leastCaloricDay"`
+	WeightChangeSinceStartKg *float64          `json:"weightChangeSinceStartKg"`
+	YearAgo                  *YearAgoRecord    `json:"yearAgo"`
+}
+
 type StatsResponse struct {
 	Days                         map[string]DayStats `json:"days"`
+	Summary                      StatsSummary        `json:"summary"`
 	TopProductsByKcal            []ProductStat       `json:"topProductsByKcal"`
 	TopProductsByWeight          []ProductStat       `json:"topProductsByWeight"`
 	TopProductsWindowTotalKcal   float64             `json:"topProductsWindowTotalKcal"`
@@ -777,8 +810,9 @@ const defaultStatsWindowDays = 90
 
 // TrimStatsToRecentWindow keeps only the last defaultStatsWindowDays of response.Days (today
 // inclusive) — used by the HTTP handler for the common case where the client hasn't asked for
-// full history (see GetStatsQueryParamFull). TopProducts/TotalEntries are already
-// independently windowed/aggregated and are left untouched.
+// full history (see GetStatsQueryParamFull). TopProducts/TotalEntries/Summary are already
+// independently windowed/aggregated over the full history and are left untouched — Summary in
+// particular exists so all-time records and milestones stay correct in the windowed response too.
 func (s *Service) TrimStatsToRecentWindow(response StatsResponse) StatsResponse {
 	today := s.clock.Now().UTC().Format("2006-01-02")
 	windowStart := createUTCDate(today).AddDate(0, 0, -(defaultStatsWindowDays - 1)).Format("2006-01-02")
@@ -853,6 +887,7 @@ func (s *Service) GetStats(ctx context.Context, userID int64) (StatsResponse, er
 	products := buildProductStats(productKcal, productWeight, catalogueNameByID)
 	response := StatsResponse{
 		Days:                         stats,
+		Summary:                      buildStatsSummary(allDates, stats),
 		TopProductsByKcal:            rankProducts(products, func(p ProductStat) float64 { return p.Kcal }),
 		TopProductsByWeight:          rankProducts(products, func(p ProductStat) float64 { return p.Weight }),
 		TopProductsWindowTotalKcal:   windowTotalKcal,
@@ -861,6 +896,66 @@ func (s *Service) GetStats(ctx context.Context, userID int64) (StatsResponse, er
 	}
 	s.statsCache.Set(userID, response)
 	return response, nil
+}
+
+// buildStatsSummary scans the full-history stats map once (in chronological order, via allDates)
+// to pick out all-time records. Weight is backfilled/interpolated for every day once the user has
+// at least one weight entry (see prepareWeights), so "day.Weight > 0" reliably means "known or
+// interpolated weight" rather than "an entry exists on this exact day" — consumedKcal has no such
+// interpolation, so the kcal-day filter below does mean an exact match.
+func buildStatsSummary(allDates []string, stats map[string]DayStats) StatsSummary {
+	summary := StatsSummary{DaysInDiary: len(allDates)}
+	if len(allDates) == 0 {
+		return summary
+	}
+
+	var firstWeightedDate string
+	for _, date := range allDates {
+		day := stats[date]
+		if day.Weight > 0 {
+			if firstWeightedDate == "" {
+				firstWeightedDate = date
+			}
+			if summary.MinWeight == nil || day.Weight < summary.MinWeight.Weight {
+				summary.MinWeight = &WeightRecord{Weight: day.Weight, DateISO: date}
+			}
+			if summary.MaxWeight == nil || day.Weight > summary.MaxWeight.Weight {
+				summary.MaxWeight = &WeightRecord{Weight: day.Weight, DateISO: date}
+			}
+		}
+		if day.ConsumedKcal > 0 && day.TargetKcal > 0 {
+			percent := roundFloat(day.ConsumedKcal/day.TargetKcal*100, 0)
+			if summary.MostCaloricDay == nil || percent > summary.MostCaloricDay.Percent {
+				summary.MostCaloricDay = &CaloricDayRecord{Percent: percent, DateISO: date}
+			}
+			if summary.LeastCaloricDay == nil || percent < summary.LeastCaloricDay.Percent {
+				summary.LeastCaloricDay = &CaloricDayRecord{Percent: percent, DateISO: date}
+			}
+		}
+	}
+
+	todayISO := allDates[len(allDates)-1]
+	today := stats[todayISO]
+	if today.Weight <= 0 {
+		return summary
+	}
+
+	if firstWeightedDate != "" {
+		delta := roundFloat(today.Weight-stats[firstWeightedDate].Weight, 1)
+		summary.WeightChangeSinceStartKg = &delta
+	}
+
+	yearAgoISO := createUTCDate(todayISO).AddDate(-1, 0, 0).Format("2006-01-02")
+	if match, ok := stats[yearAgoISO]; ok && match.Weight > 0 {
+		summary.YearAgo = &YearAgoRecord{
+			DateISO:    yearAgoISO,
+			WeightThen: match.Weight,
+			WeightNow:  today.Weight,
+			DeltaKg:    roundFloat(today.Weight-match.Weight, 1),
+		}
+	}
+
+	return summary
 }
 
 func buildProductStats(productKcal map[int64]float64, productWeight map[int64]float64, catalogueNameByID map[int64]string) []ProductStat {

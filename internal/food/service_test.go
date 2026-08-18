@@ -513,6 +513,76 @@ func TestGetStatsTopProductsWindowAndTotalEntries(t *testing.T) {
 	}
 }
 
+func TestGetStatsSummaryAllTimeRecordsSurviveWindowTrim(t *testing.T) {
+	db := openFoodTestDB(t)
+	// openFoodTestDB seeds user 1's first day as 2026-06-17 (foodDiary row 10, Bread 100g=250kcal,
+	// foodBodyWeight 80kg). No personalNormHistory rows exist, so AppliedNorm falls back to the
+	// package default of 2200 kcal for every month.
+	if _, err := db.Exec(`
+		INSERT INTO foodBodyWeight(dateISO, weight, usersId) VALUES
+			('2026-07-25', 72, 1),
+			('2026-08-01', 65, 1),
+			('2027-01-01', 90, 1),
+			('2027-07-25', 67, 1);
+		INSERT INTO foodDiary(id, dateISO, foodCatalogueId, foodWeight, history, usersId, ver, del) VALUES
+			(20, '2026-09-01', 2, 1000, '[{"action":"init","value":1000}]', 1, 0, 0),
+			(21, '2026-09-02', 1, 40, '[{"action":"init","value":40}]', 1, 0, 0);
+	`); err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
+	service.SetClock(fixedFoodClock{now: time.Date(2027, time.July, 25, 12, 0, 0, 0, time.UTC)})
+
+	stats, err := service.GetStats(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("GetStats() error = %v", err)
+	}
+
+	summary := stats.Summary
+	if summary.DaysInDiary != len(stats.Days) {
+		t.Fatalf("DaysInDiary = %d, want %d (len(Days))", summary.DaysInDiary, len(stats.Days))
+	}
+	// Global min/max hold regardless of the linear interpolation prepareWeights fills between known
+	// points, since interpolated values never leave the [min(neighbours), max(neighbours)] range.
+	if summary.MinWeight == nil || summary.MinWeight.Weight != 65 || summary.MinWeight.DateISO != "2026-08-01" {
+		t.Fatalf("MinWeight = %+v, want {65 2026-08-01}", summary.MinWeight)
+	}
+	if summary.MaxWeight == nil || summary.MaxWeight.Weight != 90 || summary.MaxWeight.DateISO != "2027-01-01" {
+		t.Fatalf("MaxWeight = %+v, want {90 2027-01-01}", summary.MaxWeight)
+	}
+	// 2026-09-01: Bread 1000g = 2500kcal / 2200 target = 113.6% -> rounds to 114, the highest ratio.
+	if summary.MostCaloricDay == nil || summary.MostCaloricDay.Percent != 114 || summary.MostCaloricDay.DateISO != "2026-09-01" {
+		t.Fatalf("MostCaloricDay = %+v, want {114 2026-09-01}", summary.MostCaloricDay)
+	}
+	// 2026-09-02: Apple 40g = 20kcal / 2200 target = 0.9% -> rounds to 1, the lowest non-zero ratio.
+	if summary.LeastCaloricDay == nil || summary.LeastCaloricDay.Percent != 1 || summary.LeastCaloricDay.DateISO != "2026-09-02" {
+		t.Fatalf("LeastCaloricDay = %+v, want {1 2026-09-02}", summary.LeastCaloricDay)
+	}
+	// First weighted day is 2026-06-17 (80kg, the account's first day); today (2027-07-25) is 67kg.
+	if summary.WeightChangeSinceStartKg == nil || *summary.WeightChangeSinceStartKg != -13 {
+		t.Fatalf("WeightChangeSinceStartKg = %v, want -13", summary.WeightChangeSinceStartKg)
+	}
+	if summary.YearAgo == nil || summary.YearAgo.DateISO != "2026-07-25" || summary.YearAgo.WeightThen != 72 ||
+		summary.YearAgo.WeightNow != 67 || summary.YearAgo.DeltaKg != -5 {
+		t.Fatalf("YearAgo = %+v, want {2026-07-25 72 67 -5}", summary.YearAgo)
+	}
+
+	// TrimStatsToRecentWindow only narrows Days (last 90 days from "today") — Summary must stay the
+	// full-history aggregate untouched, so milestones stay correct in the default windowed response
+	// too, not just when the client opts into ?from=all.
+	trimmed := service.TrimStatsToRecentWindow(stats)
+	if trimmed.Summary != summary {
+		t.Fatalf("TrimStatsToRecentWindow() changed Summary: got %+v, want unchanged %+v", trimmed.Summary, summary)
+	}
+	if _, ok := trimmed.Days["2026-06-17"]; ok {
+		t.Fatal(`trimmed.Days still contains "2026-06-17", want it dropped by the 90-day window`)
+	}
+	if len(trimmed.Days) >= len(stats.Days) {
+		t.Fatalf("len(trimmed.Days) = %d, want fewer than len(stats.Days) = %d", len(trimmed.Days), len(stats.Days))
+	}
+}
+
 func TestSearchPreviewAndSaveProduct(t *testing.T) {
 	db := openFoodTestDB(t)
 	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))

@@ -49,6 +49,7 @@ func cloneStatsResponse(input StatsResponse) StatsResponse {
 
 	return StatsResponse{
 		Days:                         days,
+		Summary:                      input.Summary,
 		TopProductsByKcal:            topProductsByKcal,
 		TopProductsByWeight:          topProductsByWeight,
 		TopProductsWindowTotalKcal:   input.TopProductsWindowTotalKcal,
