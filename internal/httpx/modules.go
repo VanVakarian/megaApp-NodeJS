@@ -110,8 +110,18 @@ func buildQuotesModule(read *sql.DB, write sqlite.WriteDB, cfg config.Config, lo
 	}, clk, quotes.NewMarketFetcher(cfg.QuotesRequestTimeout))
 	if cfg.QuotesJobEnabled {
 		if err := runtime.Register("quotes", cfg.QuotesJobSchedule, func(ctx context.Context) error {
-			_, err := service.Run(ctx)
-			return err
+			result, err := service.Run(ctx)
+			if err != nil {
+				return err
+			}
+			for _, failure := range result.Failures {
+				logger.Warn("quotes ticker fetch failed", "kind", failure.Kind, "ticker", failure.Ticker, "sources", failure.Sources)
+			}
+			for _, degraded := range result.Degraded {
+				logger.Warn("quotes ticker fetch degraded", "kind", degraded.Kind, "ticker", degraded.Ticker, "sources", degraded.Sources)
+			}
+			logger.Info("quotes job summary", "upserted", result.UpsertedCount, "failedTickers", len(result.Failures), "degradedTickers", len(result.Degraded))
+			return nil
 		}); err != nil {
 			return quotesModule{}, err
 		}
