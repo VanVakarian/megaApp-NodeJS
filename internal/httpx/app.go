@@ -76,6 +76,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 	quotesModule, err := buildQuotesModule(db.Read(), db.Write(), cfg, logger, clk, jobRuntime)
 	if err != nil {
 		_ = metricsModule.poller.Close()
+		_ = metricsModule.processSampler.Close()
 		_ = wsModule.hub.Close()
 		_ = jobRuntime.Close()
 		_ = db.Close()
@@ -84,6 +85,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 	backupModule, err := buildBackupModule(db.Write(), cfg, logger, clk, jobRuntime, metricsModule.service)
 	if err != nil {
 		_ = metricsModule.poller.Close()
+		_ = metricsModule.processSampler.Close()
 		_ = wsModule.hub.Close()
 		_ = jobRuntime.Close()
 		_ = db.Close()
@@ -92,6 +94,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 	foodModule, err := buildFoodModule(db.Read(), db.Write(), cfg, logger, wsModule.hub, clk, metricsModule.service)
 	if err != nil {
 		_ = metricsModule.poller.Close()
+		_ = metricsModule.processSampler.Close()
 		_ = wsModule.hub.Close()
 		_ = jobRuntime.Close()
 		_ = db.Close()
@@ -113,6 +116,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 				_ = background.Close()
 			}
 			_ = metricsModule.poller.Close()
+		_ = metricsModule.processSampler.Close()
 			_ = wsModule.hub.Close()
 			_ = jobRuntime.Close()
 			_ = db.Close()
@@ -156,7 +160,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clo
 		Observer:    observer,
 		DB:          db,
 		WSHub:       wsModule.hub,
-		Backgrounds: append(foodModule.backgrounds, jobRuntime, metricsModule.poller),
+		Backgrounds: append(foodModule.backgrounds, jobRuntime, metricsModule.poller, metricsModule.processSampler),
 		Handler:     router,
 		Server:      server,
 	}, nil

@@ -59,6 +59,7 @@ type metricsModule struct {
 	historyHandler *metrics.HistoryHandler
 	realtime       *metrics.Realtime
 	poller         *metrics.Poller
+	processSampler *metrics.ProcessSampler
 }
 
 type foodModule struct {
@@ -186,14 +187,35 @@ func buildMetricsModule(cfg config.Config, logger *slog.Logger, hub *ws.Hub, aut
 	hub.RegisterHandler("METRICS_SUBSCRIBE", metrics.NewSubscribeHandler(service, realtime))
 	hub.RegisterHandler("METRICS_UNSUBSCRIBE", metrics.NewUnsubscribeHandler(realtime))
 
+	// Non-fatal on non-linux (dev machines) — same disable-on-error pattern
+	// as Flatline's own HardwareCollector wiring.
+	processSampler, err := metrics.NewProcessSampler(clk, logger)
+	if err != nil {
+		logger.Warn("process_metrics_disabled", "error", err)
+		processSampler = nil
+	} else {
+		processSampler.Start()
+	}
+
 	if err := runtime.Register("metrics", "* * * * *", func(ctx context.Context) error {
-		points := service.Flush()
-		if len(points) == 0 {
-			return nil
+		if points := service.Flush(); len(points) > 0 {
+			exporter.FlushAndPush(ctx, points[0].Bucket, points)
 		}
-		exporter.FlushAndPush(ctx, points[0].Bucket, points)
+		// Pushed as its own snapshot, not merged into the business-counter
+		// one above: the sampler closes its minute bucket on its own 5s
+		// timer, independent of this cron tick, so its bucket can legally
+		// differ by one minute — mixing it into a single MinuteSnapshot
+		// (one bucket field for all points) would mislabel it.
+		if processSampler != nil {
+			if points := processSampler.TakeCompleted(cfg.MetricsServiceKey); len(points) > 0 {
+				exporter.FlushAndPush(ctx, points[0].Bucket, points)
+			}
+		}
 		return nil
 	}); err != nil {
+		if processSampler != nil {
+			_ = processSampler.Close()
+		}
 		return metricsModule{}, err
 	}
 
@@ -204,6 +226,7 @@ func buildMetricsModule(cfg config.Config, logger *slog.Logger, hub *ws.Hub, aut
 		historyHandler: metrics.NewHistoryHandler(service, historyClient),
 		realtime:       realtime,
 		poller:         poller,
+		processSampler: processSampler,
 	}, nil
 }
 
