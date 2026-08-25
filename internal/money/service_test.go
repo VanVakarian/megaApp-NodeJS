@@ -103,7 +103,7 @@ func TestServiceSnapshotFiltersRateHistoryForCurrenciesAndHeldAssets(t *testing.
 		t.Fatalf("RateHistory len = %d, want 4", len(snapshot.RateHistory))
 	}
 
-	assertMoneyRatesEqual(t, snapshot.RateHistory[0].RatesJSON, map[string]float64{"USD": 1, "RUB": 90})
+	assertMoneyRatesEqual(t, snapshot.RateHistory[0].RatesJSON, map[string]float64{"USD": 1, "RUB": 90, "AAPL": 210})
 	assertMoneyRatesEqual(t, snapshot.RateHistory[1].RatesJSON, map[string]float64{"USD": 1, "RUB": 91, "AAPL": 220})
 	assertMoneyRatesEqual(t, snapshot.RateHistory[2].RatesJSON, map[string]float64{"USD": 1, "RUB": 92})
 	assertMoneyRatesEqual(t, snapshot.RateHistory[3].RatesJSON, map[string]float64{"USD": 1, "RUB": 93})

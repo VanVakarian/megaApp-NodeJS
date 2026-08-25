@@ -782,15 +782,12 @@ func (s *Service) filterSnapshotRateHistory(rateHistory []RateHistory, currencie
 		if !ok {
 			continue
 		}
-		year, month, day, ok := parseISODateParts(record.DateISO)
-		if !ok {
+		if _, _, _, ok := parseISODateParts(record.DateISO); !ok {
 			continue
 		}
 		allowedTickers := cloneTickerSet(currencyTickers)
-		if day == daysInMonth(year, month) {
-			for ticker := range eomHeld[record.DateISO[:7]] {
-				allowedTickers[ticker] = struct{}{}
-			}
+		for ticker := range eomHeld[record.DateISO[:7]] {
+			allowedTickers[ticker] = struct{}{}
 		}
 
 		filtered := make(map[string]float64)
