@@ -66,7 +66,6 @@ type MoneySettings struct {
 	EnabledCategoryIds       []*int64                 `json:"enabledCategoryIds"`
 	IncomeEnabledCategoryIds []*int64                 `json:"incomeEnabledCategoryIds"`
 	YearlyMode               bool                     `json:"yearlyMode"`
-	IncomeYearlyMode         bool                     `json:"incomeYearlyMode"`
 	ShowByAccount            bool                     `json:"showByAccount"`
 	SuspensionFilter         string                   `json:"suspensionFilter"`
 	EnabledAccountIds        []int64                  `json:"enabledAccountIds"`
