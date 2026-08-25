@@ -428,8 +428,8 @@ func TestMoneySettingsDefaultsAndRoundTrip(t *testing.T) {
 	}
 
 	if _, _, err := service.Put(context.Background(), userID, NamespaceMoney, "op-1", rawFields(t, map[string]any{
-		"displayCurrency":    "USD",
-		"enabledCategoryIds": []any{1, 2, nil},
+		"displayCurrency":     "USD",
+		"disabledCategoryIds": []any{1, 2, nil},
 	})); err != nil {
 		t.Fatalf("Put() error = %v", err)
 	}
@@ -444,8 +444,8 @@ func TestMoneySettingsDefaultsAndRoundTrip(t *testing.T) {
 	if money.DisplayCurrency != "USD" {
 		t.Fatalf("DisplayCurrency = %q, want USD", money.DisplayCurrency)
 	}
-	if len(money.EnabledCategoryIds) != 3 || money.EnabledCategoryIds[2] != nil {
-		t.Fatalf("EnabledCategoryIds = %v, want [1,2,null]", money.EnabledCategoryIds)
+	if len(money.DisabledCategoryIds) != 3 || money.DisabledCategoryIds[2] != nil {
+		t.Fatalf("DisabledCategoryIds = %v, want [1,2,null]", money.DisabledCategoryIds)
 	}
 }
 
