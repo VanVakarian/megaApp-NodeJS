@@ -2,6 +2,7 @@ package food
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -29,6 +30,7 @@ func RegisterRoutes(router chi.Router, authService *auth.Service, handler *Handl
 		r.Get("/catalogue/{catalogueId}", handler.GetCatalogueEntry)
 		r.Get("/personal-kcals", handler.GetPersonalKcals)
 		r.Get("/stats", handler.GetStats)
+		r.Get("/product-history", handler.GetProductHistory)
 	})
 }
 
@@ -131,6 +133,76 @@ func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) GetProductHistory(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.UserClaimsFromContext(r.Context())
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "Unauthorized"})
+		return
+	}
+
+	catalogueIDs, err := parseCatalogueIDs(r.URL.Query().Get("catalogueIds"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"result": false, "error": err.Error()})
+		return
+	}
+	if len(catalogueIDs) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"result": false, "error": "catalogueIds is required"})
+		return
+	}
+
+	limit := productHistoryDefaultLimit
+	if rawLimit := strings.TrimSpace(r.URL.Query().Get("limit")); rawLimit != "" {
+		parsedLimit, err := strconv.Atoi(rawLimit)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"result": false, "error": "Invalid limit"})
+			return
+		}
+		limit = parsedLimit
+	}
+
+	var cursor *ProductHistoryCursor
+	cursorDate := strings.TrimSpace(r.URL.Query().Get("cursorDate"))
+	cursorID := strings.TrimSpace(r.URL.Query().Get("cursorId"))
+	if cursorDate != "" && cursorID != "" {
+		parsedCursorID, err := strconv.ParseInt(cursorID, 10, 64)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"result": false, "error": "Invalid cursorId"})
+			return
+		}
+		cursor = &ProductHistoryCursor{DateISO: cursorDate, ID: parsedCursorID}
+	}
+
+	response, err := h.service.GetProductHistory(r.Context(), claims.UserID, catalogueIDs, cursor, limit)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"result": false, "error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"result": true, "data": response})
+}
+
+func parseCatalogueIDs(raw string) ([]int64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+
+	parts := strings.Split(raw, ",")
+	result := make([]int64, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		id, err := strconv.ParseInt(part, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid catalogueIds")
+		}
+		result = append(result, id)
+	}
+	return result, nil
 }
 
 func writeJSON(w http.ResponseWriter, statusCode int, payload any) {

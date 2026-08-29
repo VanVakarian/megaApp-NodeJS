@@ -238,6 +238,89 @@ func (s *Service) GetPersonalKcalsNow(ctx context.Context, userID int64) (map[in
 	return resolver.AppliedKcalsNow(currentYearMonth), nil
 }
 
+const productHistoryDefaultLimit = 30
+const productHistoryMaxLimit = 100
+
+// ProductHistoryCursor marks a position in the product-history feed (the (dateISO, id) of the
+// last row already delivered) — sent back to the client as NextCursor and echoed back on the
+// following page request. Shared as-is between the repository query param and the API response.
+type ProductHistoryCursor struct {
+	DateISO string `json:"dateISO"`
+	ID      int64  `json:"id"`
+}
+
+// ProductHistoryEntry is one consumption event for a tracked product — grams are only ever
+// meaningful together with which catalogue id they belong to, since a page can interleave
+// several tracked products sorted purely by date. Kcal is deliberately not exposed here — the
+// frontend only ever shows grams and percent-of-norm, kcal is purely an intermediate value for
+// computing PercentOfNorm below.
+type ProductHistoryEntry struct {
+	DateISO         string  `json:"dateISO"`
+	FoodCatalogueID int64   `json:"foodCatalogueId"`
+	FoodWeight      int64   `json:"foodWeight"`
+	PercentOfNorm   float64 `json:"percentOfNorm"`
+}
+
+type ProductHistoryPage struct {
+	Entries    []ProductHistoryEntry `json:"entries"`
+	NextCursor *ProductHistoryCursor `json:"nextCursor,omitempty"`
+}
+
+// GetProductHistory answers "every time the user ate any of these products, newest first" — no
+// caching, a live query on every call (unlike GetCatalogue/GetStats), since the tracked-product
+// set changes on every add/remove and stale results would be actively wrong here.
+func (s *Service) GetProductHistory(ctx context.Context, userID int64, catalogueIDs []int64, cursor *ProductHistoryCursor, limit int) (ProductHistoryPage, error) {
+	if limit <= 0 {
+		limit = productHistoryDefaultLimit
+	}
+	if limit > productHistoryMaxLimit {
+		limit = productHistoryMaxLimit
+	}
+	if len(catalogueIDs) == 0 {
+		return ProductHistoryPage{Entries: []ProductHistoryEntry{}}, nil
+	}
+
+	// Fetch one extra row to know whether a next page exists without a separate COUNT query.
+	rows, err := s.repo.GetProductHistory(ctx, userID, catalogueIDs, cursor, limit+1)
+	if err != nil {
+		return ProductHistoryPage{}, err
+	}
+
+	hasMore := len(rows) > limit
+	if hasMore {
+		rows = rows[:limit]
+	}
+
+	resolver, _, err := s.buildPersonalKcalResolver(ctx, userID)
+	if err != nil {
+		return ProductHistoryPage{}, err
+	}
+
+	entries := make([]ProductHistoryEntry, 0, len(rows))
+	for _, row := range rows {
+		yearMonth := row.DateISO[:7]
+		kcal := resolvePersonalKcalsForEntry(resolver, row.FoodCatalogueID, row.DateISO, row.FoodWeight)
+		norm := resolver.AppliedNorm(yearMonth)
+		var percent float64
+		if norm > 0 {
+			percent = roundFloat(float64(kcal)/norm*100, 0)
+		}
+		entries = append(entries, ProductHistoryEntry{
+			DateISO:         row.DateISO,
+			FoodCatalogueID: row.FoodCatalogueID,
+			FoodWeight:      row.FoodWeight,
+			PercentOfNorm:   percent,
+		})
+	}
+
+	page := ProductHistoryPage{Entries: entries}
+	if hasMore && len(rows) > 0 {
+		last := rows[len(rows)-1]
+		page.NextCursor = &ProductHistoryCursor{DateISO: last.DateISO, ID: last.ID}
+	}
+	return page, nil
+}
+
 func (s *Service) GetDiaryFullUpdate(ctx context.Context, userID int64, dateISO string, offsetDays int) (map[string]DiaryDay, error) {
 	dates := getDateRange(dateISO, offsetDays)
 	startDate, endDate := getStartAndEndDates(dateISO, offsetDays)

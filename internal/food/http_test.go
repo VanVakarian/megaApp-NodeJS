@@ -471,6 +471,65 @@ func TestGetStatsHTTPResponseShape(t *testing.T) {
 	}
 }
 
+func TestGetProductHistoryHTTPResponseShapeAndPagination(t *testing.T) {
+	db := openFoodTestDB(t)
+	seedProductHistoryRows(t, db)
+	authRepo := auth.NewRepository(db, sqlite.WriteDB{DB: db})
+	authService := auth.NewService(authRepo, auth.SessionConfig{})
+	service := NewService(NewRepository(db, sqlite.WriteDB{DB: db}), idempotency.NewStore(sqlite.WriteDB{DB: db}))
+	handler := NewHandler(service, nil)
+
+	router := chi.NewRouter()
+	RegisterRoutes(router, authService, handler)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	session, err := authService.CreateSession(t.Context(), 1)
+	if err != nil {
+		t.Fatalf("CreateSession() error = %v", err)
+	}
+
+	decoded := decodeJSONRequest(t, http.MethodGet, server.URL+"/api/food/product-history?catalogueIds=1&limit=2", session.Cookie, "tab-a", nil, http.StatusOK)
+	if decoded["result"] != true {
+		t.Fatalf("result = %v, want true", decoded["result"])
+	}
+	data, ok := decoded["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("data not an object: %+v", decoded)
+	}
+	entries, ok := data["entries"].([]any)
+	if !ok || len(entries) != 2 {
+		t.Fatalf("entries = %v, want 2-element array", data["entries"])
+	}
+	first, ok := entries[0].(map[string]any)
+	if !ok || first["dateISO"] != "2026-06-19" || first["foodCatalogueId"] != float64(1) || first["foodWeight"] != float64(440) || first["percentOfNorm"] != float64(10) {
+		t.Fatalf("entries[0] = %+v, want {dateISO:2026-06-19 foodCatalogueId:1 foodWeight:440 percentOfNorm:10}", first)
+	}
+	if _, hasKcal := first["kcal"]; hasKcal {
+		t.Fatalf("entries[0] = %+v, want no kcal field exposed", first)
+	}
+	nextCursor, ok := data["nextCursor"].(map[string]any)
+	if !ok || nextCursor["dateISO"] != "2026-06-18" || nextCursor["id"] != float64(21) {
+		t.Fatalf("nextCursor = %v, want {dateISO:2026-06-18 id:21}", data["nextCursor"])
+	}
+
+	// Follow the cursor to the next page over real HTTP query params.
+	nextURL := server.URL + "/api/food/product-history?catalogueIds=1&limit=2&cursorDate=2026-06-18&cursorId=21"
+	page2 := decodeJSONRequest(t, http.MethodGet, nextURL, session.Cookie, "tab-a", nil, http.StatusOK)
+	page2Data := page2["data"].(map[string]any)
+	page2Entries := page2Data["entries"].([]any)
+	if len(page2Entries) != 2 {
+		t.Fatalf("page2 entries = %v, want 2-element array", page2Data["entries"])
+	}
+	if page2Data["nextCursor"] != nil {
+		t.Fatalf("page2 nextCursor = %v, want nil (last page)", page2Data["nextCursor"])
+	}
+
+	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/product-history", session.Cookie, "tab-a", nil, http.StatusBadRequest)
+	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/product-history?catalogueIds=1&limit=not-a-number", session.Cookie, "tab-a", nil, http.StatusBadRequest)
+	assertJSONRequestStatus(t, http.MethodGet, server.URL+"/api/food/product-history?catalogueIds=not-a-number", session.Cookie, "tab-a", nil, http.StatusBadRequest)
+}
+
 func assertJSONRequestStatus(t *testing.T, method string, url string, sessionCookie string, clientID string, payload any, wantStatus int) {
 	t.Helper()
 
