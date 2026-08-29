@@ -285,16 +285,12 @@ func (s *Service) searchCatalogueIDs(ctx context.Context, query string) ([]int64
 		return cached, nil
 	}
 
-	semanticIDs, err := s.searchCatalogueIDsByEmbedding(ctx, normalizedQuery)
+	catalogue, err := s.GetCatalogue(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if len(semanticIDs) > 0 {
-		s.searchCache.Set(normalizedQuery, semanticIDs)
-		return semanticIDs, nil
-	}
 
-	catalogue, err := s.GetCatalogue(ctx)
+	semanticScores, err := s.semanticScoresByID(ctx, normalizedQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -305,6 +301,7 @@ func (s *Service) searchCatalogueIDs(ctx context.Context, query string) ([]int64
 	scored := make([]scoredCatalogueEntry, 0, len(catalogue))
 	for _, entry := range catalogue {
 		score := scoreCatalogueEntry(entry, normalizedQuery, normalizedTokens, transliteratedQuery, transliteratedTokens)
+		score += semanticScores[entry.ID]
 		if score == 0 {
 			continue
 		}
@@ -331,7 +328,16 @@ func (s *Service) searchCatalogueIDs(ctx context.Context, query string) ([]int64
 	return ids, nil
 }
 
-func (s *Service) searchCatalogueIDsByEmbedding(ctx context.Context, query string) ([]int64, error) {
+// semanticScoreWeight converts a semantic (embedding) similarity into the same points
+// scale scoreField uses, so it can be added directly to the text/transliteration score
+// instead of gating it — a close semantic match (similarity near 1) is worth roughly
+// as much as a prefix match, a distant one contributes close to nothing.
+const semanticScoreWeight = 500
+
+// semanticScoresByID returns a similarity score per catalogue ID for the query's embedding.
+// A nil map (no error) means no embedding is available for this query — callers should
+// treat every entry as scoring 0 from this signal and rely on text/transliteration alone.
+func (s *Service) semanticScoresByID(ctx context.Context, query string) (map[int64]int, error) {
 	embeddingBlob, err := s.repo.GetQueryEmbedding(ctx, query)
 	if err != nil {
 		return nil, err
@@ -362,11 +368,8 @@ func (s *Service) searchCatalogueIDsByEmbedding(ctx context.Context, query strin
 	if err != nil {
 		return nil, err
 	}
-	type scoredVector struct {
-		id       int64
-		distance float64
-	}
-	results := make([]scoredVector, 0, len(rows))
+
+	scores := make(map[int64]int, len(rows))
 	for _, row := range rows {
 		nameVector := decodeFloat32Blob(row.NameVector)
 		descriptionVector := decodeFloat32Blob(row.DescriptionVec)
@@ -374,28 +377,11 @@ func (s *Service) searchCatalogueIDsByEmbedding(ctx context.Context, query strin
 		if !ok {
 			continue
 		}
-		results = append(results, scoredVector{id: row.ID, distance: distance})
-	}
-	if len(results) == 0 {
-		return nil, nil
-	}
-
-	sort.Slice(results, func(i int, j int) bool {
-		if results[i].distance == results[j].distance {
-			return results[i].id < results[j].id
+		if similarity := 1 - distance; similarity > 0 {
+			scores[row.ID] = int(similarity * semanticScoreWeight)
 		}
-		return results[i].distance < results[j].distance
-	})
-
-	limit := 30
-	if len(results) > limit {
-		results = results[:limit]
 	}
-	ids := make([]int64, 0, len(results))
-	for _, item := range results {
-		ids = append(ids, item.id)
-	}
-	return ids, nil
+	return scores, nil
 }
 
 func scoreCatalogueEntry(entry CatalogueEntry, query string, tokens []string, transliteratedQuery string, transliteratedTokens []string) int {
