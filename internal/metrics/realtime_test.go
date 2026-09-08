@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -38,12 +39,12 @@ func TestSubscribeHandlerOnlyAcceptsAdmins(t *testing.T) {
 	defer func() { _ = plainConn.Close() }()
 	drainMetricsMessage(t, plainConn)
 
-	if err := adminConn.WriteJSON(map[string]any{"type": "METRICS_SUBSCRIBE"}); err != nil {
+	if err := adminConn.WriteJSON(metricsSubscribeMessage("food", "food_diary_entry_created")); err != nil {
 		t.Fatalf("WriteJSON() error = %v", err)
 	}
 
 	time.Sleep(50 * time.Millisecond)
-	if err := plainConn.WriteJSON(map[string]any{"type": "METRICS_SUBSCRIBE"}); err != nil {
+	if err := plainConn.WriteJSON(metricsSubscribeMessage("food", "food_diary_entry_created")); err != nil {
 		t.Fatalf("WriteJSON() error = %v", err)
 	}
 	_ = plainConn.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
@@ -52,7 +53,7 @@ func TestSubscribeHandlerOnlyAcceptsAdmins(t *testing.T) {
 		t.Fatalf("plain user unexpectedly received: %+v", plainUpdate)
 	}
 
-	realtime.BroadcastDetail(DetailUpdate{Points: []MetricPoint{{Name: "food_diary_entry_created", Bucket: 1, Value: 1}}})
+	realtime.BroadcastDetail(DetailUpdate{Points: []MetricPoint{{Service: "food", Name: "food_diary_entry_created", Bucket: 1, Value: 1}}})
 
 	_ = adminConn.SetReadDeadline(time.Now().Add(time.Second))
 	var broadcast map[string]any
@@ -81,7 +82,7 @@ func TestUnsubscribeStopsDetailBroadcast(t *testing.T) {
 	defer func() { _ = conn.Close() }()
 	drainMetricsMessage(t, conn)
 
-	if err := conn.WriteJSON(map[string]any{"type": "METRICS_SUBSCRIBE"}); err != nil {
+	if err := conn.WriteJSON(metricsSubscribeMessage("food", "food_diary_entry_created")); err != nil {
 		t.Fatalf("WriteJSON() error = %v", err)
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -91,12 +92,89 @@ func TestUnsubscribeStopsDetailBroadcast(t *testing.T) {
 	}
 	time.Sleep(50 * time.Millisecond)
 
-	realtime.BroadcastDetail(DetailUpdate{Points: []MetricPoint{{Name: "food_diary_entry_created", Bucket: 1, Value: 1}}})
+	realtime.BroadcastDetail(DetailUpdate{Points: []MetricPoint{{Service: "food", Name: "food_diary_entry_created", Bucket: 1, Value: 1}}})
 
 	_ = conn.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
 	var message map[string]any
 	if err := conn.ReadJSON(&message); err == nil {
 		t.Fatalf("unexpectedly received message after unsubscribe: %+v", message)
+	}
+}
+
+func TestBroadcastDetailFiltersOutOfScopePoints(t *testing.T) {
+	authService, realtime, server, authDB := newMetricsTestEnv(t)
+	defer server.Close()
+
+	adminUserID := registerAdminUser(t, authService, authDB, "admin")
+	adminCookie := issueMetricsSession(t, authService, adminUserID)
+
+	conn := dialMetricsWS(t, server.URL+"/api/ws?clientId=admin-tab", adminCookie)
+	defer func() { _ = conn.Close() }()
+	drainMetricsMessage(t, conn)
+
+	if err := conn.WriteJSON(metricsSubscribeMessage("food", "food_diary_entry_created")); err != nil {
+		t.Fatalf("WriteJSON() error = %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	realtime.BroadcastDetail(DetailUpdate{Points: []MetricPoint{{Service: "other", Name: "unrelated_metric", Bucket: 1, Value: 1}}})
+
+	_ = conn.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
+	var message map[string]any
+	if err := conn.ReadJSON(&message); err == nil {
+		t.Fatalf("unexpectedly received out-of-scope point: %+v", message)
+	}
+}
+
+func TestResubscribeReplacesScopeInsteadOfMerging(t *testing.T) {
+	authService, realtime, server, authDB := newMetricsTestEnv(t)
+	defer server.Close()
+
+	adminUserID := registerAdminUser(t, authService, authDB, "admin")
+	adminCookie := issueMetricsSession(t, authService, adminUserID)
+
+	conn := dialMetricsWS(t, server.URL+"/api/ws?clientId=admin-tab", adminCookie)
+	defer func() { _ = conn.Close() }()
+	drainMetricsMessage(t, conn)
+
+	if err := conn.WriteJSON(metricsSubscribeMessage("food", "old_metric")); err != nil {
+		t.Fatalf("WriteJSON() error = %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if err := conn.WriteJSON(metricsSubscribeMessage("food", "new_metric")); err != nil {
+		t.Fatalf("WriteJSON() error = %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// old_metric is no longer in scope after the resubscribe above — this
+	// broadcast matches nothing and writes nothing to the socket (see
+	// BroadcastDetail's continue on an empty filtered set), so it can't
+	// race with the read below. A gorilla/websocket connection becomes
+	// unusable for reads after any read deadline expires, which is why this
+	// test can't also assert "no message" via a timed-out read on the same
+	// connection it keeps using afterward.
+	realtime.BroadcastDetail(DetailUpdate{Points: []MetricPoint{{Service: "food", Name: "old_metric", Bucket: 1, Value: 1}}})
+	realtime.BroadcastDetail(DetailUpdate{Points: []MetricPoint{{Service: "food", Name: "new_metric", Bucket: 2, Value: 2}}})
+
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var fresh map[string]any
+	if err := conn.ReadJSON(&fresh); err != nil {
+		t.Fatalf("ReadJSON() error = %v", err)
+	}
+	if fresh["type"] != "METRICS_UPDATE" {
+		t.Fatalf("type = %v, want METRICS_UPDATE", fresh["type"])
+	}
+	payload, ok := fresh["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("payload = %+v, want object", fresh["payload"])
+	}
+	points, ok := payload["points"].([]any)
+	if !ok || len(points) != 1 {
+		t.Fatalf("points = %+v, want exactly one point (new_metric only, old_metric must not leak in)", payload["points"])
+	}
+	point, ok := points[0].(map[string]any)
+	if !ok || point["name"] != "new_metric" {
+		t.Fatalf("point = %+v, want name=new_metric", points[0])
 	}
 }
 
@@ -136,7 +214,7 @@ func TestBroadcastLatestReachesOnlyAdmins(t *testing.T) {
 	}
 }
 
-func TestHistoryHandlerReturnsGlobalHistoryWithOneFlatlineRequest(t *testing.T) {
+func TestHistoryHandlerForwardsScopeAndFloorsToFlatline(t *testing.T) {
 	authService, _, wsServer, authDB := newMetricsTestEnv(t)
 	defer wsServer.Close()
 
@@ -146,17 +224,22 @@ func TestHistoryHandlerReturnsGlobalHistoryWithOneFlatlineRequest(t *testing.T) 
 	requests := 0
 	flatlineServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
-		query := r.URL.Query()
-		if query.Get("service") != "" || query.Get("services") != "" || query.Get("latestBucket") != "" {
-			t.Fatalf("query = %s, want no service or anchor", query.Encode())
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s, want POST", r.Method)
 		}
-		if query.Get("minuteSince") != "60" || query.Get("hourSince") != "3600" || query.Get("daySince") != "86400" {
-			t.Fatalf("query = %s, want unchanged floors", query.Encode())
+		var body historyRequestBody
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request body error = %v", err)
+		}
+		if body.MinuteSince != 60 || body.HourSince != 3600 || body.DaySince != 86400 {
+			t.Fatalf("floors = %+v, want unchanged 60/3600/86400", body)
+		}
+		if len(body.Scope) != 1 || body.Scope[0].Service != "bot" || len(body.Scope[0].MetricNames) != 1 || body.Scope[0].MetricNames[0] != "a" {
+			t.Fatalf("scope = %+v, want forwarded unchanged", body.Scope)
 		}
 		_ = json.NewEncoder(w).Encode(historyResponse{
 			Histories: []ServiceHistory{
 				{Service: "bot", Snapshots: []MetricSnapshot{{Granularity: GranularityMinute, Bucket: 60, Metrics: map[string]float64{"a": 1}}}},
-				{Service: "hardware:test", Snapshots: []MetricSnapshot{{Granularity: GranularityHour, Bucket: 3600, Metrics: map[string]float64{"b": 2}}}},
 			},
 		})
 	}))
@@ -166,7 +249,10 @@ func TestHistoryHandlerReturnsGlobalHistoryWithOneFlatlineRequest(t *testing.T) 
 	router := chi.NewRouter()
 	RegisterRoutes(router, authService, NewHistoryHandler(service, NewFlatlineClient(flatlineServer.URL, time.Second)))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/metrics/history?minuteSince=60&hourSince=3600&daySince=86400", nil)
+	req := newHistoryHTTPRequest(t, historyRequest{
+		MinuteSince: 60, HourSince: 3600, DaySince: 86400,
+		Scope: []ScopeEntry{{Service: "bot", MetricNames: []string{"a"}}},
+	})
 	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: adminCookie})
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, req)
@@ -180,40 +266,59 @@ func TestHistoryHandlerReturnsGlobalHistoryWithOneFlatlineRequest(t *testing.T) 
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
-	if len(response.Histories) != 2 || response.Histories[0].Service != "bot" || response.Histories[1].Service != "hardware:test" {
-		t.Fatalf("histories = %+v, want ordered service histories", response.Histories)
-	}
-	if response.Histories[0].Snapshots[0].Metrics["a"] != 1 || response.Histories[1].Snapshots[0].Metrics["b"] != 2 {
-		t.Fatalf("histories = %+v, want service-specific snapshots", response.Histories)
+	if len(response.Histories) != 1 || response.Histories[0].Service != "bot" {
+		t.Fatalf("histories = %+v, want bot history", response.Histories)
 	}
 	if requests != 1 {
 		t.Fatalf("Flatline requests = %d, want 1", requests)
 	}
 }
 
-func TestParseHistorySince(t *testing.T) {
-	tests := []struct {
-		name    string
-		raw     string
-		want    int64
-		wantErr bool
-	}{
-		{name: "valid", raw: "60", want: 60},
-		{name: "empty", wantErr: true},
-		{name: "invalid", raw: "nope", wantErr: true},
-		{name: "zero", raw: "0", wantErr: true},
-	}
+func TestHistoryHandlerRejectsMissingOrInvalidScope(t *testing.T) {
+	authService, _, wsServer, authDB := newMetricsTestEnv(t)
+	defer wsServer.Close()
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got, err := parseHistorySince(test.raw)
-			if (err != nil) != test.wantErr {
-				t.Fatalf("parseHistorySince(%q) error = %v, wantErr %v", test.raw, err, test.wantErr)
-			}
-			if got != test.want {
-				t.Fatalf("parseHistorySince(%q) = %d, want %d", test.raw, got, test.want)
-			}
-		})
+	adminUserID := registerAdminUser(t, authService, authDB, "admin")
+	adminCookie := issueMetricsSession(t, authService, adminUserID)
+
+	service := NewService(MainServiceName, fixedMetricsClock{now: time.Now()}, authService)
+	router := chi.NewRouter()
+	RegisterRoutes(router, authService, NewHistoryHandler(service, NewFlatlineClient("http://unused.invalid", time.Second)))
+
+	tests := []historyRequest{
+		{MinuteSince: 60, HourSince: 3600, DaySince: 86400, Scope: nil},
+		{MinuteSince: 60, HourSince: 3600, DaySince: 86400, Scope: []ScopeEntry{{Service: "bot", MetricNames: nil}}},
+		{MinuteSince: 0, HourSince: 3600, DaySince: 86400, Scope: []ScopeEntry{{Service: "bot", MetricNames: []string{"a"}}}},
+	}
+	for _, body := range tests {
+		req := newHistoryHTTPRequest(t, body)
+		req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: adminCookie})
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, req)
+
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want %d for %+v", recorder.Code, http.StatusBadRequest, body)
+		}
+	}
+}
+
+func newHistoryHTTPRequest(t *testing.T, body historyRequest) *http.Request {
+	t.Helper()
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/metrics/history", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	return req
+}
+
+func metricsSubscribeMessage(service string, metricNames ...string) map[string]any {
+	return map[string]any{
+		"type": "METRICS_SUBSCRIBE",
+		"payload": map[string]any{
+			"scope": []map[string]any{{"service": service, "metricNames": metricNames}},
+		},
 	}
 }
 

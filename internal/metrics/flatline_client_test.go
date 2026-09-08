@@ -119,14 +119,20 @@ func TestFlatlineClientSinceReturnsErrorOnNonOKStatus(t *testing.T) {
 	}
 }
 
-func TestFlatlineClientHistorySendsFloorsAndReturnsAllServices(t *testing.T) {
+func TestFlatlineClientHistorySendsFloorsAndScopeAndReturnsAllServices(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		query := r.URL.Query()
-		if r.URL.Path != "/api/metrics/history" {
-			t.Fatalf("path = %s, want metrics history", r.URL.Path)
+		if r.URL.Path != "/api/metrics/history" || r.Method != http.MethodPost {
+			t.Fatalf("request = %s %s, want POST metrics history", r.Method, r.URL.Path)
 		}
-		if query.Get("service") != "" || query.Get("names") != "" || query.Get("minuteSince") != "60" || query.Get("hourSince") != "120" || query.Get("daySince") != "180" {
-			t.Fatalf("query = %s, want only history floors", r.URL.RawQuery)
+		var body historyRequestBody
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request body error = %v", err)
+		}
+		if body.MinuteSince != 60 || body.HourSince != 120 || body.DaySince != 180 {
+			t.Fatalf("floors = %+v, want 60/120/180", body)
+		}
+		if len(body.Scope) != 1 || body.Scope[0].Service != "bot-a" || len(body.Scope[0].MetricNames) != 1 || body.Scope[0].MetricNames[0] != "a" {
+			t.Fatalf("scope = %+v, want [{bot-a [a]}]", body.Scope)
 		}
 		_ = json.NewEncoder(w).Encode(historyResponse{
 			Histories: []ServiceHistory{
@@ -138,7 +144,7 @@ func TestFlatlineClientHistorySendsFloorsAndReturnsAllServices(t *testing.T) {
 	defer server.Close()
 
 	client := NewFlatlineClient(server.URL, time.Second)
-	histories, err := client.History(context.Background(), 60, 120, 180)
+	histories, err := client.History(context.Background(), 60, 120, 180, []ScopeEntry{{Service: "bot-a", MetricNames: []string{"a"}}})
 	if err != nil {
 		t.Fatalf("History() error = %v", err)
 	}

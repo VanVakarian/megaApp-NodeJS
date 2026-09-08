@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"net/http"
-	"strconv"
 
 	"megaapp-back/internal/auth"
 	"megaapp-back/internal/httpx/legacy"
@@ -22,8 +21,17 @@ func NewHistoryHandler(service *Service, client *FlatlineClient) *HistoryHandler
 func RegisterRoutes(router chi.Router, authService *auth.Service, handler *HistoryHandler) {
 	router.Route("/api/metrics", func(r chi.Router) {
 		r.Use(auth.Middleware(authService))
-		r.Get("/history", handler.History)
+		r.Post("/history", handler.History)
 	})
+}
+
+// historyRequest is a POST body, not query params — scope (per-service
+// metric-name lists) doesn't fit cleanly on a query string.
+type historyRequest struct {
+	MinuteSince int64        `json:"minuteSince"`
+	HourSince   int64        `json:"hourSince"`
+	DaySince    int64        `json:"daySince"`
+	Scope       []ScopeEntry `json:"scope"`
 }
 
 func (h *HistoryHandler) History(w http.ResponseWriter, r *http.Request) {
@@ -42,35 +50,27 @@ func (h *HistoryHandler) History(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	minuteSince, err := parseHistorySince(r.URL.Query().Get("minuteSince"))
-	if err != nil {
-		legacy.WriteDetail(w, http.StatusBadRequest, "Invalid minute since")
+	var request historyRequest
+	if err := legacy.DecodeJSON(r, &request); err != nil {
+		legacy.WriteDetail(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	hourSince, err := parseHistorySince(r.URL.Query().Get("hourSince"))
-	if err != nil {
-		legacy.WriteDetail(w, http.StatusBadRequest, "Invalid hour since")
+	if request.MinuteSince <= 0 || request.HourSince <= 0 || request.DaySince <= 0 {
+		legacy.WriteDetail(w, http.StatusBadRequest, "Invalid minuteSince/hourSince/daySince")
 		return
 	}
-	daySince, err := parseHistorySince(r.URL.Query().Get("daySince"))
-	if err != nil {
-		legacy.WriteDetail(w, http.StatusBadRequest, "Invalid day since")
+	// Megaapp-back doesn't transform scope — it validates the same contract
+	// Flatline will validate again, and forwards the list unchanged.
+	if _, err := buildScopeSet(request.Scope); err != nil {
+		legacy.WriteDetail(w, http.StatusBadRequest, "Invalid metrics scope")
 		return
 	}
 
-	histories, err := h.client.History(r.Context(), minuteSince, hourSince, daySince)
+	histories, err := h.client.History(r.Context(), request.MinuteSince, request.HourSince, request.DaySince, request.Scope)
 	if err != nil {
 		legacy.WriteDetail(w, http.StatusBadGateway, "Failed to load metrics history")
 		return
 	}
 
 	legacy.WriteJSON(w, http.StatusOK, map[string]any{"histories": histories})
-}
-
-func parseHistorySince(raw string) (int64, error) {
-	since, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || since <= 0 {
-		return 0, strconv.ErrSyntax
-	}
-	return since, nil
 }

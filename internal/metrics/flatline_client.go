@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"time"
 )
@@ -141,17 +140,28 @@ func (c *FlatlineClient) Since(ctx context.Context, cursor, minuteFloor, hourFlo
 	return response.Points, nil
 }
 
-func (c *FlatlineClient) History(ctx context.Context, minuteFloor, hourFloor, dayFloor int64) ([]ServiceHistory, error) {
-	query := url.Values{
-		"minuteSince": {strconv.FormatInt(minuteFloor, 10)},
-		"hourSince":   {strconv.FormatInt(hourFloor, 10)},
-		"daySince":    {strconv.FormatInt(dayFloor, 10)},
+type historyRequestBody struct {
+	MinuteSince int64        `json:"minuteSince"`
+	HourSince   int64        `json:"hourSince"`
+	DaySince    int64        `json:"daySince"`
+	Scope       []ScopeEntry `json:"scope"`
+}
+
+// History is a POST, not a GET — scope (per-service metric-name lists)
+// doesn't fit cleanly on a query string. Scope is forwarded to Flatline
+// unchanged, not transformed — see
+// plans/32-metrics-history-scope-filter.implementation-plan.md §3.1.
+func (c *FlatlineClient) History(ctx context.Context, minuteFloor, hourFloor, dayFloor int64, scope []ScopeEntry) ([]ServiceHistory, error) {
+	payload, err := json.Marshal(historyRequestBody{MinuteSince: minuteFloor, HourSince: hourFloor, DaySince: dayFloor, Scope: scope})
+	if err != nil {
+		return nil, fmt.Errorf("marshal flatline history body: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/metrics/history?"+query.Encode(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/metrics/history", bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("build flatline history request: %w", err)
 	}
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.client.Do(req)
 	if err != nil {

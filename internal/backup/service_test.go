@@ -74,7 +74,7 @@ func TestServiceRunCreatesUploadsAndCleansBackup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if result.UploadedKey != "test/megaapp-test-2026-07-20T10-30-00Z.zip" {
+	if result.UploadedKey != "megaapp-test-2026-07-20T10-30-00Z.zip" {
 		t.Fatalf("UploadedKey = %q", result.UploadedKey)
 	}
 	if !result.CleanedUp {

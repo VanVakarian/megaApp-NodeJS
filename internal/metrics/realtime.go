@@ -24,11 +24,11 @@ type Realtime struct {
 	hub *ws.Hub
 
 	mu          sync.Mutex
-	subscribers map[*ws.Client]struct{}
+	subscribers map[*ws.Client]map[scopeKey]struct{}
 }
 
 func NewRealtime(hub *ws.Hub) *Realtime {
-	return &Realtime{hub: hub, subscribers: make(map[*ws.Client]struct{})}
+	return &Realtime{hub: hub, subscribers: make(map[*ws.Client]map[scopeKey]struct{})}
 }
 
 func (r *Realtime) BroadcastLatest(adminUserIDs []int64, snapshot LatestSnapshot) {
@@ -38,19 +38,40 @@ func (r *Realtime) BroadcastLatest(adminUserIDs []int64, snapshot LatestSnapshot
 	}
 }
 
+// BroadcastDetail filters update.Points to each subscriber's own scope
+// before sending — a client whose scope matches none of the points gets
+// nothing on this tick, not an empty message.
 func (r *Realtime) BroadcastDetail(update DetailUpdate) {
-	message := map[string]any{"type": "METRICS_UPDATE", "payload": update}
-	for _, client := range r.subscriberList() {
+	for client, scope := range r.subscriberSnapshot() {
+		points := filterPointsByScope(update.Points, scope)
+		if len(points) == 0 {
+			continue
+		}
+		message := map[string]any{"type": "METRICS_UPDATE", "payload": DetailUpdate{Points: points}}
 		if err := client.SendJSON(message); err != nil {
 			r.Unsubscribe(client)
 		}
 	}
 }
 
-func (r *Realtime) Subscribe(client *ws.Client) {
+func filterPointsByScope(points []MetricPoint, scope map[scopeKey]struct{}) []MetricPoint {
+	filtered := make([]MetricPoint, 0, len(points))
+	for _, point := range points {
+		if _, inScope := scope[scopeKey{service: point.Service, metricName: point.Name}]; inScope {
+			filtered = append(filtered, point)
+		}
+	}
+	return filtered
+}
+
+// Subscribe replaces the client's scope entirely — it does not merge with
+// whatever the client subscribed to before. A resubscribe always reflects
+// what's on screen right now (e.g. after switching dashboard panels), never
+// the union of everything a client has ever looked at this session.
+func (r *Realtime) Subscribe(client *ws.Client, scope map[scopeKey]struct{}) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.subscribers[client] = struct{}{}
+	r.subscribers[client] = scope
 }
 
 func (r *Realtime) Unsubscribe(client *ws.Client) {
@@ -59,13 +80,13 @@ func (r *Realtime) Unsubscribe(client *ws.Client) {
 	delete(r.subscribers, client)
 }
 
-func (r *Realtime) subscriberList() []*ws.Client {
+func (r *Realtime) subscriberSnapshot() map[*ws.Client]map[scopeKey]struct{} {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	clients := make([]*ws.Client, 0, len(r.subscribers))
-	for client := range r.subscribers {
-		clients = append(clients, client)
+	snapshot := make(map[*ws.Client]map[scopeKey]struct{}, len(r.subscribers))
+	for client, scope := range r.subscribers {
+		snapshot[client] = scope
 	}
-	return clients
+	return snapshot
 }

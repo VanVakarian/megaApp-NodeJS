@@ -99,7 +99,7 @@ func (s *Service) Run(ctx context.Context) (result RunResult, err error) {
 	}
 	archiveDuration := time.Since(archiveStartedAt)
 
-	uploadedKey := fmt.Sprintf("%s/%s", s.cfg.DatabaseEnv, filepath.Base(archivePath))
+	uploadedKey := filepath.Base(archivePath)
 	uploadStartedAt := time.Now()
 	if err := s.uploader.UploadFile(ctx, uploadedKey, archivePath, "application/zip", s.cfg.StorageClass); err != nil {
 		return RunResult{}, legacy.WrapError(legacy.ErrorKindExternal, "Failed to upload backup archive", err)
