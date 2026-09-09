@@ -13,6 +13,7 @@ import (
 	"megaapp-back/internal/backup"
 	"megaapp-back/internal/config"
 	"megaapp-back/internal/food"
+	"megaapp-back/internal/httpx/legacy"
 	"megaapp-back/internal/jobs"
 	"megaapp-back/internal/metrics"
 	"megaapp-back/internal/money"
@@ -42,6 +43,7 @@ func NewApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 }
 
 func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger, clk clockplatform.Clock) (*App, error) {
+	legacy.SetLogger(logger)
 	observer := NoopObserver{}
 
 	db, err := sqliteplatform.Open(ctx, cfg.DatabasePath)

@@ -278,6 +278,7 @@ func buildFoodModule(read *sql.DB, write sqlite.WriteDB, cfg config.Config, logg
 			Model:      cfg.OpenAIEmbeddingModel,
 			Dimensions: cfg.OpenAIEmbeddingDims,
 			Timeout:    cfg.OpenAITimeout,
+			Logger:     logger,
 		})
 		if err != nil {
 			return foodModule{}, err
