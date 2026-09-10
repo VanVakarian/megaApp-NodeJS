@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"megaapp-back/internal/auth"
+	"megaapp-back/internal/metrics/wire"
 	"megaapp-back/internal/platform/sqlite"
 	"megaapp-back/internal/ws"
 
@@ -56,12 +57,9 @@ func TestSubscribeHandlerOnlyAcceptsAdmins(t *testing.T) {
 	realtime.BroadcastDetail(DetailUpdate{Points: []MetricPoint{{Service: "food", Name: "food_diary_entry_created", Bucket: 1, Value: 1}}})
 
 	_ = adminConn.SetReadDeadline(time.Now().Add(time.Second))
-	var broadcast map[string]any
-	if err := adminConn.ReadJSON(&broadcast); err != nil {
-		t.Fatalf("ReadJSON() error = %v", err)
-	}
-	if broadcast["type"] != "METRICS_UPDATE" {
-		t.Fatalf("type = %v, want METRICS_UPDATE", broadcast["type"])
+	frameType, _ := readMetricsFrame(t, adminConn)
+	if frameType != wsFrameMetricsUpdate {
+		t.Fatalf("frameType = %d, want %d (METRICS_UPDATE)", frameType, wsFrameMetricsUpdate)
 	}
 
 	_ = plainConn.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
@@ -157,24 +155,12 @@ func TestResubscribeReplacesScopeInsteadOfMerging(t *testing.T) {
 	realtime.BroadcastDetail(DetailUpdate{Points: []MetricPoint{{Service: "food", Name: "new_metric", Bucket: 2, Value: 2}}})
 
 	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	var fresh map[string]any
-	if err := conn.ReadJSON(&fresh); err != nil {
-		t.Fatalf("ReadJSON() error = %v", err)
+	frameType, series := readMetricsFrame(t, conn)
+	if frameType != wsFrameMetricsUpdate {
+		t.Fatalf("frameType = %d, want %d (METRICS_UPDATE)", frameType, wsFrameMetricsUpdate)
 	}
-	if fresh["type"] != "METRICS_UPDATE" {
-		t.Fatalf("type = %v, want METRICS_UPDATE", fresh["type"])
-	}
-	payload, ok := fresh["payload"].(map[string]any)
-	if !ok {
-		t.Fatalf("payload = %+v, want object", fresh["payload"])
-	}
-	points, ok := payload["points"].([]any)
-	if !ok || len(points) != 1 {
-		t.Fatalf("points = %+v, want exactly one point (new_metric only, old_metric must not leak in)", payload["points"])
-	}
-	point, ok := points[0].(map[string]any)
-	if !ok || point["name"] != "new_metric" {
-		t.Fatalf("point = %+v, want name=new_metric", points[0])
+	if len(series) != 1 || series[0].MetricName != "new_metric" {
+		t.Fatalf("series = %+v, want exactly one series named new_metric (old_metric must not leak in)", series)
 	}
 }
 
@@ -199,12 +185,12 @@ func TestBroadcastLatestReachesOnlyAdmins(t *testing.T) {
 	realtime.BroadcastLatest([]int64{adminUserID}, LatestSnapshot{Services: []ServiceLatest{{Service: MainServiceName, LastBucket: 60, Metrics: map[string]float64{"food_diary_entry_created": 1}}}})
 
 	_ = adminConn.SetReadDeadline(time.Now().Add(time.Second))
-	var latest map[string]any
-	if err := adminConn.ReadJSON(&latest); err != nil {
-		t.Fatalf("ReadJSON() error = %v", err)
+	frameType, series := readMetricsFrame(t, adminConn)
+	if frameType != wsFrameMetricsLatest {
+		t.Fatalf("frameType = %d, want %d (METRICS_LATEST)", frameType, wsFrameMetricsLatest)
 	}
-	if latest["type"] != "METRICS_LATEST" {
-		t.Fatalf("type = %v, want METRICS_LATEST", latest["type"])
+	if len(series) != 1 || series[0].Service != MainServiceName || series[0].MetricName != "food_diary_entry_created" {
+		t.Fatalf("series = %+v, want one series for %s/food_diary_entry_created", series, MainServiceName)
 	}
 
 	_ = plainConn.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
@@ -237,11 +223,10 @@ func TestHistoryHandlerForwardsScopeAndFloorsToFlatline(t *testing.T) {
 		if len(body.Scope) != 1 || body.Scope[0].Service != "bot" || len(body.Scope[0].MetricNames) != 1 || body.Scope[0].MetricNames[0] != "a" {
 			t.Fatalf("scope = %+v, want forwarded unchanged", body.Scope)
 		}
-		_ = json.NewEncoder(w).Encode(historyResponse{
-			Histories: []ServiceHistory{
-				{Service: "bot", Snapshots: []MetricSnapshot{{Granularity: GranularityMinute, Bucket: 60, Metrics: map[string]float64{"a": 1}}}},
-			},
-		})
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(wire.Encode([]wire.Series{
+			{Service: "bot", MetricName: "a", Granularity: wire.GranularityMinute, Points: []wire.Point{{Bucket: 60, Value: 1}}},
+		}))
 	}))
 	defer flatlineServer.Close()
 
@@ -260,14 +245,15 @@ func TestHistoryHandlerForwardsScopeAndFloorsToFlatline(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusOK, recorder.Body.String())
 	}
-	var response struct {
-		Histories []ServiceHistory `json:"histories"`
+	if recorder.Header().Get("Content-Type") != "application/octet-stream" {
+		t.Fatalf("Content-Type = %q, want application/octet-stream", recorder.Header().Get("Content-Type"))
 	}
-	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
-		t.Fatalf("Unmarshal() error = %v", err)
+	series, err := wire.Decode(recorder.Body.Bytes())
+	if err != nil {
+		t.Fatalf("Decode() error = %v", err)
 	}
-	if len(response.Histories) != 1 || response.Histories[0].Service != "bot" {
-		t.Fatalf("histories = %+v, want bot history", response.Histories)
+	if len(series) != 1 || series[0].Service != "bot" {
+		t.Fatalf("series = %+v, want bot series", series)
 	}
 	if requests != 1 {
 		t.Fatalf("Flatline requests = %d, want 1", requests)
@@ -412,6 +398,30 @@ func dialMetricsWS(t *testing.T, httpURL string, sessionCookie string) *websocke
 	}
 
 	return conn
+}
+
+// readMetricsFrame reads one binary WS frame carrying a METRICS_UPDATE/
+// METRICS_LATEST payload — see the wsFrameMetricsUpdate/wsFrameMetricsLatest
+// prefix byte in realtime.go — and decodes the wire payload after it.
+func readMetricsFrame(t *testing.T, conn *websocket.Conn) (byte, []wire.Series) {
+	t.Helper()
+
+	messageType, data, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("ReadMessage() error = %v", err)
+	}
+	if messageType != websocket.BinaryMessage {
+		t.Fatalf("messageType = %d, want %d (binary)", messageType, websocket.BinaryMessage)
+	}
+	if len(data) == 0 {
+		t.Fatal("frame data is empty, want at least a type-prefix byte")
+	}
+
+	series, err := wire.Decode(data[1:])
+	if err != nil {
+		t.Fatalf("wire.Decode() error = %v", err)
+	}
+	return data[0], series
 }
 
 func drainMetricsMessage(t *testing.T, conn *websocket.Conn) {

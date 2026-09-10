@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -39,10 +38,10 @@ func TestPollerTickAdvancesCursorAndBroadcasts(t *testing.T) {
 		if r.URL.Query().Get("cursor") != "0" {
 			t.Fatalf("cursor = %q, want 0", r.URL.Query().Get("cursor"))
 		}
-		_ = json.NewEncoder(w).Encode(sinceResponse{Points: []MetricPoint{
+		_, _ = w.Write(encodePointsToWire([]MetricPoint{
 			{Service: "megaapp", Name: "food_diary_entry_created", Bucket: 120, Value: 2},
 			{Service: "spread-capture-bot-v3", Name: "heartbeat", Bucket: 180, Value: 1},
-		}})
+		}))
 	}))
 	defer server.Close()
 
@@ -88,7 +87,7 @@ func TestPollerTickBoundsCatchUpFloorRegardlessOfCursorAge(t *testing.T) {
 		gotMinuteSince = r.URL.Query().Get("minuteSince")
 		gotHourSince = r.URL.Query().Get("hourSince")
 		gotDaySince = r.URL.Query().Get("daySince")
-		_ = json.NewEncoder(w).Encode(sinceResponse{Points: nil})
+		_, _ = w.Write(encodePointsToWire(nil))
 	}))
 	defer server.Close()
 
@@ -107,7 +106,7 @@ func TestPollerTickBoundsCatchUpFloorRegardlessOfCursorAge(t *testing.T) {
 
 func TestPollerTickSkipsBroadcastWhenNoNewPoints(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(sinceResponse{Points: nil})
+		_, _ = w.Write(encodePointsToWire(nil))
 	}))
 	defer server.Close()
 
@@ -127,9 +126,9 @@ func TestPollerTickSkipsRebroadcastOfUnchangedPoint(t *testing.T) {
 	// returned again on every poll until a newer bucket appears, even though
 	// the Poller's own cursor never moves past it. See poller.go comment.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(sinceResponse{Points: []MetricPoint{
+		_, _ = w.Write(encodePointsToWire([]MetricPoint{
 			{Service: "hardware:1.2.3.4", Name: "load1", Granularity: GranularityMinute, Bucket: 120, Value: 0.5},
-		}})
+		}))
 	}))
 	defer server.Close()
 
@@ -151,7 +150,7 @@ func TestPollerTickSkipsRebroadcastOfUnchangedPoint(t *testing.T) {
 
 func TestPollerStartAndCloseStopsCleanly(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(sinceResponse{Points: nil})
+		_, _ = w.Write(encodePointsToWire(nil))
 	}))
 	defer server.Close()
 

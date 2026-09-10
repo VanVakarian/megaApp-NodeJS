@@ -215,6 +215,16 @@ func (h *Hub) BroadcastToUser(userID int64, payload any, excludeClientID string)
 	}
 }
 
+// BroadcastBinaryToUser is BroadcastToUser's binary-frame counterpart — see
+// Client.SendBinary.
+func (h *Hub) BroadcastBinaryToUser(userID int64, data []byte) {
+	for _, client := range h.userClients(userID) {
+		if err := client.SendBinary(data); err != nil {
+			h.RemoveClient(client)
+		}
+	}
+}
+
 func (h *Hub) BroadcastToAll(payload any, excludeClientID string) {
 	for _, client := range h.allClients() {
 		if excludeClientID != "" && client.clientID == excludeClientID {
@@ -393,6 +403,19 @@ func (c *Client) writeJSON(payload any) error {
 
 func (c *Client) SendJSON(payload any) error {
 	return c.writeJSON(payload)
+}
+
+// SendBinary writes a native binary WS frame — no JSON envelope, no base64.
+// Callers that need a message-type discriminator prepend their own byte
+// prefix to data before calling this (see metrics.Realtime).
+func (c *Client) SendBinary(data []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if err := c.conn.SetWriteDeadline(time.Now().Add(c.hub.WriteTimeout())); err != nil {
+		return err
+	}
+	return c.conn.WriteMessage(websocket.BinaryMessage, data)
 }
 
 func (c *Client) UserID() int64 {

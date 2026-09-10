@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"io"
 	"net/http"
 
 	"megaapp-back/internal/auth"
@@ -66,11 +67,21 @@ func (h *HistoryHandler) History(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	histories, err := h.client.History(r.Context(), request.MinuteSince, request.HourSince, request.DaySince, request.Scope)
+	resp, err := h.client.History(r.Context(), request.MinuteSince, request.HourSince, request.DaySince, request.Scope)
 	if err != nil {
 		legacy.WriteDetail(w, http.StatusBadGateway, "Failed to load metrics history")
 		return
 	}
+	defer resp.Body.Close()
 
-	legacy.WriteJSON(w, http.StatusOK, map[string]any{"histories": histories})
+	// Streamed through unread — the body is Flatline's binary wire format,
+	// meant for the browser to decode directly, not for megaapp-back.
+	if contentType := resp.Header.Get("Content-Type"); contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	if contentLength := resp.Header.Get("Content-Length"); contentLength != "" {
+		w.Header().Set("Content-Length", contentLength)
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, resp.Body)
 }
