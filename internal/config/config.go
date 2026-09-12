@@ -133,7 +133,7 @@ func Load() (Config, error) {
 		GoVersion:                    runtime.Version(),
 	}
 
-	port, err := getInt("APP_PORT", 3001)
+	port, err := getInt("APP_PORT", 3000)
 	if err != nil {
 		return Config{}, fmt.Errorf("load config: %w", err)
 	}

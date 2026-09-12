@@ -71,8 +71,8 @@ func TestLoadUsesDefaults(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if cfg.AppPort != 3001 {
-		t.Fatalf("AppPort = %d, want 3001", cfg.AppPort)
+	if cfg.AppPort != 3000 {
+		t.Fatalf("AppPort = %d, want 3000", cfg.AppPort)
 	}
 	if cfg.AppHost != "127.0.0.1" {
 		t.Fatalf("AppHost = %q, want 127.0.0.1", cfg.AppHost)

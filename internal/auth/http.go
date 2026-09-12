@@ -251,7 +251,7 @@ func isSameOrigin(r *http.Request) bool {
 		return true
 	}
 	host, port, err := net.SplitHostPort(r.Host)
-	if err != nil || (host != "localhost" && host != "127.0.0.1") || port != "3001" {
+	if err != nil || (host != "localhost" && host != "127.0.0.1") || port != "3000" {
 		return false
 	}
 	return (parsed.Hostname() == "localhost" || parsed.Hostname() == "127.0.0.1") && (parsed.Port() == "4200" || parsed.Port() == "4201")
