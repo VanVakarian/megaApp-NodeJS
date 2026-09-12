@@ -21,6 +21,7 @@ import (
 	"megaapp-back/internal/platform/sqlite"
 	"megaapp-back/internal/quotes"
 	"megaapp-back/internal/settings"
+	"megaapp-back/internal/telemetry"
 	"megaapp-back/internal/ws"
 )
 
@@ -42,6 +43,10 @@ type wsModule struct {
 type moneyModule struct {
 	service *money.Service
 	handler *money.Handler
+}
+
+type telemetryModule struct {
+	handler *telemetry.Handler
 }
 
 type quotesModule struct {
@@ -91,8 +96,11 @@ func buildWSModule(cfg config.Config, authService *auth.Service, logger *slog.Lo
 	hub.SetLogger(logger)
 	hub.SetReadLimitBytes(cfg.WSReadLimitBytes)
 	hub.SetWriteTimeout(cfg.WSWriteTimeout)
-	hub.RegisterHandler("PERFORMANCE_METRICS_BATCH", ws.NewPerformanceMetricsHandler(cfg.PerformanceMetricsEnabled, cfg.DataDir))
 	return wsModule{hub: hub, handler: ws.NewHandler(authService, hub)}
+}
+
+func buildTelemetryModule(cfg config.Config) telemetryModule {
+	return telemetryModule{handler: telemetry.NewHandler(cfg.TelemetryEnabled, cfg.DataDir)}
 }
 
 func buildMoneyModule(read *sql.DB, write sqlite.WriteDB) moneyModule {

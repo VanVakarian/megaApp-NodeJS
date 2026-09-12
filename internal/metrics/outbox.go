@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"megaapp-back/internal/platform/appendfile"
 )
 
 const outboxChunkLimitBytes int64 = 950 * 1000
@@ -76,23 +78,8 @@ func appendOutboxLine(box *outbox, service string, snapshot MinuteSnapshot) erro
 		box.nextIndex++
 	}
 
-	if err := os.MkdirAll(filepath.Dir(box.activePath), 0o755); err != nil {
-		return fmt.Errorf("create metrics outbox dir: %w", err)
-	}
-
-	file, err := os.OpenFile(box.activePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("open metrics outbox: %w", err)
-	}
-
-	if _, err := file.Write(encoded); err != nil {
-		return errors.Join(fmt.Errorf("append metrics snapshot: %w", err), file.Close())
-	}
-	if err := file.Sync(); err != nil {
-		return errors.Join(fmt.Errorf("sync metrics outbox: %w", err), file.Close())
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close metrics outbox: %w", err)
+	if err := appendfile.Append(box.activePath, encoded); err != nil {
+		return fmt.Errorf("append metrics snapshot: %w", err)
 	}
 
 	box.activeSize += int64(len(encoded))

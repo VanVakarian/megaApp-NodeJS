@@ -239,8 +239,8 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.WSWriteTimeout != 5*time.Second {
 		t.Fatalf("WSWriteTimeout = %v, want 5s", cfg.WSWriteTimeout)
 	}
-	if cfg.PerformanceMetricsEnabled {
-		t.Fatal("PerformanceMetricsEnabled = true, want false")
+	if !cfg.TelemetryEnabled {
+		t.Fatal("TelemetryEnabled = false, want true")
 	}
 }
 

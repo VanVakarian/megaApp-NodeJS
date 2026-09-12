@@ -78,7 +78,7 @@ type Config struct {
 	MaxMultipartBodyBytes               int64
 	WSReadLimitBytes                    int64
 	WSWriteTimeout                      time.Duration
-	PerformanceMetricsEnabled           bool
+	TelemetryEnabled                    bool
 	BuildCommit                         string
 	BuildTime                           string
 	GoVersion                           string
@@ -126,7 +126,7 @@ func Load() (Config, error) {
 		BackupStorageAccessKeyID:     getString("BACKUP_STORAGE_ACCESS_KEY_ID", ""),
 		BackupStorageSecretAccessKey: getString("BACKUP_STORAGE_SECRET_ACCESS_KEY", ""),
 		MetricsServiceKey:            getString("METRICS_SERVICE_KEY", "megaapp"),
-		PerformanceMetricsEnabled:    getBool("PERFORMANCE_METRICS_ENABLED", false),
+		TelemetryEnabled:             getBool("TELEMETRY_ENABLED", true),
 		FlatlineBaseURL:              getString("FLATLINE_BASE_URL", ""),
 		BuildCommit:                  buildCommit,
 		BuildTime:                    buildTime,
